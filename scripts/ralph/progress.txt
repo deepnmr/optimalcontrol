@@ -1,3 +1,14 @@
+## 2026-04-23 - US-051
+- Created tests/test_plotting.py with four tests covering plot_xy_controls and plot_rope_efficiency
+- Used matplotlib.use("Agg") at module level to ensure headless non-interactive execution
+- test_io.py (from US-046/047) already covered the JSON round-trip and CSV row count acceptance criteria
+- Files changed: tests/test_plotting.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Set `matplotlib.use("Agg")` before importing `matplotlib.pyplot` or any plotting helpers in test files so tests run headless without displaying windows
+  - Plotting tests only need to assert the return type is `matplotlib.figure.Figure`; they do not need to inspect axes content
+  - test_io.py I/O coverage was already complete from prior stories; US-051 only required creating test_plotting.py
+---
+
 ## Codebase Patterns
 - Build backend: use setuptools (hatchling not available in this environment). Set `[tool.setuptools.packages.find]` with `include = ["optimalcontrol*"]` to avoid setuptools detecting refdoc/ as a top-level package.
 - Typecheck: run `mypy optimalcontrol/` from project root; requires at least one .py file in the directory.

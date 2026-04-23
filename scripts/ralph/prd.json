@@ -812,8 +812,8 @@
         "Typecheck passes"
       ],
       "priority": 51,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created tests/test_plotting.py with four tests: plot_xy_controls returns a Figure, plot_xy_controls raises on missing channel, plot_rope_efficiency returns a Figure for n_values=[0,0.5,1.0], and plot_rope_efficiency raises on empty n_values. Uses matplotlib.use('Agg') at module level so tests run headless. test_io.py already covered JSON round-trip and CSV row count from prior stories."
     },
     {
       "id": "US-052",
