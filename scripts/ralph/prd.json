@@ -233,8 +233,8 @@
         "Typecheck passes"
       ],
       "priority": 15,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented fidelity_real(), fidelity_imag(), fidelity_abs2(), and fidelity_avg() in optimalcontrol/states.py. Fidelity uses the Hilbert-Schmidt overlap np.vdot(rho_t, rho_f), which matches Tr(rho_t† @ rho_f) for matrix states and also supports vectorised states. Added tests/test_fidelity.py covering self-overlap, complex overlap components, weighted averaging, and shape validation."
     },
     {
       "id": "US-016",

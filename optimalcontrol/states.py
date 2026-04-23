@@ -1,5 +1,7 @@
 """Product-operator state construction and normalisation helpers."""
 
+from collections.abc import Sequence
+
 import numpy as np
 import numpy.typing as npt
 
@@ -115,3 +117,62 @@ def normalise_2norm(v: npt.NDArray[np.complex128]) -> npt.NDArray[np.complex128]
     if norm == 0.0:
         raise ValueError("Cannot normalise a zero-norm array")
     return arr / norm
+
+
+def _overlap(
+    rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]
+) -> np.complex128:
+    """Return the Hilbert-Schmidt overlap <rho_t, rho_f>."""
+    rho_f_arr = np.asarray(rho_f, dtype=np.complex128)
+    rho_t_arr = np.asarray(rho_t, dtype=np.complex128)
+    if rho_f_arr.shape != rho_t_arr.shape:
+        raise ValueError(f"State shapes must match, got {rho_f_arr.shape} and {rho_t_arr.shape}")
+    return np.complex128(np.vdot(rho_t_arr, rho_f_arr))
+
+
+def fidelity_real(
+    rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]
+) -> float:
+    """Return Re(Tr(rho_t.conj().T @ rho_f)) for pre-normalised states."""
+    return float(np.real(_overlap(rho_f, rho_t)))
+
+
+def fidelity_imag(
+    rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]
+) -> float:
+    """Return Im(Tr(rho_t.conj().T @ rho_f)) for pre-normalised states."""
+    return float(np.imag(_overlap(rho_f, rho_t)))
+
+
+def fidelity_abs2(
+    rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]
+) -> float:
+    """Return |Tr(rho_t.conj().T @ rho_f)|^2 for pre-normalised states."""
+    overlap = _overlap(rho_f, rho_t)
+    return float(np.real(overlap.conjugate() * overlap))
+
+
+def fidelity_avg(
+    rho_f_list: Sequence[npt.NDArray[np.complex128]],
+    rho_t_list: Sequence[npt.NDArray[np.complex128]],
+    weights: Sequence[float] | None = None,
+) -> float:
+    """Return the weighted average real fidelity over source-target state pairs."""
+    if len(rho_f_list) != len(rho_t_list):
+        raise ValueError("rho_f_list and rho_t_list must have the same length")
+    if len(rho_f_list) == 0:
+        raise ValueError("At least one source-target pair is required")
+
+    values = np.array(
+        [fidelity_real(rho_f, rho_t) for rho_f, rho_t in zip(rho_f_list, rho_t_list)],
+        dtype=np.float64,
+    )
+    if weights is None:
+        return float(np.mean(values))
+
+    weight_arr = np.asarray(weights, dtype=np.float64)
+    if weight_arr.shape != values.shape:
+        raise ValueError(f"weights must have shape {values.shape}, got {weight_arr.shape}")
+    if float(np.sum(weight_arr)) == 0.0:
+        raise ValueError("weights must not sum to zero")
+    return float(np.average(values, weights=weight_arr))
