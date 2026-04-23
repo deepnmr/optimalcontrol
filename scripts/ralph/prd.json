@@ -347,8 +347,8 @@
         "Typecheck passes"
       ],
       "priority": 22,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created tests/test_rope.py with unconstrained ROPE regression coverage for no-relaxation limits: rope_g(0)=1, inept_max_efficiency(0,100)=1, rope_gain_over_inept(0,100)=1, and rope_V(0,1,n=1)=1 using numpy.testing.assert_allclose with rtol=1e-8."
     },
     {
       "id": "US-023",

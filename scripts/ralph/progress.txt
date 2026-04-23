@@ -18,6 +18,7 @@
 - ROPE scalar trajectory helpers use dimensionless expectation values; singular ratios return `0.0` for zero numerator and `math.inf` for non-zero numerator over zero denominator.
 - Finite-time ROPE solves Appendix B in scaled time `s = pi * J_hz * t`; `rope_j(s, n)` expects that scaled time, while public duration/switching APIs accept and return seconds.
 - ROPE waveform sampling uses physical seconds in `rope_waveform()`, but `rope_phase1_control()` and `rope_phase3_control()` use scaled times `pi * J_hz * t` because their signatures do not include `J_hz`.
+- ROPE analytical regression tests live in `tests/test_rope.py`; use `numpy.testing.assert_allclose` with the rtol requested by each story.
 
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
@@ -266,4 +267,15 @@ Started: 2026-04-23
   - The phase-control helper APIs do not accept `J_hz`, so pass scaled times `pi * J_hz * seconds`; only `rope_waveform()` should expose physical seconds for this story
   - Phase II samples should be classified before shaped-pulse amplitude calculation so the singular boundary is represented as `u1=u2=1` with zero RF amplitude
   - The hard-pulse boundary angle for the JMR example is `acos(u1(0))`, not `asin(u1(0))`, matching the reported 55 degree pulse
+---
+
+## 2026-04-23 14:35 KST - US-022
+- Created `tests/test_rope.py` with unconstrained ROPE analytical limit tests
+- Verified no-relaxation limits for `rope_g()`, `inept_max_efficiency()`, and `rope_gain_over_inept()`
+- Verified `rope_V(0, 1, n=1.0)` returns the expected unit value
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: tests/test_rope.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Keep ROPE regression tests in `tests/test_rope.py` and use `numpy.testing.assert_allclose` with the tolerance requested by each story
+  - Ruff's import sorter places mixed-case imported names such as `rope_V` after lower-case ROPE helpers in the grouped import list
 ---
