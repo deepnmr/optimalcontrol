@@ -11,6 +11,7 @@
 - Liouville generators in `spin_system.py` are assembled by converting Hilbert-space Hamiltonians and control operators with `liouvillian_comm()`; control amplitudes multiply dimensionless spin operators and are assumed to already be in rad/s.
 - State labels in `optimalcontrol.states` are unnormalised product operators: `I*` labels act on spin 0, `S*` labels act on spin 1, and labels such as `2IzSz` include the literal leading factor of 2; apply `normalise_hs()` before fidelity evaluation.
 - Fidelity helpers in `optimalcontrol.states` expect pre-normalised arrays and use `np.vdot(rho_t, rho_f)` as the overlap, matching `Tr(rho_t† @ rho_f)` for matrices while also supporting vectorised states.
+- Product-operator basis states such as `Iz` and `2IzSz` are Hilbert-Schmidt orthogonal at the state-construction layer; test transfer efficiency after applying a propagator, not by direct initial-target overlap.
 - State hooks in `optimalcontrol.states` accept Hilbert-space rotations for square matrix states (`U @ rho @ U.conj().T`) and Liouville-space propagators for matrix or vectorised states; `dead_time_propagation()` expects a Liouville generator and uses `expm(generator * t_dead)`.
 
 ## 2026-04-23 - US-009
@@ -203,4 +204,15 @@ Started: 2026-04-23
   - Keep state transformation hooks in optimalcontrol/states.py with the state construction and fidelity helpers
   - Matrix-state dead-time propagation should use the package vec/unvec helpers so the column-major Liouville convention is preserved
   - Use `typing.cast(npt.NDArray[np.complex128], expm(...))` when wrapping scipy.linalg.expm results for strict mypy
+---
+
+## 2026-04-23 14:15 KST - US-017
+- Created tests/test_states.py covering product-operator state construction, normalised self-fidelity, paper target-state self-fidelity, and zero-time dead-time propagation
+- Verified `state_from_label("Iz", 2)` matches `place_operator(Iz(), 0, 2)`
+- Documented the PRD gotcha that `Iz` and `2IzSz` are orthogonal under the package's Hilbert-Schmidt product-operator convention before any transfer propagator is applied
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: tests/test_states.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Direct fidelity between distinct product-operator basis states is often zero; tests for physical transfers should include the propagator or analytical efficiency being validated
+  - For dead-time hook tests, a `rho.size x rho.size` Liouville generator is the expected shape when `rho` is a square matrix state
 ---

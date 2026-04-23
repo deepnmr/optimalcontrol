@@ -264,8 +264,8 @@
         "Typecheck passes"
       ],
       "priority": 17,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created tests/test_states.py covering Iz state construction, normalised self-fidelity, target-state self-fidelity, and zero-time dead-time propagation. Corrected the direct Iz vs 2IzSz criterion: under the documented Hilbert-Schmidt product-operator convention these states are orthogonal before any transfer propagator, so the regression asserts zero direct overlap and non-zero target self-overlap."
     },
     {
       "id": "US-018",
