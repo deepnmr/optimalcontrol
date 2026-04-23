@@ -30,10 +30,24 @@
 - GRAPE backward-state accumulation returns target-first states `[lambda_N, lambda_N-1, ..., lambda_0]` and applies each slice propagator's adjoint, so `final_fidelity()` compares `fwd_states[-1]` with `bwd_states[0]`.
 - `dir_diff_expm(H, dH, dt)` differentiates `expm(-1j*H*dt)`; for existing GRAPE generator matrices, map with `H=1j*generator` and `dH=1j*d_generator` to differentiate `expm(generator*dt)`.
 - `grape_gradient()` uses analytical forward sensitivity propagation for vector, Hilbert-matrix, and Liouville-matrix states, then zeroes entries where the freeze mask is true.
+- GRAPE gradient regression tests use central finite differences against `grape_xy()` on small deterministic waveforms; Hilbert tests use anti-Hermitian generators, and Liouville tests use `liouvillian_comm()` with vectorised normalised product-operator states.
 - `grape_hessian()` uses exact forward second-sensitivity propagation only when flattened waveform parameters are <=50; frozen parameter rows and columns are zeroed.
 - `grape_xy()` dispatches `basis == "liouville"` to vectorised density propagation and `basis == "hilbert"` to pure-state vectors; the default dense path preserves the mixed representation behavior.
 - GRAPE amplitude/phase adapters use XY waveforms shaped `(n_steps, 2)` with columns X and Y; `xy_to_ampl_phase()` returns 1-D per-step arrays and `ampl_phase_to_xy()` round-trips with `x=A*cos(phi)`, `y=A*sin(phi)`.
 - GRAPE curvilinear reparameterisation maps unconstrained waveform values into scalar bounds with `midpoint + half_width * tanh(wfm)`.
+
+## 2026-04-23 15:42 KST - US-034
+- Added finite-difference coverage for `grape_gradient()` on a one-spin Hilbert-space problem with 4 steps and 2 channels
+- Added finite-difference coverage for `grape_gradient()` on a two-spin Liouville-space problem with 4 steps and 2 channels
+- Added freeze-mask coverage asserting frozen gradient entries are exactly zero
+- Added deterministic random-waveform coverage asserting `grape_xy()` returns a float in [0, 1]
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: tests/test_grape.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Use central finite differences against `grape_xy()` for GRAPE gradient regression tests, with deterministic small waveforms and a relative L2 error threshold
+  - One-spin Hilbert GRAPE tests should use anti-Hermitian generator matrices such as `-1j * Ix()` and `-1j * Iy()` so propagation is unitary
+  - Two-spin Liouville GRAPE tests can build generator controls with `liouvillian_comm()` and vectorise `normalise_hs(state_from_label(...))` states with `vec()`
+---
 
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator

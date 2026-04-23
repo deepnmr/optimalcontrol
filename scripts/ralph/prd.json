@@ -534,8 +534,8 @@
         "Typecheck passes"
       ],
       "priority": 34,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Extended tests/test_grape.py with central finite-difference checks for grape_gradient on one-spin Hilbert and two-spin Liouville problems (relative L2 error <= 1e-5), freeze-mask zeroing coverage, and grape_xy bounded-float validation for a deterministic random waveform."
     },
     {
       "id": "US-035",

@@ -1,6 +1,7 @@
 """Tests for GRAPE control-problem containers."""
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 from scipy.linalg import expm
 
@@ -13,6 +14,7 @@ from optimalcontrol.grape import (
     final_fidelity,
     forward_propagators,
     forward_states,
+    grape_gradient,
     grape_hessian,
     grape_xy,
     grape_xy_hilbert,
@@ -22,6 +24,8 @@ from optimalcontrol.grape import (
     validate_waveform,
     xy_to_ampl_phase,
 )
+from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm, place_operator, vec
+from optimalcontrol.states import normalise_2norm, normalise_hs, state_from_label
 
 
 def _basic_control_problem() -> ControlProblem:
@@ -38,6 +42,51 @@ def _basic_control_problem() -> ControlProblem:
         pulse_dt=1e-3,
         pwr_levels=[25.0],
         freeze=freeze,
+    )
+
+
+def _finite_difference_gradient(
+    cp: ControlProblem,
+    waveform: npt.NDArray[np.float64],
+    eps: float = 1e-6,
+) -> npt.NDArray[np.float64]:
+    gradient = np.zeros_like(waveform, dtype=np.float64)
+    for index in np.ndindex(waveform.shape):
+        wfm_plus = waveform.copy()
+        wfm_minus = waveform.copy()
+        wfm_plus[index] += eps
+        wfm_minus[index] -= eps
+        gradient[index] = (grape_xy(cp, wfm_plus) - grape_xy(cp, wfm_minus)) / (
+            2.0 * eps
+        )
+    return gradient
+
+
+def _relative_l2_error(
+    actual: npt.NDArray[np.float64],
+    expected: npt.NDArray[np.float64],
+) -> float:
+    denominator = max(float(np.linalg.norm(expected)), 1e-12)
+    return float(np.linalg.norm(actual - expected) / denominator)
+
+
+def _one_spin_hilbert_gradient_problem(
+    freeze: npt.NDArray[np.bool_] | None = None,
+) -> ControlProblem:
+    rho_init = np.array([1.0, 0.0], dtype=np.complex128)
+    rho_targ = normalise_2norm(
+        np.array([0.35 + 0.15j, 0.88 - 0.28j], dtype=np.complex128)
+    )
+    return ControlProblem(
+        drifts=[np.complex128(-1j) * 0.3 * Iz()],
+        operators=[np.complex128(-1j) * Ix(), np.complex128(-1j) * Iy()],
+        rho_init=[rho_init],
+        rho_targ=[rho_targ],
+        pulse_dt=0.08,
+        pwr_levels=[0.7, 0.9],
+        freeze=freeze,
+        fidelity_mode="abs2",
+        basis="hilbert",
     )
 
 
@@ -285,3 +334,74 @@ def test_grape_xy_hilbert_rejects_density_matrices() -> None:
 
     with pytest.raises(ValueError, match="pure-state vector"):
         grape_xy_hilbert(cp, waveform)
+
+
+def test_grape_gradient_matches_finite_difference_one_spin_hilbert() -> None:
+    cp = _one_spin_hilbert_gradient_problem()
+    waveform = np.array(
+        [[0.15, -0.05], [0.07, 0.11], [-0.12, 0.04], [0.09, -0.08]],
+        dtype=np.float64,
+    )
+
+    analytical = grape_gradient(cp, waveform)
+    finite_difference = _finite_difference_gradient(cp, waveform)
+
+    assert _relative_l2_error(analytical, finite_difference) <= 1e-5
+
+
+def test_grape_gradient_matches_finite_difference_two_spin_liouville() -> None:
+    drift_h = (
+        0.2 * place_operator(Iz(), 0, 2)
+        + 0.13 * place_operator(Iz(), 1, 2)
+    )
+    control_x_h = place_operator(Ix(), 0, 2) + 0.7 * place_operator(Ix(), 1, 2)
+    control_y_h = place_operator(Iy(), 0, 2) - 0.4 * place_operator(Iy(), 1, 2)
+    rho_init = vec(normalise_hs(state_from_label("Iz", 2)))
+    rho_targ = vec(normalise_hs(state_from_label("Ix", 2)))
+    cp = ControlProblem(
+        drifts=[liouvillian_comm(drift_h)],
+        operators=[liouvillian_comm(control_x_h), liouvillian_comm(control_y_h)],
+        rho_init=[rho_init],
+        rho_targ=[rho_targ],
+        pulse_dt=0.2,
+        pwr_levels=[1.0, 1.0],
+        freeze=None,
+        fidelity_mode="real",
+        basis="liouville",
+    )
+    waveform = np.array(
+        [[0.12, -0.09], [0.03, 0.08], [-0.07, 0.04], [0.11, -0.02]],
+        dtype=np.float64,
+    )
+
+    analytical = grape_gradient(cp, waveform)
+    finite_difference = _finite_difference_gradient(cp, waveform)
+
+    assert _relative_l2_error(analytical, finite_difference) <= 1e-5
+
+
+def test_grape_gradient_zeroes_frozen_entries() -> None:
+    freeze = np.array(
+        [[False, True], [True, False], [False, False], [True, True]],
+        dtype=np.bool_,
+    )
+    cp = _one_spin_hilbert_gradient_problem(freeze=freeze)
+    waveform = np.array(
+        [[0.15, -0.05], [0.07, 0.11], [-0.12, 0.04], [0.09, -0.08]],
+        dtype=np.float64,
+    )
+
+    gradient = grape_gradient(cp, waveform)
+
+    np.testing.assert_array_equal(gradient[freeze], np.zeros(np.count_nonzero(freeze)))
+
+
+def test_grape_xy_random_waveform_returns_bounded_float() -> None:
+    rng = np.random.default_rng(1234)
+    cp = _one_spin_hilbert_gradient_problem()
+    waveform = rng.uniform(-0.2, 0.2, size=(4, 2)).astype(np.float64)
+
+    result = grape_xy(cp, waveform)
+
+    assert isinstance(result, float)
+    assert 0.0 <= result <= 1.0
