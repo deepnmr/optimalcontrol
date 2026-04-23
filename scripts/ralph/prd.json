@@ -445,8 +445,8 @@
         "Typecheck passes"
       ],
       "priority": 28,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/grape.py with ControlProblem dataclass and validate_control_problem(). Validation covers non-empty drift/control/state lists, shared generator dimensions, paired source/target shapes, finite positive pulse_dt, pwr_levels/channel count, supported fidelity modes real/imag/abs2, optional offset operator dimensions, boolean 2-D freeze masks, phase-cycle array sanity, and non-empty basis. Added tests/test_grape.py for valid minimal problems and key validation failures."
     },
     {
       "id": "US-029",

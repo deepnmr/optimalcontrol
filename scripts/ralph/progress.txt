@@ -23,6 +23,8 @@
 - CROP scalar pulse params use Hz units: residual bandwidth `sqrt(ka^2-kc^2)` for amplitude, `-J_hz/2` for the slowly relaxing beta multiplet carrier, and inverse residual bandwidth for the default truncation window.
 - CROP waveform sampling uses physical seconds centered on zero over `truncation_window`, and samples Hz-valued amplitude/frequency arrays from `crop_pulse_params()`.
 - CROP analytical regression tests live in `tests/test_crop.py`; stored eta values for `(ka,kc,J)=(60,45,100)` and `(110,82.5,100)` are `0.7015664580244381` and `0.5854918065322852`.
+- GRAPE control containers live in `optimalcontrol/grape.py`; validate generator dimensions against vector states directly and square matrix states via either Hilbert dimension (`dim`) or Liouville vectorised dimension (`dim^2`).
+- GRAPE freeze masks are boolean 2-D arrays shaped as waveform rows by control channels; validation checks the channel count against `len(ControlProblem.operators)`.
 
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
@@ -335,4 +337,16 @@ Started: 2026-04-23
 - **Learnings for future iterations:**
   - CROP regression constants should be stored with enough precision for rtol=1e-6 comparisons
   - Near-lossless CROP can be tested with `kc` just below `ka` to avoid relying only on the exact `kc=ka` branch
+---
+
+## 2026-04-23 15:02 KST - US-028
+- Created `optimalcontrol/grape.py` with the Spinach-style `ControlProblem` dataclass and `validate_control_problem()`
+- Validation now checks generator/operator dimensions, source-target pairing, state compatibility with Hilbert or Liouville dimensions, fidelity mode, pulse duration, power levels, offsets, freeze masks, phase cycles, and basis metadata
+- Added `tests/test_grape.py` covering a valid minimal control problem plus invalid fidelity mode, operator dimension mismatch, and freeze channel mismatch
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: `optimalcontrol/grape.py`, `tests/test_grape.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - `ControlProblem.operators` defines the channel count; `pwr_levels` and freeze-mask columns should match it
+  - The initial GRAPE validation accepts square matrix states when either the matrix Hilbert dimension or vectorised Liouville dimension matches the generator size
+  - Supported fidelity modes are `real`, `imag`, and `abs2`, matching the existing state fidelity helpers
 ---
