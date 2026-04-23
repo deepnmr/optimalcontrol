@@ -638,8 +638,8 @@
         "Typecheck passes"
       ],
       "priority": 40,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added distortion coverage to tests/test_penalties.py: noop identity, single-pole alpha=0 identity, and tanh derivative finite-difference regression. Existing penalty finite-difference tests cover NS, SNS, and DNS."
     },
     {
       "id": "US-041",

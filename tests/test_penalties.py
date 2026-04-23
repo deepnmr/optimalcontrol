@@ -6,6 +6,12 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+from optimalcontrol.distortions import (
+    distortion_noop,
+    distortion_single_pole,
+    distortion_tanh,
+    distortion_tanh_deriv,
+)
 from optimalcontrol.penalties import (
     PenaltySpec,
     penalty_DNS,
@@ -119,3 +125,34 @@ def test_total_penalty_rejects_unknown_spec() -> None:
 
     with pytest.raises(ValueError, match="unknown penalty"):
         total_penalty(waveform, [PenaltySpec("bad", weight=1.0)])
+
+
+def test_distortion_noop_returns_input_unchanged() -> None:
+    waveform = np.array([[0.3, -0.2], [1.4, 0.0], [-0.6, 0.9]], dtype=np.float64)
+
+    distorted = distortion_noop(waveform)
+
+    np.testing.assert_allclose(distorted, waveform, rtol=1e-12, atol=0.0)
+    assert distorted is not waveform
+
+
+def test_distortion_single_pole_alpha_zero_returns_input_unchanged() -> None:
+    waveform = np.array([[0.3, -0.2], [1.4, 0.0], [-0.6, 0.9]], dtype=np.float64)
+
+    distorted = distortion_single_pole(waveform, alpha=0.0)
+
+    np.testing.assert_allclose(distorted, waveform, rtol=1e-12, atol=0.0)
+
+
+def test_distortion_tanh_deriv_matches_finite_difference() -> None:
+    waveform = np.array([[0.3, -0.2], [1.4, 0.0], [-0.6, 0.9]], dtype=np.float64)
+    scale = 0.75
+    eps = 1e-6
+
+    derivative = distortion_tanh_deriv(waveform, scale=scale)
+    finite_difference = (
+        distortion_tanh(waveform + eps, scale=scale)
+        - distortion_tanh(waveform - eps, scale=scale)
+    ) / (2.0 * eps)
+
+    np.testing.assert_allclose(derivative, finite_difference, rtol=1e-6, atol=1e-9)

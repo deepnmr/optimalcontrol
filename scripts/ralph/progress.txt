@@ -497,3 +497,13 @@ Started: 2026-04-23
   - For the simplified causal filter helpers in this package, the companion `_deriv` functions expose same-shape local sensitivities instead of full time-coupled Jacobian matrices
   - `distortion_root_deriv()` uses `0.0` at zero-valued samples to avoid injecting infinities into later chain-rule consumers
 ---
+
+## 2026-04-23 16:52 KST - US-040
+- Added distortion regression tests to `tests/test_penalties.py` for noop identity, single-pole `alpha=0` identity, and `distortion_tanh_deriv()` against central finite differences of `distortion_tanh()`
+- Confirmed existing penalty finite-difference coverage satisfies the NS, SNS, and DNS gradient requirements
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: `tests/test_penalties.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Distortion derivative tests can compare same-shape local sensitivities directly against elementwise central finite differences when the distortion has no cross-time coupling
+  - Identity behavior for `distortion_noop()` and `distortion_single_pole(alpha=0)` is a useful guard for waveform convention regressions
+---
