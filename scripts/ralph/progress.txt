@@ -43,6 +43,7 @@
 - Penalty helpers live in `optimalcontrol/penalties.py`; each returns a minimisation-style `(value, gradient)` pair with gradient shaped like the 2-D float64 waveform.
 - Penalty conventions: `NS` is elementwise norm-square, `SNS` is elementwise Cartesian spillout above `abs(sample) > limit`, `SNSA` is row-amplitude spillout across channels, and `DNS` uses adjacent time-row finite differences.
 - Optimizer helpers live in `optimalcontrol/optimizers.py`; `line_search_cubic()` treats `f` as a maximisation objective, internally applies Wolfe checks to `-f`, and returns `0.0` for non-ascent directions.
+- L-BFGS helpers in `optimalcontrol/optimizers.py` store curvature for minimising `-f`: use `s = wfm_new - wfm_old`, `y = grad_old - grad_new`, and fall back to the raw gradient if the two-loop recursion does not produce an ascent direction.
 
 ## 2026-04-23 15:42 KST - US-034
 - Added finite-difference coverage for `grape_gradient()` on a one-spin Hilbert-space problem with 4 steps and 2 channels
@@ -519,4 +520,16 @@ Started: 2026-04-23
   - Optimizer objectives should expose maximised fidelity-style values; penalty integration should subtract minimisation penalties before passing objectives to the line search
   - `line_search_cubic()` returns `0.0` when `direction` is not an ascent direction, so future optimizers should check for a zero step as a convergence or fallback signal
   - The line search validates waveform and direction as same-shaped finite `float64` arrays, preserving the established `(n_steps, n_channels)` waveform convention
+---
+
+## 2026-04-23 17:09 KST - US-042
+- Implemented `gradient_ascent()` and `lbfgs_grape()` in `optimalcontrol/optimizers.py`, both wrapping `grape_xy()` / `grape_gradient()` with convergence checks, history tracking, and the shared cubic line search
+- Added `LBFGSState`, `lbfgs_state()`, `lbfgs_update()`, and `lbfgs_direction()` so limited-memory updates can reuse curvature pairs while still returning ascent directions for the maximised GRAPE objective
+- Verified both optimizers on a one-spin Hilbert-space sanity problem: each improved fidelity from a zero waveform over 8 iterations
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: `optimalcontrol/optimizers.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - For maximisation objectives, L-BFGS updates should store `grad_old - grad_new` so the memory approximates the inverse Hessian of `-f` with positive curvature
+  - `lbfgs_direction()` should fall back to the raw gradient when stored curvature yields a non-ascent direction, keeping frozen or degenerate problems from stalling the optimizer
+  - Optimizer histories currently include the initial fidelity at index 0, so iteration counts and history length differ by one after a pure forward run
 ---

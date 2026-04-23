@@ -668,8 +668,8 @@
         "Typecheck passes"
       ],
       "priority": 42,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented gradient_ascent(), lbfgs_state(), lbfgs_update(), lbfgs_direction(), and lbfgs_grape() in optimalcontrol/optimizers.py. Both optimizers wrap grape_xy()/grape_gradient(), track fidelity history from the initial waveform, use line_search_cubic() for step selection, and report step_tol/grad_tol/max_iter reasons. L-BFGS stores curvature for the equivalent minimisation of -f via y = grad_old - grad_new and falls back to the raw gradient if the two-loop direction is not an ascent direction."
     },
     {
       "id": "US-043",
