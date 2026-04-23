@@ -829,8 +829,8 @@
         "Typecheck passes"
       ],
       "priority": 52,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created three headless ROPE example scripts: rope_efficiency_vs_n.py (ROPE vs INEPT efficiency over n in [0,3]), rope_gain_Ia_2IbSc.py (ROPE gain over INEPT), and rope_inphase_gain.py (equal-rate in-phase efficiency). All use matplotlib.use('Agg'), save figures to examples/output/, and are importable without side effects. Each script exposes a run() function returning the primary numerical array."
     },
     {
       "id": "US-053",

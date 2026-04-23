@@ -1,3 +1,18 @@
+## 2026-04-23 - US-052
+- Created examples/rope_efficiency_vs_n.py reproducing ROPE vs INEPT efficiency over n in [0, 3]
+- Created examples/rope_gain_Ia_2IbSc.py reproducing ROPE gain over INEPT for the Ia->2IbSc transfer
+- Created examples/rope_inphase_gain.py reproducing the equal-rate in-phase efficiency g_in(n)=g(n)^2
+- All scripts use matplotlib.use("Agg") before any pyplot import, save figures to examples/output/, and guard execution under if __name__ == "__main__"
+- Each script exposes a run() function with typed return value (NDArray[np.float64]) to enable snapshot testing in US-055
+- Output PNG files are committed alongside the scripts
+- Files changed: examples/rope_efficiency_vs_n.py, examples/rope_gain_Ia_2IbSc.py, examples/rope_inphase_gain.py, examples/output/*.png, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Place matplotlib.use("Agg") immediately after importing matplotlib and before importing matplotlib.pyplot; module-level guard is required
+  - Use os.path.dirname(os.path.abspath(__file__)) for output_dir so the script works from any cwd
+  - Expose a run() function returning the primary numerical array so test_examples.py (US-055) can call it directly without subprocess
+  - The examples package is importable (there is no __init__.py but Python finds it via sys.path); test with `python3 -c "import examples.module"` before committing
+---
+
 ## 2026-04-23 - US-051
 - Created tests/test_plotting.py with four tests covering plot_xy_controls and plot_rope_efficiency
 - Used matplotlib.use("Agg") at module level to ensure headless non-interactive execution
