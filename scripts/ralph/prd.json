@@ -684,8 +684,8 @@
         "Typecheck passes"
       ],
       "priority": 43,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented newton_raphson() in optimalcontrol/optimizers.py using exact grape_hessian() on <=50-parameter problems, positive-definite regularisation on the maximisation curvature model -H, optional RFO augmented-Hessian level shifting, freeze-mask preservation, and shared cubic line search. Added focused optimizer tests for concave quadratic convergence, indefinite-model regularisation/RFO step construction, and missing-Hessian rejection."
     },
     {
       "id": "US-044",

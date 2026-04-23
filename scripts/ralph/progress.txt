@@ -44,6 +44,7 @@
 - Penalty conventions: `NS` is elementwise norm-square, `SNS` is elementwise Cartesian spillout above `abs(sample) > limit`, `SNSA` is row-amplitude spillout across channels, and `DNS` uses adjacent time-row finite differences.
 - Optimizer helpers live in `optimalcontrol/optimizers.py`; `line_search_cubic()` treats `f` as a maximisation objective, internally applies Wolfe checks to `-f`, and returns `0.0` for non-ascent directions.
 - L-BFGS helpers in `optimalcontrol/optimizers.py` store curvature for minimising `-f`: use `s = wfm_new - wfm_old`, `y = grad_old - grad_new`, and fall back to the raw gradient if the two-loop recursion does not produce an ascent direction.
+- Newton-Raphson in `optimalcontrol/optimizers.py` works on the exact small-waveform `grape_hessian()` by solving the Newton system for `-f`; regularisation shifts `-H` to positive-definite before solving, and `rfo=True` swaps in an augmented-Hessian level shift.
 
 ## 2026-04-23 15:42 KST - US-034
 - Added finite-difference coverage for `grape_gradient()` on a one-spin Hilbert-space problem with 4 steps and 2 channels
@@ -532,4 +533,15 @@ Started: 2026-04-23
   - For maximisation objectives, L-BFGS updates should store `grad_old - grad_new` so the memory approximates the inverse Hessian of `-f` with positive curvature
   - `lbfgs_direction()` should fall back to the raw gradient when stored curvature yields a non-ascent direction, keeping frozen or degenerate problems from stalling the optimizer
   - Optimizer histories currently include the initial fidelity at index 0, so iteration counts and history length differ by one after a pure forward run
+---
+
+## 2026-04-23 17:19 KST - US-043
+- Implemented `newton_raphson()` in `optimalcontrol/optimizers.py` with exact-Hessian Newton steps, optional positive-definite regularisation, optional RFO level shifting, freeze-mask preservation, and the shared cubic line search
+- Added `tests/test_optimizers.py` with focused coverage for concave quadratic convergence, indefinite-model regularisation/RFO step construction, and missing-Hessian rejection
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: `optimalcontrol/optimizers.py`, `tests/test_optimizers.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - The Newton path should regularise the curvature of `-f` rather than the raw maximisation Hessian `H`, because a local maximum of `f` corresponds to a positive-definite system in the minimised objective
+  - `grape_hessian()` returns `None` above 50 waveform parameters, so `newton_raphson()` should stay scoped to small problems and fail explicitly instead of silently downgrading to a first-order method
+  - Reusing `line_search_cubic()` after forming a Newton or RFO direction keeps the optimizer aligned with the repo's maximisation objective convention while still allowing full-step acceptance near a well-behaved optimum
 ---
