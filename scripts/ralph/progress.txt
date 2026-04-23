@@ -32,6 +32,8 @@
 - `grape_gradient()` uses analytical forward sensitivity propagation for vector, Hilbert-matrix, and Liouville-matrix states, then zeroes entries where the freeze mask is true.
 - `grape_hessian()` uses exact forward second-sensitivity propagation only when flattened waveform parameters are <=50; frozen parameter rows and columns are zeroed.
 - `grape_xy()` dispatches `basis == "liouville"` to vectorised density propagation and `basis == "hilbert"` to pure-state vectors; the default dense path preserves the mixed representation behavior.
+- GRAPE amplitude/phase adapters use XY waveforms shaped `(n_steps, 2)` with columns X and Y; `xy_to_ampl_phase()` returns 1-D per-step arrays and `ampl_phase_to_xy()` round-trips with `x=A*cos(phi)`, `y=A*sin(phi)`.
+- GRAPE curvilinear reparameterisation maps unconstrained waveform values into scalar bounds with `midpoint + half_width * tanh(wfm)`.
 
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
@@ -403,4 +405,15 @@ Started: 2026-04-23
   - Use the 4x4 auxiliary block matrix for exact mixed second Frechet derivatives of `expm(generator * dt)`; it includes both ordered derivative paths
   - Hessian entries are flattened in waveform row-major order: `step_index * n_channels + channel_index`
   - Liouville variant wrappers may accept square density matrices, but they vectorise with the package `vec()` helper before calling the core GRAPE fidelity path
+---
+
+## 2026-04-23 15:35 KST - US-033
+- Implemented GRAPE amplitude/phase adapters: `xy_to_ampl_phase()`, `ampl_phase_to_xy()`, `phase_only_gradient()`, and `curvilinear_reparameterise()` in `optimalcontrol/grape.py`
+- Added tests for Cartesian XY round-tripping, phase-only chain-rule projection, current-XY gradient projection, and tanh bounds mapping
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: `optimalcontrol/grape.py`, `tests/test_grape.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - GRAPE amplitude/phase helpers keep the existing waveform convention of time rows by channels, with exactly two Cartesian columns for X/Y controls
+  - Phase-only gradient projection can be evaluated from amplitude plus phase, or equivalently from the current XY waveform as `-y*g_x + x*g_y`
+  - Tanh curvilinear bounds may numerically saturate at the bound for very large unconstrained values, so tests should use moderate values when checking strict interior behavior
 ---

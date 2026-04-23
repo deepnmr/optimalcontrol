@@ -517,8 +517,8 @@
         "Typecheck passes"
       ],
       "priority": 33,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented XY/amplitude-phase adapters in optimalcontrol/grape.py. xy_to_ampl_phase() converts (n_steps,2) Cartesian waveforms to per-step amplitude and phase arrays; ampl_phase_to_xy() round-trips non-negative amplitude arrays via cos/sin. phase_only_gradient() applies the phase chain rule with explicit phase support and can project using the current XY waveform. curvilinear_reparameterise() maps unconstrained values into scalar bounds with midpoint + half_width*tanh(wfm). Added tests covering round-trip conversion, phase-gradient projection, and bounded tanh mapping."
     },
     {
       "id": "US-034",

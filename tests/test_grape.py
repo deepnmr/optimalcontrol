@@ -6,8 +6,10 @@ from scipy.linalg import expm
 
 from optimalcontrol.grape import (
     ControlProblem,
+    ampl_phase_to_xy,
     apply_freeze,
     backward_states,
+    curvilinear_reparameterise,
     final_fidelity,
     forward_propagators,
     forward_states,
@@ -15,8 +17,10 @@ from optimalcontrol.grape import (
     grape_xy,
     grape_xy_hilbert,
     grape_xy_liouville,
+    phase_only_gradient,
     validate_control_problem,
     validate_waveform,
+    xy_to_ampl_phase,
 )
 
 
@@ -89,6 +93,51 @@ def test_apply_freeze_restores_entries_from_initial_waveform() -> None:
 
     expected = np.array([[1.0, 20.0], [30.0, 4.0]], dtype=np.float64)
     np.testing.assert_allclose(frozen, expected, rtol=1e-12)
+
+
+def test_xy_to_ampl_phase_round_trips_cartesian_waveform() -> None:
+    waveform = np.array(
+        [[1.0, 0.0], [0.0, 2.0], [-3.0, 0.0], [0.0, -4.0]],
+        dtype=np.float64,
+    )
+
+    amplitude, phase = xy_to_ampl_phase(waveform)
+    round_trip = ampl_phase_to_xy(amplitude, phase)
+
+    np.testing.assert_allclose(amplitude, np.array([1.0, 2.0, 3.0, 4.0]), rtol=1e-12)
+    np.testing.assert_allclose(round_trip, waveform, atol=1e-12)
+
+
+def test_phase_only_gradient_uses_amplitude_phase_chain_rule() -> None:
+    amplitude = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+    phase = np.array([0.0, np.pi / 2.0, np.pi], dtype=np.float64)
+    grad_xy = np.array([[5.0, 7.0], [11.0, 13.0], [17.0, 19.0]], dtype=np.float64)
+
+    phase_gradient = phase_only_gradient(grad_xy, amplitude, phase)
+
+    expected = np.array([7.0, -22.0, -57.0], dtype=np.float64)
+    np.testing.assert_allclose(phase_gradient, expected, atol=1e-12)
+
+
+def test_phase_only_gradient_accepts_current_xy_waveform() -> None:
+    waveform = np.array([[3.0, 4.0], [-2.0, 5.0]], dtype=np.float64)
+    grad_xy = np.array([[7.0, 11.0], [13.0, 17.0]], dtype=np.float64)
+
+    phase_gradient = phase_only_gradient(grad_xy, waveform)
+
+    expected = np.array([5.0, -99.0], dtype=np.float64)
+    np.testing.assert_allclose(phase_gradient, expected, rtol=1e-12)
+
+
+def test_curvilinear_reparameterise_maps_unconstrained_values_inside_bounds() -> None:
+    unconstrained = np.array([[-2.0, 0.0, 2.0]], dtype=np.float64)
+
+    bounded = curvilinear_reparameterise(unconstrained, bounds=(-2.0, 6.0))
+
+    assert bounded.shape == unconstrained.shape
+    assert np.all(bounded > -2.0)
+    assert np.all(bounded < 6.0)
+    np.testing.assert_allclose(bounded[0, 1], 2.0, rtol=1e-12)
 
 
 def test_forward_propagators_builds_scaled_slice_exponentials() -> None:

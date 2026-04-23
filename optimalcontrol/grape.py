@@ -234,6 +234,120 @@ def apply_freeze(
     return result
 
 
+def _validate_xy_waveform(name: str, wfm_xy: RealArray) -> None:
+    """Raise ValueError if an XY waveform is not shaped as time rows by X/Y."""
+    if wfm_xy.ndim != 2 or wfm_xy.shape[1] != 2:
+        raise ValueError(f"{name} must have shape (n_steps, 2), got {wfm_xy.shape}")
+    if not np.all(np.isfinite(wfm_xy)):
+        raise ValueError(f"{name} entries must be finite")
+
+
+def xy_to_ampl_phase(wfm_xy: RealArray) -> tuple[RealArray, RealArray]:
+    """Return per-slice RF amplitude and phase arrays from Cartesian XY controls."""
+    waveform = np.asarray(wfm_xy, dtype=np.float64)
+    _validate_xy_waveform("wfm_xy", waveform)
+
+    amplitude = np.asarray(np.hypot(waveform[:, 0], waveform[:, 1]), dtype=np.float64)
+    phase = np.asarray(np.arctan2(waveform[:, 1], waveform[:, 0]), dtype=np.float64)
+    return amplitude, phase
+
+
+def ampl_phase_to_xy(amplitude: RealArray, phase: RealArray) -> RealArray:
+    """Return an ``(n_steps, 2)`` Cartesian XY waveform from amplitude and phase."""
+    amplitude_arr = np.asarray(amplitude, dtype=np.float64)
+    phase_arr = np.asarray(phase, dtype=np.float64)
+    if amplitude_arr.ndim != 1:
+        raise ValueError(f"amplitude must be one-dimensional, got shape {amplitude_arr.shape}")
+    if phase_arr.shape != amplitude_arr.shape:
+        raise ValueError(
+            f"phase shape {phase_arr.shape} must match amplitude shape {amplitude_arr.shape}"
+        )
+    if not np.all(np.isfinite(amplitude_arr)) or not np.all(np.isfinite(phase_arr)):
+        raise ValueError("amplitude and phase entries must be finite")
+    if np.any(amplitude_arr < 0.0):
+        raise ValueError("amplitude entries must be non-negative")
+
+    return np.asarray(
+        np.column_stack((amplitude_arr * np.cos(phase_arr), amplitude_arr * np.sin(phase_arr))),
+        dtype=np.float64,
+    )
+
+
+def phase_only_gradient(
+    grad_xy: RealArray,
+    amplitude: RealArray,
+    phase: RealArray | None = None,
+) -> RealArray:
+    """Convert a Cartesian XY gradient to a phase-only gradient.
+
+    For phase variables ``phi`` and fixed amplitudes ``A``, the Cartesian controls
+    are ``x = A cos(phi)`` and ``y = A sin(phi)``. If ``phase`` is omitted and
+    ``amplitude`` is an ``(n_steps, 2)`` array, it is treated as the current XY
+    waveform and the same chain rule is evaluated as ``-y*g_x + x*g_y``. If only
+    a 1-D amplitude is supplied, a zero-phase waveform is assumed.
+    """
+    gradient = np.asarray(grad_xy, dtype=np.float64)
+    _validate_xy_waveform("grad_xy", gradient)
+
+    amplitude_arr = np.asarray(amplitude, dtype=np.float64)
+    if phase is None and amplitude_arr.ndim == 2:
+        _validate_xy_waveform("amplitude", amplitude_arr)
+        if amplitude_arr.shape != gradient.shape:
+            raise ValueError(
+                f"amplitude XY shape {amplitude_arr.shape} must match "
+                f"grad_xy shape {gradient.shape}"
+            )
+        return np.asarray(
+            -amplitude_arr[:, 1] * gradient[:, 0] + amplitude_arr[:, 0] * gradient[:, 1],
+            dtype=np.float64,
+        )
+
+    if amplitude_arr.ndim != 1:
+        raise ValueError(f"amplitude must be one-dimensional, got shape {amplitude_arr.shape}")
+    if amplitude_arr.shape[0] != gradient.shape[0]:
+        raise ValueError(
+            f"amplitude length {amplitude_arr.shape[0]} must match "
+            f"grad_xy rows {gradient.shape[0]}"
+        )
+    if not np.all(np.isfinite(amplitude_arr)):
+        raise ValueError("amplitude entries must be finite")
+    if np.any(amplitude_arr < 0.0):
+        raise ValueError("amplitude entries must be non-negative")
+
+    if phase is None:
+        phase_arr = np.zeros_like(amplitude_arr, dtype=np.float64)
+    else:
+        phase_arr = np.asarray(phase, dtype=np.float64)
+        if phase_arr.shape != amplitude_arr.shape:
+            raise ValueError(
+                f"phase shape {phase_arr.shape} must match amplitude shape {amplitude_arr.shape}"
+            )
+        if not np.all(np.isfinite(phase_arr)):
+            raise ValueError("phase entries must be finite")
+
+    return np.asarray(
+        amplitude_arr * (-np.sin(phase_arr) * gradient[:, 0] + np.cos(phase_arr) * gradient[:, 1]),
+        dtype=np.float64,
+    )
+
+
+def curvilinear_reparameterise(wfm: RealArray, bounds: tuple[float, float]) -> RealArray:
+    """Map an unconstrained waveform into bounds using a tanh reparameterisation."""
+    lower, upper = bounds
+    if not math.isfinite(lower) or not math.isfinite(upper):
+        raise ValueError("bounds must be finite")
+    if lower >= upper:
+        raise ValueError("bounds lower value must be less than upper value")
+
+    waveform = np.asarray(wfm, dtype=np.float64)
+    if not np.all(np.isfinite(waveform)):
+        raise ValueError("wfm entries must be finite")
+
+    midpoint = 0.5 * (lower + upper)
+    half_width = 0.5 * (upper - lower)
+    return np.asarray(midpoint + half_width * np.tanh(waveform), dtype=np.float64)
+
+
 def _single_drift(cp: ControlProblem) -> Array:
     """Return the only drift currently supported by the non-ensemble path."""
     if len(cp.drifts) != 1:
