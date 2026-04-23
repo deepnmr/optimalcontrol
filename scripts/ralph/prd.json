@@ -488,8 +488,8 @@
         "Typecheck passes"
       ],
       "priority": 31,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented dir_diff_expm() with the 2x2 block Frechet derivative for expm(-1j*H*dt), plus grape_gradient() over waveform rows/channels. Because ControlProblem stores generator matrices, grape_gradient() maps generator derivatives through H=1j*generator to differentiate the existing expm(generator*dt) path exactly. Frozen entries are zeroed after accumulation."
     },
     {
       "id": "US-032",

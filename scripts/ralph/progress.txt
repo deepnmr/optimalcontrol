@@ -28,6 +28,8 @@
 - GRAPE propagation treats `ControlProblem.drifts` and `operators` as generator matrices: slice propagators use `expm(generator * pulse_dt)`, with waveform entries scaled by per-channel `pwr_levels`.
 - GRAPE forward-state accumulation mirrors state hooks: vectors use `U @ rho`, square matrix states use Hilbert propagation when `U.shape == rho.shape`, otherwise Liouville propagation via `vec`/`unvec` when `U.shape == (rho.size, rho.size)`.
 - GRAPE backward-state accumulation returns target-first states `[lambda_N, lambda_N-1, ..., lambda_0]` and applies each slice propagator's adjoint, so `final_fidelity()` compares `fwd_states[-1]` with `bwd_states[0]`.
+- `dir_diff_expm(H, dH, dt)` differentiates `expm(-1j*H*dt)`; for existing GRAPE generator matrices, map with `H=1j*generator` and `dH=1j*d_generator` to differentiate `expm(generator*dt)`.
+- `grape_gradient()` uses analytical forward sensitivity propagation for vector, Hilbert-matrix, and Liouville-matrix states, then zeroes entries where the freeze mask is true.
 
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
@@ -374,4 +376,17 @@ Started: 2026-04-23
   - `backward_states()` intentionally returns the target as element 0, then accumulates adjoint-propagated targets in backward time order for gradient code to index explicitly
   - `final_fidelity()` dispatches to the existing state fidelity helpers and uses `bwd_states[0]` as the target at the final time
   - `grape_xy()` is currently the single-drift/non-ensemble scalar path; ensemble and penalty integration are reserved for later stories
+---
+
+## 2026-04-23 15:19 KST - US-031
+- Implemented `dir_diff_expm()` in `optimalcontrol/grape.py` using the 2x2 auxiliary-matrix Frechet derivative for `expm(-1j*H*dt)`
+- Implemented `grape_gradient()` over waveform slices and control channels, including `pwr_levels` scaling and zero gradients for frozen waveform entries
+- Added derivative-state propagation support for vector states, Hilbert-space matrix states, and Liouville-space matrix/vector states
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Manual finite-difference sanity checks agreed with analytical gradients at relative errors around `2e-10` for vector, Hilbert-matrix, and Liouville-vector paths
+- Files changed: `optimalcontrol/grape.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - The public directional-derivative helper follows the PRD Hamiltonian convention, while GRAPE gradient internally maps generator matrices through `H=1j*generator`
+  - Freeze-mask semantics for gradients are simpler than waveform updates: compute the analytical gradient normally, then force frozen mask entries to exactly zero
+  - Current gradient accumulation prioritizes correctness across supported state representations; future performance work can replace the forward sensitivity loop with backward-adjoint contractions
 ---

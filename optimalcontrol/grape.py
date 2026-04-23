@@ -250,6 +250,40 @@ def _slice_generator(cp: ControlProblem, waveform_row: RealArray) -> Array:
     return generator
 
 
+def dir_diff_expm(H: Array, dH: Array, dt: float) -> Array:
+    """Return d/dε expm(-1j * (H + ε dH) * dt) at ε=0.
+
+    The derivative is computed with the standard 2x2 block auxiliary matrix:
+    expm([[A, dA], [0, A]]) has the Frechet derivative in its upper-right block,
+    where A = -1j * H * dt and dA = -1j * dH * dt.
+    """
+    H_arr = np.asarray(H, dtype=np.complex128)
+    dH_arr = np.asarray(dH, dtype=np.complex128)
+    dim = _validate_square_matrix("H", H_arr)
+    if dH_arr.shape != H_arr.shape:
+        raise ValueError(f"dH shape {dH_arr.shape} must match H shape {H_arr.shape}")
+    if not math.isfinite(dt):
+        raise ValueError("dt must be finite")
+
+    A = np.complex128(-1j * dt) * H_arr
+    dA = np.complex128(-1j * dt) * dH_arr
+    block = np.zeros((2 * dim, 2 * dim), dtype=np.complex128)
+    block[:dim, :dim] = A
+    block[:dim, dim:] = dA
+    block[dim:, dim:] = A
+    block_expm = np.asarray(expm(block), dtype=np.complex128)
+    return block_expm[:dim, dim:]
+
+
+def _dir_diff_generator_expm(generator: Array, d_generator: Array, dt: float) -> Array:
+    """Return d/dε expm((generator + ε d_generator) * dt) at ε=0."""
+    return dir_diff_expm(
+        np.complex128(1j) * generator,
+        np.complex128(1j) * d_generator,
+        dt,
+    )
+
+
 def forward_propagators(cp: ControlProblem, wfm: RealArray) -> list[Array]:
     """Return per-slice propagators for a waveform under a control problem."""
     validate_control_problem(cp)
@@ -300,6 +334,43 @@ def _apply_propagator(state: Array, propagator: Array) -> Array:
     raise ValueError(f"state must be a vector or square matrix, got shape {state_arr.shape}")
 
 
+def _apply_derivative_propagator(state: Array, propagator: Array, d_propagator: Array) -> Array:
+    """Apply one slice-propagator derivative to a state."""
+    state_arr = np.asarray(state, dtype=np.complex128)
+    propagator_arr = np.asarray(propagator, dtype=np.complex128)
+    d_propagator_arr = np.asarray(d_propagator, dtype=np.complex128)
+    _validate_square_propagator(propagator_arr)
+    if d_propagator_arr.shape != propagator_arr.shape:
+        raise ValueError(
+            f"d_propagator shape {d_propagator_arr.shape} must match "
+            f"propagator shape {propagator_arr.shape}"
+        )
+
+    if state_arr.ndim == 1:
+        if propagator_arr.shape != (state_arr.shape[0], state_arr.shape[0]):
+            raise ValueError(
+                f"propagator shape {propagator_arr.shape} cannot act on "
+                f"state shape {state_arr.shape}"
+            )
+        return d_propagator_arr @ state_arr
+
+    if state_arr.ndim == 2 and state_arr.shape[0] == state_arr.shape[1]:
+        if propagator_arr.shape == state_arr.shape:
+            return (
+                d_propagator_arr @ state_arr @ propagator_arr.conj().T
+                + propagator_arr @ state_arr @ d_propagator_arr.conj().T
+            )
+        liouville_shape = (state_arr.size, state_arr.size)
+        if propagator_arr.shape == liouville_shape:
+            return unvec(d_propagator_arr @ vec(state_arr), state_arr.shape[0])
+        raise ValueError(
+            f"propagator shape {propagator_arr.shape} cannot act on "
+            f"state shape {state_arr.shape}"
+        )
+
+    raise ValueError(f"state must be a vector or square matrix, got shape {state_arr.shape}")
+
+
 def forward_states(rho_init: Array, propagators: list[Array]) -> list[Array]:
     """Return accumulated states [rho_0, rho_1, ..., rho_N]."""
     current = np.asarray(rho_init, dtype=np.complex128).copy()
@@ -340,6 +411,91 @@ def final_fidelity(fwd_states: list[Array], bwd_states: list[Array], mode: str) 
     if len(bwd_states) == 0:
         raise ValueError("bwd_states must be non-empty")
     return _fidelity_by_mode(fwd_states[-1], bwd_states[0], mode)
+
+
+def _fidelity_directional_derivative(
+    rho_final: Array,
+    rho_targ: Array,
+    d_rho_final: Array,
+    mode: str,
+) -> float:
+    """Return the fidelity directional derivative for one final-state variation."""
+    rho_final_arr = np.asarray(rho_final, dtype=np.complex128)
+    rho_targ_arr = np.asarray(rho_targ, dtype=np.complex128)
+    d_rho_final_arr = np.asarray(d_rho_final, dtype=np.complex128)
+    if rho_final_arr.shape != rho_targ_arr.shape:
+        raise ValueError(
+            f"State shapes must match, got {rho_final_arr.shape} and {rho_targ_arr.shape}"
+        )
+    if d_rho_final_arr.shape != rho_final_arr.shape:
+        raise ValueError(
+            f"d_rho_final shape {d_rho_final_arr.shape} must match "
+            f"rho_final shape {rho_final_arr.shape}"
+        )
+
+    overlap = np.complex128(np.vdot(rho_targ_arr, rho_final_arr))
+    d_overlap = np.complex128(np.vdot(rho_targ_arr, d_rho_final_arr))
+    if mode == "real":
+        return float(np.real(d_overlap))
+    if mode == "imag":
+        return float(np.imag(d_overlap))
+    if mode == "abs2":
+        return float(2.0 * np.real(overlap.conjugate() * d_overlap))
+    valid = ", ".join(sorted(VALID_FIDELITY_MODES))
+    raise ValueError(f"mode must be one of: {valid}")
+
+
+def grape_gradient(cp: ControlProblem, wfm: RealArray) -> RealArray:
+    """Return d(grape_xy)/d(wfm[k, c]) for all time slices and control channels."""
+    validate_control_problem(cp)
+    waveform = np.asarray(wfm, dtype=np.float64)
+    if waveform.ndim != 2:
+        raise ValueError(f"waveform must be two-dimensional, got shape {waveform.shape}")
+    validate_waveform(waveform, len(cp.operators), waveform.shape[0])
+    effective_waveform = apply_freeze(waveform, cp.freeze)
+    n_steps, n_channels = effective_waveform.shape
+
+    propagators: list[Array] = []
+    derivative_propagators: list[list[Array]] = []
+    control_directions = [
+        np.complex128(level) * np.asarray(operator, dtype=np.complex128)
+        for level, operator in zip(cp.pwr_levels, cp.operators)
+    ]
+    for waveform_row in effective_waveform:
+        generator = _slice_generator(cp, waveform_row)
+        propagators.append(np.asarray(expm(generator * cp.pulse_dt), dtype=np.complex128))
+        derivative_propagators.append(
+            [
+                _dir_diff_generator_expm(generator, control_direction, cp.pulse_dt)
+                for control_direction in control_directions
+            ]
+        )
+
+    gradient: RealArray = np.zeros((n_steps, n_channels), dtype=np.float64)
+    for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ):
+        fwd = forward_states(rho_init, propagators)
+        rho_final = fwd[-1]
+        for step_index in range(n_steps):
+            for channel_index in range(n_channels):
+                d_state = _apply_derivative_propagator(
+                    fwd[step_index],
+                    propagators[step_index],
+                    derivative_propagators[step_index][channel_index],
+                )
+                for propagator in propagators[step_index + 1 :]:
+                    d_state = _apply_propagator(d_state, propagator)
+                gradient[step_index, channel_index] += _fidelity_directional_derivative(
+                    rho_final,
+                    rho_targ,
+                    d_state,
+                    cp.fidelity_mode,
+                )
+
+    gradient /= float(len(cp.rho_init))
+    if cp.freeze is not None:
+        freeze_mask = np.asarray(cp.freeze, dtype=np.bool_)
+        gradient[freeze_mask] = 0.0
+    return gradient
 
 
 def grape_xy(cp: ControlProblem, wfm: RealArray) -> float:
