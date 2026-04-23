@@ -940,8 +940,8 @@
         "Typecheck passes"
       ],
       "priority": 59,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created tests/test_integration.py covering analytical ROPE vs INEPT for the Iz->2IzSz endpoint labels, run_grape improvement over 10 L-BFGS iterations on a real two-spin dense product-operator transfer, RF power ensemble fidelity bounds, L-BFGS checkpoint resume matching uninterrupted optimisation within rtol=1e-5, and Waveform JSON export/import replay preserving grape_xy fidelity within rtol=1e-10. Quality checks passed: ruff check ., mypy optimalcontrol/, python3 -m pytest (150 passed)."
     },
     {
       "id": "US-060",

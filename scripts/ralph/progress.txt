@@ -127,6 +127,7 @@
 - `run_grape()` lives in `optimalcontrol/optimizers.py` and imports `waveform_from_result()` locally to avoid an `optimizers.py` ↔ `io.py` import cycle; it returns the exported `Waveform` plus the raw `OptimResult`.
 - Optimizer tests can monkeypatch `optimalcontrol.optimizers.grape_xy` and `grape_gradient` for deterministic toy objectives; monkeypatch `line_search_cubic` to a fixed positive step when checkpoint tests need non-converged partial runs.
 - Product-operator matrix-state GRAPE transfer tests should use `basis="dense"`; `basis="hilbert"` is reserved for pure-state vector GRAPE and rejects square matrix states.
+- End-to-end two-spin `Iz -> 2IzSz` GRAPE tests can use dense matrix states with drift `-1j * 2*pi*J*Iz_i@Iz_s`, controls `-1j * [Ix, Iy, Sx, Sy]`, HS-normalised product-operator states, and one `pwr_levels` entry per control.
 - Waveform I/O lives in `optimalcontrol/io.py`; exported `Waveform.data` is shaped `(n_channels, n_steps)`, while GRAPE internals use `(n_steps, n_channels)`, so transpose only at I/O boundaries such as `waveform_from_result()` or `loaded.data.T`.
 - Spectrometer I/O in `optimalcontrol/io.py` is intentionally minimal: Bruker/JCAMP-DX helpers are documented stubs, heterodyne transforms rotate `x/y` channels by `exp(i*2*pi*carrier_hz*t)`, and FAPT import maps frequency/amplitude/phase/time rows to `Waveform` channels `frequency_hz`, `amplitude`, `phase_rad`.
 
@@ -740,4 +741,16 @@ Started: 2026-04-23
   - Keep `run_grape()` in `optimizers.py` but import `waveform_from_result()` locally inside the function to avoid a circular import with `io.py`
   - `OptimResult.trajectory` stores copied complex state arrays and remains `None` unless explicitly requested with `produce_trajectory=True`
   - Existing optimizer checkpoint machinery already saves on converged exits through `ControlProblem.checkpoint_path`; `run_grape()` should not overwrite L-BFGS checkpoints with a reduced manual checkpoint
+---
+
+## 2026-04-23 20:43 KST - US-059
+- Created tests/test_integration.py with five end-to-end tests covering analytical ROPE/INEPT comparison, GRAPE optimisation, ensemble aggregation, checkpoint resume, and JSON waveform replay
+- Verified run_grape improves a real dense two-spin Iz -> 2IzSz transfer from a deterministic random waveform within 10 L-BFGS iterations
+- Verified RF power ensemble fidelity stays in [0, 1], L-BFGS resume matches uninterrupted optimisation within rtol=1e-5, and exported/reloaded Waveform.data.T replays to the same grape_xy fidelity within rtol=1e-10
+- Quality checks passed: ruff check ., mypy optimalcontrol/, python3 -m pytest (150 passed)
+- Files changed: tests/test_integration.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Dense product-operator transfer tests should build anti-Hermitian generator controls (`-1j * operator`) and set `basis="dense"` for matrix states
+  - RF power ensembles are triggered when `len(pwr_levels) != len(operators)`; use `fidelity_mode="abs2"` when the acceptance criterion requires a bounded [0, 1] fidelity
+  - Exported `Waveform.data` is channel-by-time, so replay through `grape_xy()` uses `waveform.data.T` or `loaded.data.T`
 ---
