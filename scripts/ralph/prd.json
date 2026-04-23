@@ -877,8 +877,8 @@
         "Typecheck passes"
       ],
       "priority": 55,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created tests/test_examples.py with parametrized run-without-exception and snapshot-match tests for all 11 example scripts. Stored .npz snapshots in examples/expected/ by running each example's run() function once; each snapshot contains the primary NDArray[np.float64] output under key 'output'. Uses importlib.import_module with sys.path insertion; matplotlib.use('Agg') at module level ensures headless execution. 22 tests pass (11 run + 11 snapshot) with rtol=1e-4."
     },
     {
       "id": "US-056",

@@ -1,3 +1,14 @@
+## 2026-04-23 - US-055
+- Created tests/test_examples.py with two parametrized test functions: test_example_runs_without_exception and test_example_matches_snapshot, covering all 11 example scripts
+- Created examples/expected/ directory with one .npz snapshot per example (key "output") by running each example's run() function once before committing
+- All 22 tests pass (11 run + 11 snapshot) with rtol=1e-4; full test suite is 136 tests passing
+- Files changed: tests/test_examples.py, examples/expected/*.npz, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Use importlib.import_module("examples.<name>") with sys.path insertion for the examples parent directory; this is simpler than subprocess and keeps the test in-process for speed
+  - Snapshot .npz files use key "output" uniformly; np.savez/np.load round-trips float64 arrays exactly
+  - matplotlib.use("Agg") must be at test module level before any example import to avoid display errors; example scripts call it internally but the test file also needs it in case import order varies
+---
+
 ## 2026-04-23 - US-054
 - Created examples/crop_efficiency_vs_ka.py: plots CROP eta vs ka/J for kc/ka in [0, 0.5, 0.75, 0.99]
 - Created examples/crop_truncated_waveform.py: plots truncated CROP amplitude and irradiation frequency for ka/J=0.6 and 1.1, kc/ka=0.75
