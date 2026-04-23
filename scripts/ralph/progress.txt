@@ -76,6 +76,7 @@
 ---
 
 ## Codebase Patterns
+- Release readiness policy lives in README.md and CHANGELOG.md: record semantic-versioning rules in README, and record milestone markers plus the full `python3 -m pytest` baseline under the current changelog release.
 - Documentation guides should use runnable Python snippets that import helpers from their defining modules; `optimalcontrol.__init__` intentionally exports only a curated public subset.
 - Paper-figure documentation can treat `examples/*.py` as the source of truth: each script exposes `run()`, uses `matplotlib.use("Agg")`, saves a PNG under `examples/output/`, and has a numerical snapshot under `examples/expected/`.
 - Build backend: use setuptools (hatchling not available in this environment). Set `[tool.setuptools.packages.find]` with `include = ["optimalcontrol*"]` to avoid setuptools detecting refdoc/ as a top-level package.
@@ -799,4 +800,17 @@ Started: 2026-04-23
   - Standalone benchmarks should use deterministic small inputs and print compact tables so they can run without extra benchmark dependencies
   - RF ensemble scaling benchmarks can use one control operator and vary `pwr_levels`; `len(pwr_levels) != len(operators)` triggers RF-power ensemble expansion
   - Validation tests should assert concrete message substrings for common user mistakes, not only that `ValueError` was raised
+---
+
+## 2026-04-23 21:03 KST - US-063
+- Implemented `optimalcontrol.set_random_seed(seed)` and exported it in the public API
+- Added a regression test confirming the helper resets NumPy's global random state reproducibly
+- Created `CHANGELOG.md` with the v0.1.0 internal milestone markers and recorded the release pytest baseline: 154 passed
+- Added the README semantic versioning policy and clarified the numerical tolerance policy in `docs/equations.md`
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: optimalcontrol/__init__.py, tests/test_imports.py, README.md, docs/equations.md, CHANGELOG.md, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Release readiness policy lives in README.md and CHANGELOG.md; keep the full pytest baseline in the changelog for each release entry
+  - `set_random_seed()` intentionally seeds NumPy's legacy global RNG because initial waveform guesses may use `numpy.random` directly
+  - Use `python3 -m pytest` for the recorded baseline, matching the environment-specific test command in Codebase Patterns
 ---

@@ -1003,8 +1003,8 @@
         "Typecheck passes"
       ],
       "priority": 63,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added set_random_seed(seed) to optimalcontrol.__init__ and exported it through __all__; added a regression test proving it resets NumPy's global RNG. Created CHANGELOG.md with v0.1.0 milestone markers and recorded the full pytest baseline as 154 passed. Added README semantic versioning policy and clarified the docs/equations numerical tolerance section. Quality checks passed: ruff check ., mypy optimalcontrol/, python3 -m pytest."
     }
   ]
 }

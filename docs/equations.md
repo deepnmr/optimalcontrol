@@ -46,6 +46,8 @@ vectorised form:
 
 ## Numerical Tolerance Policy
 
+Release checks use these tolerances unless a test documents a stricter analytical regression.
+
 - **Dense path:** `rtol = 1e-10` for gradient and propagator checks.
 - **Sparse path:** `rtol = 1e-8` for gradient and propagator checks.
 - **Analytical formula tests:** `rtol = 1e-8` unless a tighter tolerance is specified per story.

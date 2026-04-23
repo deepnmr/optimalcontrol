@@ -1,3 +1,5 @@
+import numpy
+
 __version__ = "0.1.0"
 
 from optimalcontrol.crop import CROPPulse, crop_eta, crop_waveform
@@ -7,8 +9,15 @@ from optimalcontrol.rope import rope_g, rope_waveform
 from optimalcontrol.spin_system import SpinSystem, two_spin_system
 from optimalcontrol.states import fidelity_real, state_from_label
 
+
+def set_random_seed(seed: int) -> None:
+    """Seed NumPy's global random state for reproducible waveform guesses."""
+    numpy.random.seed(seed)
+
+
 __all__ = [
     "__version__",
+    "set_random_seed",
     "Ix",
     "Iy",
     "Iz",

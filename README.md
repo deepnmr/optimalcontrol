@@ -23,5 +23,16 @@ ruff check .
 mypy optimalcontrol
 
 # Test
-pytest
+python3 -m pytest
 ```
+
+## Versioning policy
+
+This package follows semantic versioning: `MAJOR.MINOR.PATCH`.
+
+- `PATCH` releases contain backwards-compatible fixes only and must not introduce breaking API,
+  file-format, or numerical-contract changes.
+- `MINOR` releases may add features and deprecate existing APIs; deprecations must emit warnings
+  before removal.
+- `MAJOR` releases may remove deprecated APIs or introduce intentional breaking changes, with
+  migration notes recorded in `CHANGELOG.md`.
