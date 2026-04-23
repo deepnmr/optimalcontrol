@@ -430,8 +430,8 @@
         "Typecheck passes"
       ],
       "priority": 27,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created tests/test_crop.py covering the kc=0 ROPE reduction, near-lossless kc near ka limit, monotonic efficiency improvement as kc increases, stored regression values for ka/J=0.6 and 1.1 with kc/ka=0.75, and a 5x5 robustness sweep bound check."
     },
     {
       "id": "US-028",

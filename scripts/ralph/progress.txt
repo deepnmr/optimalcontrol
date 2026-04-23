@@ -22,6 +22,7 @@
 - CROP analytical helpers live in `optimalcontrol/crop.py`; treat `ka`, `kc`, primed rates, and `J_hz` as same-unit frequency scalars for dimensionless ratios, with `ka >= kc` required for real `zeta`.
 - CROP scalar pulse params use Hz units: residual bandwidth `sqrt(ka^2-kc^2)` for amplitude, `-J_hz/2` for the slowly relaxing beta multiplet carrier, and inverse residual bandwidth for the default truncation window.
 - CROP waveform sampling uses physical seconds centered on zero over `truncation_window`, and samples Hz-valued amplitude/frequency arrays from `crop_pulse_params()`.
+- CROP analytical regression tests live in `tests/test_crop.py`; stored eta values for `(ka,kc,J)=(60,45,100)` and `(110,82.5,100)` are `0.7015664580244381` and `0.5854918065322852`.
 
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
@@ -323,4 +324,15 @@ Started: 2026-04-23
 - **Learnings for future iterations:**
   - CROP waveform arrays keep the `crop_pulse_params()` Hz convention for amplitude and irradiation frequency rather than converting to rad/s
   - Robustness sweeps should build `ka = (ka/J) * J_hz` and `kc = (kc/ka) * ka`, and reject `kc/ka > 1`
+---
+
+## 2026-04-23 14:57 KST - US-027
+- Created tests/test_crop.py with coverage for the kc=0 ROPE reduction, near-lossless limit, monotonic improvement with increasing kc, stored eta regression values, and robustness sweep bounds
+- Verified `crop_eta(60, 0, 100)` and `crop_kc0_limit(60, 100)` match `rope_g(0.6)` within rtol=1e-8
+- Verified the 5x5 `crop_robustness_sweep()` grid never exceeds `1.0 + 1e-10`
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: tests/test_crop.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - CROP regression constants should be stored with enough precision for rtol=1e-6 comparisons
+  - Near-lossless CROP can be tested with `kc` just below `ka` to avoid relying only on the exact `kc=ka` branch
 ---
