@@ -154,3 +154,14 @@ Started: 2026-04-23
   - Control amplitudes in `total_generator()` are assumed to already be rad/s; do not apply Hz-to-rad/s conversion to controls there
   - Relaxation builders currently target the two-spin I/S convention and should validate or be extended before use on larger systems
 ---
+
+## 2026-04-23 14:01 KST - US-013
+- Created tests/test_spin_system.py with coverage for two-spin J drift, control placement, and RelaxationRates fields
+- Verified drift_hamiltonian() against 2*pi*J*IzSz for a known J value
+- Verified control_operators()["Ix"] matches place_operator(Ix(), 0, 2)
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: tests/test_spin_system.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Spin-system tests should construct paper-style fixtures with `two_spin_system()` so they inherit the 0=I/source, 1=S/target convention
+  - Drift Hamiltonian assertions can use the diagonal Iz⊗Iz form: diag(0.25, -0.25, -0.25, 0.25) multiplied by `2*pi*J_hz`
+---
