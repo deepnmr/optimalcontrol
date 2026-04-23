@@ -1,4 +1,4 @@
-"""Spin-1/2 single-spin operators and tensor-product helpers."""
+"""Spin-1/2 single-spin operators, tensor-product helpers, and Liouville-space utilities."""
 
 import numpy as np
 import numpy.typing as npt
@@ -61,3 +61,28 @@ def two_spin_product(
 ) -> npt.NDArray[np.complex128]:
     """Return op_i ⊗ op_s embedded in an n_spins Hilbert space (spins 0 and 1)."""
     return place_operator(op_i, 0, n_spins) @ place_operator(op_s, 1, n_spins)
+
+
+def comm(
+    A: npt.NDArray[np.complex128], B: npt.NDArray[np.complex128]
+) -> npt.NDArray[np.complex128]:
+    """Return the commutator [A, B] = A @ B - B @ A."""
+    return A @ B - B @ A
+
+
+def vec(rho: npt.NDArray[np.complex128]) -> npt.NDArray[np.complex128]:
+    """Vectorise a density matrix by column-stacking (column-major / Fortran order).
+
+    Convention: vec(rho)[i + dim*j] = rho[i, j], so the first column of rho
+    occupies the first dim entries of the output vector. This matches the
+    standard Liouville-space convention used throughout this package.
+    """
+    return rho.flatten(order="F")
+
+
+def unvec(v: npt.NDArray[np.complex128], dim: int) -> npt.NDArray[np.complex128]:
+    """Invert vec(): reshape a length-dim^2 vector back to a (dim, dim) matrix.
+
+    Uses column-major (Fortran) order to match vec().
+    """
+    return v.reshape((dim, dim), order="F")
