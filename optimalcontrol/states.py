@@ -1,11 +1,13 @@
 """Product-operator state construction and normalisation helpers."""
 
 from collections.abc import Sequence
+from typing import cast
 
 import numpy as np
 import numpy.typing as npt
+from scipy.linalg import expm
 
-from optimalcontrol.operators import E, Ix, Iy, Iz, place_operator
+from optimalcontrol.operators import E, Ix, Iy, Iz, place_operator, unvec, vec
 
 
 def _validate_n_spins(n_spins: int) -> None:
@@ -117,6 +119,117 @@ def normalise_2norm(v: npt.NDArray[np.complex128]) -> npt.NDArray[np.complex128]
     if norm == 0.0:
         raise ValueError("Cannot normalise a zero-norm array")
     return arr / norm
+
+
+def _validate_square_array(name: str, arr: npt.NDArray[np.complex128]) -> None:
+    """Raise ValueError if arr is not a square 2-D array."""
+    if arr.ndim != 2 or arr.shape[0] != arr.shape[1]:
+        raise ValueError(f"{name} must be a square matrix, got shape {arr.shape}")
+
+
+def _liouville_size_for_state(rho: npt.NDArray[np.complex128]) -> int:
+    """Return the expected Liouville-space dimension for rho."""
+    if rho.ndim == 1:
+        return rho.shape[0]
+    if rho.ndim == 2 and rho.shape[0] == rho.shape[1]:
+        return rho.shape[0] * rho.shape[1]
+    raise ValueError(f"rho must be a vectorised state or square matrix, got shape {rho.shape}")
+
+
+def _validate_liouville_shape(
+    propagator: npt.NDArray[np.complex128],
+    rho: npt.NDArray[np.complex128],
+    name: str,
+) -> None:
+    """Raise ValueError if propagator cannot act on rho in Liouville space."""
+    expected = _liouville_size_for_state(rho)
+    if propagator.shape != (expected, expected):
+        raise ValueError(
+            f"{name} has shape {propagator.shape}, expected {(expected, expected)} "
+            f"for state shape {rho.shape}"
+        )
+
+
+def _apply_liouville_propagator(
+    rho: npt.NDArray[np.complex128],
+    propagator: npt.NDArray[np.complex128],
+    name: str,
+) -> npt.NDArray[np.complex128]:
+    """Apply a Liouville-space propagator to matrix or vectorised rho."""
+    _validate_square_array(name, propagator)
+    _validate_liouville_shape(propagator, rho, name)
+    if rho.ndim == 1:
+        return propagator @ rho
+    return unvec(propagator @ vec(rho), rho.shape[0])
+
+
+def _apply_state_propagator(
+    rho: npt.NDArray[np.complex128],
+    propagator: npt.NDArray[np.complex128],
+    name: str,
+) -> npt.NDArray[np.complex128]:
+    """Apply either a Hilbert-space rotation or Liouville-space propagator."""
+    rho_arr = np.asarray(rho, dtype=np.complex128)
+    propagator_arr = np.asarray(propagator, dtype=np.complex128)
+    _validate_square_array(name, propagator_arr)
+
+    if rho_arr.ndim == 2 and rho_arr.shape[0] == rho_arr.shape[1]:
+        if propagator_arr.shape == rho_arr.shape:
+            return propagator_arr @ rho_arr @ propagator_arr.conj().T
+        return _apply_liouville_propagator(rho_arr, propagator_arr, name)
+
+    if rho_arr.ndim == 1:
+        return _apply_liouville_propagator(rho_arr, propagator_arr, name)
+
+    raise ValueError(f"rho must be a vectorised state or square matrix, got shape {rho_arr.shape}")
+
+
+def apply_prefix(
+    rho: npt.NDArray[np.complex128],
+    prefix_propagator: npt.NDArray[np.complex128],
+) -> npt.NDArray[np.complex128]:
+    """Apply a fixed prefix transformation to an initial state.
+
+    Matrix states accept either a Hilbert-space propagator ``U`` with
+    ``U @ rho @ U.conj().T`` semantics, or a Liouville-space propagator acting
+    on ``vec(rho)``. Vectorised states require a Liouville-space propagator.
+    """
+    return _apply_state_propagator(rho, prefix_propagator, "prefix_propagator")
+
+
+def apply_suffix(
+    rho: npt.NDArray[np.complex128],
+    suffix_propagator: npt.NDArray[np.complex128],
+) -> npt.NDArray[np.complex128]:
+    """Apply a fixed suffix transformation before fidelity evaluation.
+
+    Matrix states accept either a Hilbert-space propagator ``U`` with
+    ``U @ rho @ U.conj().T`` semantics, or a Liouville-space propagator acting
+    on ``vec(rho)``. Vectorised states require a Liouville-space propagator.
+    """
+    return _apply_state_propagator(rho, suffix_propagator, "suffix_propagator")
+
+
+def dead_time_propagation(
+    rho: npt.NDArray[np.complex128],
+    generator: npt.NDArray[np.complex128],
+    t_dead: float,
+) -> npt.NDArray[np.complex128]:
+    """Propagate a state under a Liouville-space generator for dead time.
+
+    The generator is exponentiated as ``expm(generator * t_dead)``. Matrix
+    states are column-stacked, propagated, and reshaped back using the package's
+    column-major Liouville convention; vectorised states remain vectorised.
+    """
+    rho_arr = np.asarray(rho, dtype=np.complex128)
+    generator_arr = np.asarray(generator, dtype=np.complex128)
+    _validate_square_array("generator", generator_arr)
+    _validate_liouville_shape(generator_arr, rho_arr, "generator")
+    if t_dead == 0.0:
+        return rho_arr.copy()
+
+    propagator = cast(npt.NDArray[np.complex128], expm(generator_arr * t_dead))
+    return _apply_liouville_propagator(rho_arr, propagator, "dead-time propagator")
 
 
 def _overlap(

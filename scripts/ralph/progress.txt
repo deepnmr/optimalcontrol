@@ -11,6 +11,7 @@
 - Liouville generators in `spin_system.py` are assembled by converting Hilbert-space Hamiltonians and control operators with `liouvillian_comm()`; control amplitudes multiply dimensionless spin operators and are assumed to already be in rad/s.
 - State labels in `optimalcontrol.states` are unnormalised product operators: `I*` labels act on spin 0, `S*` labels act on spin 1, and labels such as `2IzSz` include the literal leading factor of 2; apply `normalise_hs()` before fidelity evaluation.
 - Fidelity helpers in `optimalcontrol.states` expect pre-normalised arrays and use `np.vdot(rho_t, rho_f)` as the overlap, matching `Tr(rho_t† @ rho_f)` for matrices while also supporting vectorised states.
+- State hooks in `optimalcontrol.states` accept Hilbert-space rotations for square matrix states (`U @ rho @ U.conj().T`) and Liouville-space propagators for matrix or vectorised states; `dead_time_propagation()` expects a Liouville generator and uses `expm(generator * t_dead)`.
 
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
@@ -190,4 +191,16 @@ Started: 2026-04-23
   - Fidelity functions expect callers to normalise states first; they deliberately do not call normalise_hs() internally
   - Use `np.vdot(rho_t, rho_f)` for the overlap so the same helper works for Hilbert-space matrices and vectorised Liouville states
   - `fidelity_avg()` currently averages real fidelities across source-target pairs; mode-specific averaging can wrap fidelity_real()/fidelity_abs2() later if needed
+---
+
+## 2026-04-23 14:12 KST - US-016
+- Implemented apply_prefix(), apply_suffix(), and dead_time_propagation() in optimalcontrol/states.py
+- Prefix/suffix hooks apply Hilbert-space rotations to matrix states and Liouville-space propagators to matrix or vectorised states
+- Dead-time propagation exponentiates the Liouville generator with scipy.linalg.expm and preserves matrix/vector state representation
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: optimalcontrol/states.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Keep state transformation hooks in optimalcontrol/states.py with the state construction and fidelity helpers
+  - Matrix-state dead-time propagation should use the package vec/unvec helpers so the column-major Liouville convention is preserved
+  - Use `typing.cast(npt.NDArray[np.complex128], expm(...))` when wrapping scipy.linalg.expm results for strict mypy
 ---

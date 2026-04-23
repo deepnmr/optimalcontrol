@@ -247,8 +247,8 @@
         "Typecheck passes"
       ],
       "priority": 16,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented apply_prefix(), apply_suffix(), and dead_time_propagation() in optimalcontrol/states.py. Matrix states accept Hilbert-space rotations (U @ rho @ U.conj().T) or Liouville-space propagators; vectorised states require Liouville-space propagators. Dead-time propagation uses scipy.linalg.expm(generator * t_dead) and column-major vec/unvec for matrix states."
     },
     {
       "id": "US-017",
