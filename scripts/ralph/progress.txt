@@ -114,6 +114,7 @@
 - GRAPE amplitude/phase adapters use XY waveforms shaped `(n_steps, 2)` with columns X and Y; `xy_to_ampl_phase()` returns 1-D per-step arrays and `ampl_phase_to_xy()` round-trips with `x=A*cos(phi)`, `y=A*sin(phi)`.
 - GRAPE curvilinear reparameterisation maps unconstrained waveform values into scalar bounds with `midpoint + half_width * tanh(wfm)`.
 - Ensemble expansion lives in `optimalcontrol/ensemble.py`; drift/RF-power axes are converted into single-drift GRAPE problems, and RF ensemble power levels are absorbed into scaled control operators with expanded `pwr_levels` reset to per-channel ones.
+- Interpret `ControlProblem.pwr_levels` as ordinary per-channel scaling when its length matches `len(operators)`; treat it as an RF-power ensemble axis only when the length differs from the operator count.
 - Ensemble optional axes clear consumed metadata after expansion: offsets add `offset * sum(offset_operators)` to drift generators, and phase-cycle rows are radians that rotate initial states by global or per-state complex phases.
 - Correlated ensemble modes are non-combinatorial: `correlated_rho_match()` splits matched source-target pairs, while `correlated_rho_drift()` requires one drift per source-target pair and matches them by index.
 - Ensemble backend helpers preserve input order; `joblib_backend()` is optional and falls back to `serial_backend()` when joblib is unavailable.
@@ -712,4 +713,17 @@ Started: 2026-04-23
   - Treat Bruker and JCAMP-DX support as interoperability stubs unless a later story adds real spectrometer calibration and validation
   - `heterodyne_transform()` requires exported `x` and `y` channels and rotates `x+i*y` by `exp(i*2*pi*carrier_hz*t)`; use a negative carrier for the opposite shift
   - FAPT import keeps the fourth column as the `Waveform.times` axis and stores the first three columns as channel rows
+---
+
+## 2026-04-23 20:32 KST - US-057
+- Integrated `total_penalty()` into `grape_xy()` and `grape_gradient()` so configured penalty values and gradients are subtracted from the maximisation objective
+- Integrated ensemble dispatch for configured ensemble axes, including multiple drifts, RF-power ensemble `pwr_levels`, offsets, and phase-cycle rows
+- Preserved ordinary per-channel `pwr_levels` handling when the power list length matches the control-operator count, avoiding recursive ensemble expansion
+- Added tests for NS penalty objective reduction, penalty gradient subtraction, `grape_xy()` ensemble dispatch, and `grape_gradient()` RF-power ensemble dispatch
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest` (141 passed)
+- Files changed: `optimalcontrol/grape.py`, `optimalcontrol/ensemble.py`, `tests/test_grape.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - `ControlProblem.pwr_levels` is per-channel scaling for normal GRAPE problems when its length equals `len(operators)`, and an RF-power ensemble axis only when the length differs
+  - Ensemble dispatch in `grape_xy()`/`grape_gradient()` should strip penalties from the expanded member problems and subtract the total penalty exactly once at the top level
+  - Apply freeze masks after penalty-gradient subtraction so frozen waveform entries remain zero-gradient even when penalties are active
 ---

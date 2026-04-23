@@ -9,6 +9,7 @@ import numpy.typing as npt
 from scipy.linalg import expm
 
 from optimalcontrol.operators import unvec, vec
+from optimalcontrol.penalties import PenaltyInput, total_penalty
 from optimalcontrol.states import fidelity_abs2, fidelity_imag, fidelity_real
 
 Array = npt.NDArray[np.complex128]
@@ -40,8 +41,24 @@ class ControlProblem:
     offset_operators: list[Array] | None = None
     phase_cycle: npt.NDArray[np.float64] | None = None
     basis: str = "dense"
-    penalties: list[object] | None = None
+    penalties: list[PenaltyInput] | None = None
     checkpoint_path: str | None = None
+
+
+def _has_rf_power_ensemble(cp: ControlProblem) -> bool:
+    """Return True when pwr_levels represents an RF ensemble axis."""
+    return len(cp.pwr_levels) > 1 and len(cp.pwr_levels) != len(cp.operators)
+
+
+def _has_ensemble_axes(cp: ControlProblem) -> bool:
+    """Return True when a control problem needs ensemble expansion."""
+    return (
+        len(cp.drifts) > 1
+        or _has_rf_power_ensemble(cp)
+        or cp.offsets is not None
+        or cp.offset_operators is not None
+        or cp.phase_cycle is not None
+    )
 
 
 def _validate_nonempty(name: str, values: Sequence[object]) -> None:
@@ -702,7 +719,25 @@ def _fidelity_second_directional_derivative(
 
 
 def grape_gradient(cp: ControlProblem, wfm: RealArray) -> RealArray:
-    """Return d(grape_xy)/d(wfm[k, c]) for all time slices and control channels."""
+    """Return d(grape_xy)/d(wfm[k, c]) for all time slices and control channels.
+
+    When ``cp`` has multiple drift generators or power levels, the gradient is
+    averaged over the Cartesian ensemble. When ``cp.penalties`` is set, the
+    penalty gradient is subtracted from the fidelity gradient before returning.
+    """
+    if _has_ensemble_axes(cp):
+        from optimalcontrol.ensemble import ensemble_gradient
+
+        bare_cp = replace(cp, penalties=None)
+        ensemble_grad = np.asarray(ensemble_gradient(bare_cp, wfm), dtype=np.float64)
+        if cp.penalties is not None:
+            _, penalty_gradient = total_penalty(np.asarray(wfm, dtype=np.float64), cp.penalties)
+            ensemble_grad -= penalty_gradient
+        if cp.freeze is not None:
+            freeze_mask = np.asarray(cp.freeze, dtype=np.bool_)
+            ensemble_grad[freeze_mask] = 0.0
+        return ensemble_grad
+
     validate_control_problem(cp)
     waveform = np.asarray(wfm, dtype=np.float64)
     if waveform.ndim != 2:
@@ -751,6 +786,12 @@ def grape_gradient(cp: ControlProblem, wfm: RealArray) -> RealArray:
     if cp.freeze is not None:
         freeze_mask = np.asarray(cp.freeze, dtype=np.bool_)
         gradient[freeze_mask] = 0.0
+    if cp.penalties is not None:
+        _, penalty_gradient = total_penalty(waveform, cp.penalties)
+        gradient -= penalty_gradient
+        if cp.freeze is not None:
+            freeze_mask = np.asarray(cp.freeze, dtype=np.bool_)
+            gradient[freeze_mask] = 0.0
     return gradient
 
 
@@ -961,10 +1002,26 @@ def grape_xy_hilbert(cp: ControlProblem, wfm: RealArray) -> float:
 
 
 def grape_xy(cp: ControlProblem, wfm: RealArray) -> float:
-    """Return the scalar GRAPE fidelity for a Spinach-style XY control problem."""
-    basis = cp.basis.lower()
-    if basis == "liouville":
-        return grape_xy_liouville(cp, wfm)
-    if basis == "hilbert":
-        return grape_xy_hilbert(cp, wfm)
-    return _grape_xy_core(cp, wfm)
+    """Return the scalar GRAPE fidelity for a Spinach-style XY control problem.
+
+    When ``cp`` has multiple drift generators or power levels, the fidelity is
+    averaged over the Cartesian ensemble. When ``cp.penalties`` is set, the
+    summed penalty value is subtracted from the fidelity before returning.
+    """
+    if _has_ensemble_axes(cp):
+        from optimalcontrol.ensemble import ensemble_fidelity
+
+        bare_cp = replace(cp, penalties=None)
+        fidelity = ensemble_fidelity(bare_cp, wfm)
+    else:
+        basis = cp.basis.lower()
+        if basis == "liouville":
+            fidelity = grape_xy_liouville(cp, wfm)
+        elif basis == "hilbert":
+            fidelity = grape_xy_hilbert(cp, wfm)
+        else:
+            fidelity = _grape_xy_core(cp, wfm)
+    if cp.penalties is not None:
+        penalty_value, _ = total_penalty(np.asarray(wfm, dtype=np.float64), cp.penalties)
+        return fidelity - penalty_value
+    return fidelity

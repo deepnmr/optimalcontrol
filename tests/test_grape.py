@@ -405,3 +405,140 @@ def test_grape_xy_random_waveform_returns_bounded_float() -> None:
 
     assert isinstance(result, float)
     assert 0.0 <= result <= 1.0
+
+
+def test_grape_xy_ns_penalty_lowers_fidelity() -> None:
+    """grape_xy with NS penalty returns a lower value than without."""
+    from optimalcontrol.penalties import PenaltySpec
+
+    cp = _one_spin_hilbert_gradient_problem()
+    rng = np.random.default_rng(42)
+    waveform = rng.uniform(0.1, 0.3, size=(4, 2)).astype(np.float64)
+
+    fidelity_bare = grape_xy(cp, waveform)
+    cp_penalty = ControlProblem(
+        drifts=cp.drifts,
+        operators=cp.operators,
+        rho_init=cp.rho_init,
+        rho_targ=cp.rho_targ,
+        pulse_dt=cp.pulse_dt,
+        pwr_levels=cp.pwr_levels,
+        freeze=cp.freeze,
+        fidelity_mode=cp.fidelity_mode,
+        basis=cp.basis,
+        penalties=[PenaltySpec(kind="NS", weight=1.0)],
+    )
+    fidelity_with_penalty = grape_xy(cp_penalty, waveform)
+
+    assert fidelity_with_penalty < fidelity_bare
+
+
+def test_grape_gradient_penalty_lowers_gradient_norm() -> None:
+    """grape_gradient with NS penalty subtracts the penalty gradient."""
+    from optimalcontrol.penalties import PenaltySpec, penalty_NS
+
+    cp = _one_spin_hilbert_gradient_problem()
+    rng = np.random.default_rng(99)
+    waveform = rng.uniform(0.1, 0.3, size=(4, 2)).astype(np.float64)
+
+    grad_bare = grape_gradient(cp, waveform)
+    cp_penalty = ControlProblem(
+        drifts=cp.drifts,
+        operators=cp.operators,
+        rho_init=cp.rho_init,
+        rho_targ=cp.rho_targ,
+        pulse_dt=cp.pulse_dt,
+        pwr_levels=cp.pwr_levels,
+        freeze=cp.freeze,
+        fidelity_mode=cp.fidelity_mode,
+        basis=cp.basis,
+        penalties=[PenaltySpec(kind="NS", weight=1.0)],
+    )
+    grad_with_penalty = grape_gradient(cp_penalty, waveform)
+
+    _, expected_penalty_grad = penalty_NS(waveform, 1.0)
+    np.testing.assert_allclose(
+        grad_with_penalty,
+        grad_bare - expected_penalty_grad,
+        rtol=1e-10,
+    )
+
+
+def test_grape_xy_ensemble_multiple_drifts() -> None:
+    """grape_xy with multiple drifts dispatches to ensemble_fidelity."""
+    from optimalcontrol.ensemble import ensemble_fidelity
+
+    drift_a = np.complex128(-1j) * 0.3 * Iz()
+    drift_b = np.complex128(-1j) * 0.5 * Iz()
+    rho_init = np.array([1.0, 0.0], dtype=np.complex128)
+    rho_targ = np.array([0.0, 1.0], dtype=np.complex128)
+    cp = ControlProblem(
+        drifts=[drift_a, drift_b],
+        operators=[np.complex128(-1j) * Ix(), np.complex128(-1j) * Iy()],
+        rho_init=[rho_init],
+        rho_targ=[rho_targ],
+        pulse_dt=0.1,
+        pwr_levels=[1.0, 1.0],
+        freeze=None,
+        fidelity_mode="abs2",
+        basis="hilbert",
+    )
+    waveform = np.array(
+        [[0.05, -0.03], [0.01, 0.04], [-0.02, 0.02], [0.03, -0.01]],
+        dtype=np.float64,
+    )
+
+    result_direct = grape_xy(cp, waveform)
+    result_ensemble = ensemble_fidelity(cp, waveform)
+
+    np.testing.assert_allclose(result_direct, result_ensemble, rtol=1e-10)
+
+
+def test_grape_xy_ensemble_multiple_power_levels() -> None:
+    """grape_xy dispatches to ensemble_fidelity for RF power ensembles."""
+    from optimalcontrol.ensemble import ensemble_fidelity
+
+    rho_init = np.array([1.0, 0.0], dtype=np.complex128)
+    rho_targ = np.array([0.0, 1.0], dtype=np.complex128)
+    cp = ControlProblem(
+        drifts=[np.complex128(-1j) * 0.3 * Iz()],
+        operators=[np.complex128(-1j) * Ix()],
+        rho_init=[rho_init],
+        rho_targ=[rho_targ],
+        pulse_dt=0.1,
+        pwr_levels=[0.8, 1.2],
+        freeze=None,
+        fidelity_mode="abs2",
+        basis="hilbert",
+    )
+    waveform = np.array([[0.05], [0.01], [-0.02], [0.03]], dtype=np.float64)
+
+    result_direct = grape_xy(cp, waveform)
+    result_ensemble = ensemble_fidelity(cp, waveform)
+
+    np.testing.assert_allclose(result_direct, result_ensemble, rtol=1e-10)
+
+
+def test_grape_gradient_ensemble_multiple_power_levels() -> None:
+    """grape_gradient dispatches to ensemble_gradient for RF power ensembles."""
+    from optimalcontrol.ensemble import ensemble_gradient
+
+    rho_init = np.array([1.0, 0.0], dtype=np.complex128)
+    rho_targ = np.array([0.0, 1.0], dtype=np.complex128)
+    cp = ControlProblem(
+        drifts=[np.complex128(-1j) * 0.3 * Iz()],
+        operators=[np.complex128(-1j) * Ix()],
+        rho_init=[rho_init],
+        rho_targ=[rho_targ],
+        pulse_dt=0.1,
+        pwr_levels=[0.8, 1.2],
+        freeze=None,
+        fidelity_mode="abs2",
+        basis="hilbert",
+    )
+    waveform = np.array([[0.05], [0.01], [-0.02], [0.03]], dtype=np.float64)
+
+    result_direct = grape_gradient(cp, waveform)
+    result_ensemble = ensemble_gradient(cp, waveform)
+
+    np.testing.assert_allclose(result_direct, result_ensemble, rtol=1e-10)

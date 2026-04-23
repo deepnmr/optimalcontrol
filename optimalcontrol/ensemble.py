@@ -8,7 +8,12 @@ from typing import TypeVar
 import numpy as np
 import numpy.typing as npt
 
-from optimalcontrol.grape import ControlProblem, grape_gradient, grape_xy
+from optimalcontrol.grape import (
+    ControlProblem,
+    _has_rf_power_ensemble,
+    grape_gradient,
+    grape_xy,
+)
 
 Array = npt.NDArray[np.complex128]
 RealArray = npt.NDArray[np.float64]
@@ -255,7 +260,10 @@ def cartesian_product_ensemble(cp: ControlProblem) -> list[ControlProblem]:
     """Return the full Cartesian product over active ensemble dimensions."""
     problems: list[ControlProblem] = []
     for drift_problem in expand_drifts(cp):
-        problems.extend(expand_power_levels(drift_problem))
+        if _has_rf_power_ensemble(drift_problem):
+            problems.extend(expand_power_levels(drift_problem))
+        else:
+            problems.append(drift_problem)
     problems = _expand_optional_offsets(problems)
     problems = _expand_optional_phase_cycle(problems)
     return problems

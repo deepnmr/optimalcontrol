@@ -906,8 +906,8 @@
         "Typecheck passes"
       ],
       "priority": 57,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Integrated penalties into grape_xy/grape_gradient by subtracting total_penalty value/gradient. Integrated ensemble dispatch for multiple drifts, RF-power ensemble pwr_levels, offsets, and phase cycles while preserving ordinary per-channel pwr_levels. Added tests for NS penalty lowering fidelity, penalty gradient subtraction, and grape_xy/grape_gradient ensemble dispatch. Quality checks passed: ruff check ., mypy optimalcontrol/, python3 -m pytest (141 passed)."
     },
     {
       "id": "US-058",
