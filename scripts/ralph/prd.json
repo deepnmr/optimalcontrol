@@ -139,8 +139,8 @@
         "Typecheck passes"
       ],
       "priority": 9,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created tests/test_liouville.py with 4 tests: vec/unvec round-trip on 2x2 and 4x4 random Hermitian matrices, liouvillian_comm action vs direct -i*comm, and Lindblad dissipator vs explicit D(rho)=F*rho*F†-0.5*(F†F*rho+rho*F†F). Helper _random_hermitian uses np.random.Generator and returns NDArray[np.complex128]. All tests pass with rtol=1e-12."
     },
     {
       "id": "US-010",

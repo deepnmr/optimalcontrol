@@ -1,3 +1,15 @@
+## 2026-04-23 - US-009
+- Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
+- Helper _random_hermitian(n, rng) generates random Hermitian matrices via (A + A†)/2 with np.random.Generator
+- liouvillian_comm(A) @ vec(rho) verified against vec(-1j * comm(A, rho)) on 4×4 random matrices
+- lindblad_dissipator([F], [[1.0]]) @ vec(rho) verified against explicit F@rho@F† - 0.5*(F†F@rho + rho@F†F)
+- Files changed: tests/test_liouville.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Random Hermitian matrices: use rng.standard_normal().astype(complex128) twice, combine with np.complex128(1j), symmetrize via (A + A.conj().T)/2
+  - np.random.Generator type annotation: use `np.random.Generator` directly (no import needed beyond numpy)
+  - np.complex128(1j) avoids mypy inference issues when multiplying float and complex NDArrays
+---
+
 ## 2026-04-23 - US-008
 - Created tests/test_operators.py with 10 tests covering commutation relations, raising/lowering operators, place_operator, two_spin_product, and kron_product
 - Commutation relations tested as [Ix,Iy]=i*Iz (not i*Iz/2 as PRD states — using correct I=sigma/2 convention)
