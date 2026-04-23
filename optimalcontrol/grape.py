@@ -9,6 +9,7 @@ import numpy.typing as npt
 from scipy.linalg import expm
 
 from optimalcontrol.operators import unvec, vec
+from optimalcontrol.states import fidelity_abs2, fidelity_imag, fidelity_real
 
 Array = npt.NDArray[np.complex128]
 RealArray = npt.NDArray[np.float64]
@@ -307,3 +308,46 @@ def forward_states(rho_init: Array, propagators: list[Array]) -> list[Array]:
         current = _apply_propagator(current, propagator)
         states.append(current.copy())
     return states
+
+
+def backward_states(rho_targ: Array, propagators: list[Array]) -> list[Array]:
+    """Return target-first adjoint states [lambda_N, lambda_N-1, ..., lambda_0]."""
+    current = np.asarray(rho_targ, dtype=np.complex128).copy()
+    states = [current.copy()]
+    for propagator in reversed(propagators):
+        adjoint = np.asarray(propagator, dtype=np.complex128).conj().T
+        current = _apply_propagator(current, adjoint)
+        states.append(current.copy())
+    return states
+
+
+def _fidelity_by_mode(rho_f: Array, rho_t: Array, mode: str) -> float:
+    """Evaluate the configured fidelity mode for one state pair."""
+    if mode == "real":
+        return fidelity_real(rho_f, rho_t)
+    if mode == "imag":
+        return fidelity_imag(rho_f, rho_t)
+    if mode == "abs2":
+        return fidelity_abs2(rho_f, rho_t)
+    valid = ", ".join(sorted(VALID_FIDELITY_MODES))
+    raise ValueError(f"mode must be one of: {valid}")
+
+
+def final_fidelity(fwd_states: list[Array], bwd_states: list[Array], mode: str) -> float:
+    """Return fidelity between the final forward state and initial backward target."""
+    if len(fwd_states) == 0:
+        raise ValueError("fwd_states must be non-empty")
+    if len(bwd_states) == 0:
+        raise ValueError("bwd_states must be non-empty")
+    return _fidelity_by_mode(fwd_states[-1], bwd_states[0], mode)
+
+
+def grape_xy(cp: ControlProblem, wfm: RealArray) -> float:
+    """Return the scalar GRAPE fidelity for a Spinach-style XY control problem."""
+    propagators = forward_propagators(cp, wfm)
+    values: list[float] = []
+    for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ):
+        fwd = forward_states(rho_init, propagators)
+        bwd = backward_states(rho_targ, propagators)
+        values.append(final_fidelity(fwd, bwd, cp.fidelity_mode))
+    return float(np.mean(np.asarray(values, dtype=np.float64)))

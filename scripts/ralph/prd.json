@@ -474,8 +474,8 @@
         "Typecheck passes"
       ],
       "priority": 30,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented backward_states(), final_fidelity(), and grape_xy() in optimalcontrol/grape.py. Backward states are returned target-first in backward-time order [lambda_N, lambda_N-1, ..., lambda_0], applying each propagator's adjoint. final_fidelity() evaluates the final forward state against the initial backward target using fidelity modes real, imag, or abs2. grape_xy() returns the mean scalar fidelity across source-target pairs."
     },
     {
       "id": "US-031",
