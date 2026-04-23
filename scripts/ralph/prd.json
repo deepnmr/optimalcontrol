@@ -794,8 +794,8 @@
         "Typecheck passes"
       ],
       "priority": 50,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/plotting.py with plot_xy_controls(), plot_ampl_phase(), plot_rope_efficiency(), plot_crop_robustness(), and plot_trajectory(). All functions accept an optional ax parameter and return matplotlib.figure.Figure. plot_ampl_phase() uses subplots when ax=None and twinx when ax is provided. plot_crop_robustness() delegates to crop_robustness_sweep() and renders a pcolormesh colour map."
     },
     {
       "id": "US-051",

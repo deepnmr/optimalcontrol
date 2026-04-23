@@ -51,6 +51,21 @@
 - Waveform I/O lives in `optimalcontrol/io.py`; exported `Waveform.data` is shaped `(n_channels, n_steps)`, while GRAPE internals use `(n_steps, n_channels)`, so transpose only at I/O boundaries such as `waveform_from_result()` or `loaded.data.T`.
 - Spectrometer I/O in `optimalcontrol/io.py` is intentionally minimal: Bruker/JCAMP-DX helpers are documented stubs, heterodyne transforms rotate `x/y` channels by `exp(i*2*pi*carrier_hz*t)`, and FAPT import maps frequency/amplitude/phase/time rows to `Waveform` channels `frequency_hz`, `amplitude`, `phase_rad`.
 
+## 2026-04-23 - US-050
+- Created optimalcontrol/plotting.py with five plotting helpers
+- plot_xy_controls(): plots x/y channel waveforms from a Waveform object
+- plot_ampl_phase(): derives amplitude and phase from x/y channels; uses subplots(2,1) when ax=None, twinx when ax is provided
+- plot_rope_efficiency(): evaluates rope_g() and inept_max_efficiency() over a list of n values and plots both curves
+- plot_crop_robustness(): calls crop_robustness_sweep() and renders a pcolormesh colour map over ka/J and kc/ka grids
+- plot_trajectory(): iterates over trajectory states and ops dict, computing Re(Tr(O@rho)) or <psi|O|psi> and plotting each operator expectation
+- Files changed: optimalcontrol/plotting.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Plotting helpers should import matplotlib at module level inside a try/except and re-raise with a clear message if unavailable
+  - The `ax` optional parameter pattern: use `_figure_and_axes(ax)` for single-axes functions, but handle multi-axes layouts (like plot_ampl_phase subplots) as a special case before calling the helper
+  - plot_trajectory() duplicates the expectation_values() logic from analysis.py; future refactoring could import that helper, but keeping it inline avoids circular import risk
+  - For pcolormesh colour maps, set vmin=0 and vmax=1 explicitly and add a colorbar so efficiency scale is always visible
+---
+
 ## 2026-04-23 - US-049
 - Added robustness_histogram() and spectrogram_data() to optimalcontrol/analysis.py
 - robustness_histogram() sweeps over a Cartesian product of ControlProblem field replacements using copy.copy+setattr (dataclasses.replace(**dict) rejected by mypy strict mode)
