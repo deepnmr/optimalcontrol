@@ -279,3 +279,13 @@ Started: 2026-04-23
   - Keep ROPE regression tests in `tests/test_rope.py` and use `numpy.testing.assert_allclose` with the tolerance requested by each story
   - Ruff's import sorter places mixed-case imported names such as `rope_V` after lower-case ROPE helpers in the grouped import list
 ---
+
+## 2026-04-23 14:38 KST - US-023
+- Added finite-time ROPE regression tests to `tests/test_rope.py`
+- Covered the Appendix B critical duration `arccot(2)/(pi*J)`, large-duration convergence to `rope_g(n)`, waveform sample lengths and phase-II controls, and `rope_switching_time()` rejection for `T <= Tcrit`
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: tests/test_rope.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - For waveform tests, compute the phase-II region from `rope_switching_time(T, n, J_hz)` and assert samples between `s` and `T-s` have `u1 == u2 == 1`
+  - Use `math.atan2(1.0, 2.0)` in tests for `arccot(2)` to match the package's non-negative arccot convention
+---

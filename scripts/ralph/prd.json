@@ -363,8 +363,8 @@
         "Typecheck passes"
       ],
       "priority": 23,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added finite-time ROPE regression tests in tests/test_rope.py: rope_Tcrit(n=1,J=100)=arccot(2)/(pi*100), rope_finite_efficiency(T=10/J) approaches rope_g(1), rope_waveform arrays have ceil(T/dt) samples with phase-II u1=u2=1, and rope_switching_time rejects T <= Tcrit."
     },
     {
       "id": "US-024",
