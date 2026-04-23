@@ -30,6 +30,8 @@
 - GRAPE backward-state accumulation returns target-first states `[lambda_N, lambda_N-1, ..., lambda_0]` and applies each slice propagator's adjoint, so `final_fidelity()` compares `fwd_states[-1]` with `bwd_states[0]`.
 - `dir_diff_expm(H, dH, dt)` differentiates `expm(-1j*H*dt)`; for existing GRAPE generator matrices, map with `H=1j*generator` and `dH=1j*d_generator` to differentiate `expm(generator*dt)`.
 - `grape_gradient()` uses analytical forward sensitivity propagation for vector, Hilbert-matrix, and Liouville-matrix states, then zeroes entries where the freeze mask is true.
+- `grape_hessian()` uses exact forward second-sensitivity propagation only when flattened waveform parameters are <=50; frozen parameter rows and columns are zeroed.
+- `grape_xy()` dispatches `basis == "liouville"` to vectorised density propagation and `basis == "hilbert"` to pure-state vectors; the default dense path preserves the mixed representation behavior.
 
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
@@ -389,4 +391,16 @@ Started: 2026-04-23
   - The public directional-derivative helper follows the PRD Hamiltonian convention, while GRAPE gradient internally maps generator matrices through `H=1j*generator`
   - Freeze-mask semantics for gradients are simpler than waveform updates: compute the analytical gradient normally, then force frozen mask entries to exactly zero
   - Current gradient accumulation prioritizes correctness across supported state representations; future performance work can replace the forward sensitivity loop with backward-adjoint contractions
+---
+
+## 2026-04-23 15:27 KST - US-032
+- Implemented `grape_hessian()` in `optimalcontrol/grape.py` with an exact second Frechet derivative block helper and forward second-sensitivity accumulation for small waveforms
+- Added `grape_xy_liouville()` for vectorised density propagation, `grape_xy_hilbert()` for pure-state Hilbert propagation, and `grape_xy()` basis dispatch for `liouville` and `hilbert`
+- Added GRAPE tests covering the exact one-parameter Hessian, the >50-parameter Hessian cutoff, Liouville density-matrix vectorisation, and Hilbert rejection of density matrices
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: `optimalcontrol/grape.py`, `tests/test_grape.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Use the 4x4 auxiliary block matrix for exact mixed second Frechet derivatives of `expm(generator * dt)`; it includes both ordered derivative paths
+  - Hessian entries are flattened in waveform row-major order: `step_index * n_channels + channel_index`
+  - Liouville variant wrappers may accept square density matrices, but they vectorise with the package `vec()` helper before calling the core GRAPE fidelity path
 ---

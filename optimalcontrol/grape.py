@@ -2,7 +2,7 @@
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import numpy.typing as npt
@@ -284,6 +284,49 @@ def _dir_diff_generator_expm(generator: Array, d_generator: Array, dt: float) ->
     )
 
 
+def _second_dir_diff_generator_expm(
+    generator: Array,
+    d_generator_a: Array,
+    d_generator_b: Array,
+    dt: float,
+) -> Array:
+    """Return the mixed second derivative of expm(generator * dt).
+
+    The 4x4 block auxiliary matrix includes both ordered Frechet paths, yielding
+    the symmetric second directional derivative in directions ``a`` and ``b``.
+    """
+    generator_arr = np.asarray(generator, dtype=np.complex128)
+    d_a_arr = np.asarray(d_generator_a, dtype=np.complex128)
+    d_b_arr = np.asarray(d_generator_b, dtype=np.complex128)
+    dim = _validate_square_matrix("generator", generator_arr)
+    if d_a_arr.shape != generator_arr.shape:
+        raise ValueError(
+            f"d_generator_a shape {d_a_arr.shape} must match "
+            f"generator shape {generator_arr.shape}"
+        )
+    if d_b_arr.shape != generator_arr.shape:
+        raise ValueError(
+            f"d_generator_b shape {d_b_arr.shape} must match "
+            f"generator shape {generator_arr.shape}"
+        )
+    if not math.isfinite(dt):
+        raise ValueError("dt must be finite")
+
+    A = np.complex128(dt) * generator_arr
+    d_a = np.complex128(dt) * d_a_arr
+    d_b = np.complex128(dt) * d_b_arr
+    block = np.zeros((4 * dim, 4 * dim), dtype=np.complex128)
+    for block_index in range(4):
+        start = block_index * dim
+        block[start : start + dim, start : start + dim] = A
+    block[0:dim, dim : 2 * dim] = d_a
+    block[0:dim, 2 * dim : 3 * dim] = d_b
+    block[dim : 2 * dim, 3 * dim : 4 * dim] = d_b
+    block[2 * dim : 3 * dim, 3 * dim : 4 * dim] = d_a
+    block_expm = np.asarray(expm(block), dtype=np.complex128)
+    return block_expm[0:dim, 3 * dim : 4 * dim]
+
+
 def forward_propagators(cp: ControlProblem, wfm: RealArray) -> list[Array]:
     """Return per-slice propagators for a waveform under a control problem."""
     validate_control_problem(cp)
@@ -371,6 +414,59 @@ def _apply_derivative_propagator(state: Array, propagator: Array, d_propagator: 
     raise ValueError(f"state must be a vector or square matrix, got shape {state_arr.shape}")
 
 
+def _apply_second_derivative_propagator(
+    state: Array,
+    propagator: Array,
+    d_propagator_a: Array,
+    d_propagator_b: Array,
+    dd_propagator: Array,
+) -> Array:
+    """Apply one slice-propagator mixed second derivative to a state."""
+    state_arr = np.asarray(state, dtype=np.complex128)
+    propagator_arr = np.asarray(propagator, dtype=np.complex128)
+    d_a_arr = np.asarray(d_propagator_a, dtype=np.complex128)
+    d_b_arr = np.asarray(d_propagator_b, dtype=np.complex128)
+    dd_arr = np.asarray(dd_propagator, dtype=np.complex128)
+    _validate_square_propagator(propagator_arr)
+    for name, matrix in (
+        ("d_propagator_a", d_a_arr),
+        ("d_propagator_b", d_b_arr),
+        ("dd_propagator", dd_arr),
+    ):
+        if matrix.shape != propagator_arr.shape:
+            raise ValueError(
+                f"{name} shape {matrix.shape} must match "
+                f"propagator shape {propagator_arr.shape}"
+            )
+
+    if state_arr.ndim == 1:
+        if propagator_arr.shape != (state_arr.shape[0], state_arr.shape[0]):
+            raise ValueError(
+                f"propagator shape {propagator_arr.shape} cannot act on "
+                f"state shape {state_arr.shape}"
+            )
+        return dd_arr @ state_arr
+
+    if state_arr.ndim == 2 and state_arr.shape[0] == state_arr.shape[1]:
+        if propagator_arr.shape == state_arr.shape:
+            return np.asarray(
+                dd_arr @ state_arr @ propagator_arr.conj().T
+                + d_a_arr @ state_arr @ d_b_arr.conj().T
+                + d_b_arr @ state_arr @ d_a_arr.conj().T
+                + propagator_arr @ state_arr @ dd_arr.conj().T,
+                dtype=np.complex128,
+            )
+        liouville_shape = (state_arr.size, state_arr.size)
+        if propagator_arr.shape == liouville_shape:
+            return unvec(dd_arr @ vec(state_arr), state_arr.shape[0])
+        raise ValueError(
+            f"propagator shape {propagator_arr.shape} cannot act on "
+            f"state shape {state_arr.shape}"
+        )
+
+    raise ValueError(f"state must be a vector or square matrix, got shape {state_arr.shape}")
+
+
 def forward_states(rho_init: Array, propagators: list[Array]) -> list[Array]:
     """Return accumulated states [rho_0, rho_1, ..., rho_N]."""
     current = np.asarray(rho_init, dtype=np.complex128).copy()
@@ -445,6 +541,52 @@ def _fidelity_directional_derivative(
     raise ValueError(f"mode must be one of: {valid}")
 
 
+def _fidelity_second_directional_derivative(
+    rho_final: Array,
+    rho_targ: Array,
+    d_rho_a: Array,
+    d_rho_b: Array,
+    dd_rho: Array,
+    mode: str,
+) -> float:
+    """Return the fidelity mixed second derivative for final-state variations."""
+    rho_final_arr = np.asarray(rho_final, dtype=np.complex128)
+    rho_targ_arr = np.asarray(rho_targ, dtype=np.complex128)
+    d_a_arr = np.asarray(d_rho_a, dtype=np.complex128)
+    d_b_arr = np.asarray(d_rho_b, dtype=np.complex128)
+    dd_arr = np.asarray(dd_rho, dtype=np.complex128)
+    for name, array in (
+        ("rho_targ", rho_targ_arr),
+        ("d_rho_a", d_a_arr),
+        ("d_rho_b", d_b_arr),
+        ("dd_rho", dd_arr),
+    ):
+        if array.shape != rho_final_arr.shape:
+            raise ValueError(
+                f"{name} shape {array.shape} must match "
+                f"rho_final shape {rho_final_arr.shape}"
+            )
+
+    dd_overlap = np.complex128(np.vdot(rho_targ_arr, dd_arr))
+    if mode == "real":
+        return float(np.real(dd_overlap))
+    if mode == "imag":
+        return float(np.imag(dd_overlap))
+    if mode == "abs2":
+        overlap = np.complex128(np.vdot(rho_targ_arr, rho_final_arr))
+        d_overlap_a = np.complex128(np.vdot(rho_targ_arr, d_a_arr))
+        d_overlap_b = np.complex128(np.vdot(rho_targ_arr, d_b_arr))
+        return float(
+            2.0
+            * np.real(
+                d_overlap_b.conjugate() * d_overlap_a
+                + overlap.conjugate() * dd_overlap
+            )
+        )
+    valid = ", ".join(sorted(VALID_FIDELITY_MODES))
+    raise ValueError(f"mode must be one of: {valid}")
+
+
 def grape_gradient(cp: ControlProblem, wfm: RealArray) -> RealArray:
     """Return d(grape_xy)/d(wfm[k, c]) for all time slices and control channels."""
     validate_control_problem(cp)
@@ -498,8 +640,138 @@ def grape_gradient(cp: ControlProblem, wfm: RealArray) -> RealArray:
     return gradient
 
 
-def grape_xy(cp: ControlProblem, wfm: RealArray) -> float:
-    """Return the scalar GRAPE fidelity for a Spinach-style XY control problem."""
+def grape_hessian(cp: ControlProblem, wfm: RealArray) -> RealArray | None:
+    """Return the exact GRAPE Hessian for small waveforms, or None if too large."""
+    validate_control_problem(cp)
+    waveform = np.asarray(wfm, dtype=np.float64)
+    if waveform.ndim != 2:
+        raise ValueError(f"waveform must be two-dimensional, got shape {waveform.shape}")
+    validate_waveform(waveform, len(cp.operators), waveform.shape[0])
+    effective_waveform = apply_freeze(waveform, cp.freeze)
+    n_steps, n_channels = effective_waveform.shape
+    n_params = n_steps * n_channels
+    if n_params > 50:
+        return None
+
+    propagators: list[Array] = []
+    derivative_propagators: list[list[Array]] = []
+    second_derivative_propagators: list[list[list[Array]]] = []
+    control_directions = [
+        np.complex128(level) * np.asarray(operator, dtype=np.complex128)
+        for level, operator in zip(cp.pwr_levels, cp.operators)
+    ]
+    for waveform_row in effective_waveform:
+        generator = _slice_generator(cp, waveform_row)
+        propagator = np.asarray(expm(generator * cp.pulse_dt), dtype=np.complex128)
+        propagators.append(propagator)
+        derivative_propagators.append(
+            [
+                _dir_diff_generator_expm(generator, control_direction, cp.pulse_dt)
+                for control_direction in control_directions
+            ]
+        )
+        second_derivative_propagators.append(
+            [
+                [
+                    _second_dir_diff_generator_expm(
+                        generator,
+                        control_directions[channel_a],
+                        control_directions[channel_b],
+                        cp.pulse_dt,
+                    )
+                    for channel_b in range(n_channels)
+                ]
+                for channel_a in range(n_channels)
+            ]
+        )
+
+    hessian: RealArray = np.zeros((n_params, n_params), dtype=np.float64)
+    for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ):
+        current = np.asarray(rho_init, dtype=np.complex128).copy()
+        zero_state = np.zeros_like(current, dtype=np.complex128)
+        first_states = [zero_state.copy() for _ in range(n_params)]
+        second_states = [
+            [zero_state.copy() for _ in range(n_params)] for _ in range(n_params)
+        ]
+
+        for step_index in range(n_steps):
+            propagator = propagators[step_index]
+            next_current = _apply_propagator(current, propagator)
+            next_first_states = [
+                _apply_propagator(first_state, propagator)
+                for first_state in first_states
+            ]
+            next_second_states = [
+                [
+                    _apply_propagator(second_states[row][col], propagator)
+                    for col in range(n_params)
+                ]
+                for row in range(n_params)
+            ]
+
+            for channel_index in range(n_channels):
+                param_index = step_index * n_channels + channel_index
+                d_prop = derivative_propagators[step_index][channel_index]
+                for other_index in range(n_params):
+                    next_second_states[param_index][other_index] += (
+                        _apply_derivative_propagator(
+                            first_states[other_index],
+                            propagator,
+                            d_prop,
+                        )
+                    )
+                    next_second_states[other_index][param_index] += (
+                        _apply_derivative_propagator(
+                            first_states[other_index],
+                            propagator,
+                            d_prop,
+                        )
+                    )
+                next_first_states[param_index] += _apply_derivative_propagator(
+                    current,
+                    propagator,
+                    d_prop,
+                )
+
+            for channel_a in range(n_channels):
+                param_a = step_index * n_channels + channel_a
+                for channel_b in range(n_channels):
+                    param_b = step_index * n_channels + channel_b
+                    next_second_states[param_a][param_b] += (
+                        _apply_second_derivative_propagator(
+                            current,
+                            propagator,
+                            derivative_propagators[step_index][channel_a],
+                            derivative_propagators[step_index][channel_b],
+                            second_derivative_propagators[step_index][channel_a][channel_b],
+                        )
+                    )
+
+            current = next_current
+            first_states = next_first_states
+            second_states = next_second_states
+
+        for row in range(n_params):
+            for col in range(n_params):
+                hessian[row, col] += _fidelity_second_directional_derivative(
+                    current,
+                    rho_targ,
+                    first_states[row],
+                    first_states[col],
+                    second_states[row][col],
+                    cp.fidelity_mode,
+                )
+
+    hessian /= float(len(cp.rho_init))
+    if cp.freeze is not None:
+        freeze_mask = np.asarray(cp.freeze, dtype=np.bool_).reshape(n_params)
+        hessian[freeze_mask, :] = 0.0
+        hessian[:, freeze_mask] = 0.0
+    return hessian
+
+
+def _grape_xy_core(cp: ControlProblem, wfm: RealArray) -> float:
+    """Return scalar GRAPE fidelity without basis-specific state conversion."""
     propagators = forward_propagators(cp, wfm)
     values: list[float] = []
     for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ):
@@ -507,3 +779,78 @@ def grape_xy(cp: ControlProblem, wfm: RealArray) -> float:
         bwd = backward_states(rho_targ, propagators)
         values.append(final_fidelity(fwd, bwd, cp.fidelity_mode))
     return float(np.mean(np.asarray(values, dtype=np.float64)))
+
+
+def _vectorise_liouville_state(state: Array, generator_dim: int, name: str) -> Array:
+    """Return a Liouville vector state, vectorising a density matrix if needed."""
+    state_arr = np.asarray(state, dtype=np.complex128)
+    if state_arr.ndim == 1:
+        if state_arr.shape[0] != generator_dim:
+            raise ValueError(
+                f"{name} vector length {state_arr.shape[0]} does not match "
+                f"Liouville generator dimension {generator_dim}"
+            )
+        return state_arr.copy()
+    if state_arr.ndim == 2 and state_arr.shape[0] == state_arr.shape[1]:
+        if state_arr.size != generator_dim:
+            raise ValueError(
+                f"{name} matrix shape {state_arr.shape} does not vectorise to "
+                f"Liouville generator dimension {generator_dim}"
+            )
+        return vec(state_arr)
+    raise ValueError(f"{name} must be a vector or square density matrix")
+
+
+def grape_xy_liouville(cp: ControlProblem, wfm: RealArray) -> float:
+    """Return GRAPE fidelity using vectorised-density Liouville propagation."""
+    validate_control_problem(cp)
+    generator_dim = int(np.asarray(cp.drifts[0], dtype=np.complex128).shape[0])
+    rho_init = [
+        _vectorise_liouville_state(state, generator_dim, f"rho_init[{index}]")
+        for index, state in enumerate(cp.rho_init)
+    ]
+    rho_targ = [
+        _vectorise_liouville_state(state, generator_dim, f"rho_targ[{index}]")
+        for index, state in enumerate(cp.rho_targ)
+    ]
+    liouville_cp = replace(cp, rho_init=rho_init, rho_targ=rho_targ, basis="liouville")
+    return _grape_xy_core(liouville_cp, wfm)
+
+
+def _validate_hilbert_state(state: Array, generator_dim: int, name: str) -> Array:
+    """Return a pure Hilbert-space vector state or raise ValueError."""
+    state_arr = np.asarray(state, dtype=np.complex128)
+    if state_arr.ndim != 1:
+        raise ValueError(f"{name} must be a pure-state vector for Hilbert GRAPE")
+    if state_arr.shape[0] != generator_dim:
+        raise ValueError(
+            f"{name} vector length {state_arr.shape[0]} does not match "
+            f"Hilbert generator dimension {generator_dim}"
+        )
+    return state_arr.copy()
+
+
+def grape_xy_hilbert(cp: ControlProblem, wfm: RealArray) -> float:
+    """Return GRAPE fidelity using pure-state Hilbert-space propagation."""
+    validate_control_problem(cp)
+    generator_dim = int(np.asarray(cp.drifts[0], dtype=np.complex128).shape[0])
+    rho_init = [
+        _validate_hilbert_state(state, generator_dim, f"rho_init[{index}]")
+        for index, state in enumerate(cp.rho_init)
+    ]
+    rho_targ = [
+        _validate_hilbert_state(state, generator_dim, f"rho_targ[{index}]")
+        for index, state in enumerate(cp.rho_targ)
+    ]
+    hilbert_cp = replace(cp, rho_init=rho_init, rho_targ=rho_targ, basis="hilbert")
+    return _grape_xy_core(hilbert_cp, wfm)
+
+
+def grape_xy(cp: ControlProblem, wfm: RealArray) -> float:
+    """Return the scalar GRAPE fidelity for a Spinach-style XY control problem."""
+    basis = cp.basis.lower()
+    if basis == "liouville":
+        return grape_xy_liouville(cp, wfm)
+    if basis == "hilbert":
+        return grape_xy_hilbert(cp, wfm)
+    return _grape_xy_core(cp, wfm)

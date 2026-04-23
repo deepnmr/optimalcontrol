@@ -11,7 +11,10 @@ from optimalcontrol.grape import (
     final_fidelity,
     forward_propagators,
     forward_states,
+    grape_hessian,
     grape_xy,
+    grape_xy_hilbert,
+    grape_xy_liouville,
     validate_control_problem,
     validate_waveform,
 )
@@ -163,3 +166,73 @@ def test_grape_xy_returns_mean_fidelity_across_state_pairs() -> None:
     result = grape_xy(cp, waveform)
 
     np.testing.assert_allclose(result, 0.0, atol=1e-12)
+
+
+def test_grape_hessian_returns_exact_small_hilbert_hessian() -> None:
+    drift = np.zeros((2, 2), dtype=np.complex128)
+    sigma_x = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128)
+    operator = np.complex128(-1j) * sigma_x
+    rho = np.array([1.0, 0.0], dtype=np.complex128)
+    cp = ControlProblem(
+        drifts=[drift],
+        operators=[operator],
+        rho_init=[rho],
+        rho_targ=[rho],
+        pulse_dt=0.2,
+        pwr_levels=[1.0],
+        freeze=None,
+        fidelity_mode="real",
+        basis="hilbert",
+    )
+    waveform = np.array([[0.3]], dtype=np.float64)
+
+    hessian = grape_hessian(cp, waveform)
+
+    assert hessian is not None
+    expected = np.array([[-cp.pulse_dt**2 * np.cos(waveform[0, 0] * cp.pulse_dt)]])
+    np.testing.assert_allclose(hessian, expected, rtol=1e-12, atol=1e-12)
+
+
+def test_grape_hessian_returns_none_for_large_waveforms() -> None:
+    cp = _basic_control_problem()
+    cp.freeze = np.zeros((51, 1), dtype=np.bool_)
+    waveform = np.zeros((51, 1), dtype=np.float64)
+
+    hessian = grape_hessian(cp, waveform)
+
+    assert hessian is None
+
+
+def test_grape_xy_liouville_vectorises_density_matrices() -> None:
+    drift = np.zeros((4, 4), dtype=np.complex128)
+    operator = np.zeros((4, 4), dtype=np.complex128)
+    rho = np.array([[1.0, 0.0], [0.0, 0.0]], dtype=np.complex128)
+    cp = ControlProblem(
+        drifts=[drift],
+        operators=[operator],
+        rho_init=[rho],
+        rho_targ=[rho],
+        pulse_dt=1e-3,
+        pwr_levels=[1.0],
+        freeze=None,
+        basis="liouville",
+    )
+    waveform = np.zeros((2, 1), dtype=np.float64)
+
+    result = grape_xy_liouville(cp, waveform)
+    dispatched_result = grape_xy(cp, waveform)
+
+    np.testing.assert_allclose(result, 1.0, rtol=1e-12)
+    np.testing.assert_allclose(dispatched_result, result, rtol=1e-12)
+
+
+def test_grape_xy_hilbert_rejects_density_matrices() -> None:
+    cp = _basic_control_problem()
+    rho = np.array([[1.0, 0.0], [0.0, 0.0]], dtype=np.complex128)
+    cp.rho_init = [rho]
+    cp.rho_targ = [rho]
+    cp.basis = "hilbert"
+    waveform = np.zeros((4, 1), dtype=np.float64)
+
+    with pytest.raises(ValueError, match="pure-state vector"):
+        grape_xy_hilbert(cp, waveform)

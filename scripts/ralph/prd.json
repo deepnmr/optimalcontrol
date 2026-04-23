@@ -502,8 +502,8 @@
         "Typecheck passes"
       ],
       "priority": 32,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented grape_hessian() with exact second-sensitivity propagation for <=50 flattened waveform parameters and None for larger Hessians. Added Liouville and Hilbert GRAPE variants: grape_xy_liouville() vectorises square density matrices before propagation, grape_xy_hilbert() requires pure-state vectors, and grape_xy() dispatches on basis values 'liouville' and 'hilbert'."
     },
     {
       "id": "US-033",
