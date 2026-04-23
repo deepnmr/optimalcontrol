@@ -25,6 +25,8 @@
 - CROP analytical regression tests live in `tests/test_crop.py`; stored eta values for `(ka,kc,J)=(60,45,100)` and `(110,82.5,100)` are `0.7015664580244381` and `0.5854918065322852`.
 - GRAPE control containers live in `optimalcontrol/grape.py`; validate generator dimensions against vector states directly and square matrix states via either Hilbert dimension (`dim`) or Liouville vectorised dimension (`dim^2`).
 - GRAPE freeze masks are boolean 2-D arrays shaped as waveform rows by control channels; validation checks the channel count against `len(ControlProblem.operators)`.
+- GRAPE propagation treats `ControlProblem.drifts` and `operators` as generator matrices: slice propagators use `expm(generator * pulse_dt)`, with waveform entries scaled by per-channel `pwr_levels`.
+- GRAPE forward-state accumulation mirrors state hooks: vectors use `U @ rho`, square matrix states use Hilbert propagation when `U.shape == rho.shape`, otherwise Liouville propagation via `vec`/`unvec` when `U.shape == (rho.size, rho.size)`.
 
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
@@ -349,4 +351,15 @@ Started: 2026-04-23
   - `ControlProblem.operators` defines the channel count; `pwr_levels` and freeze-mask columns should match it
   - The initial GRAPE validation accepts square matrix states when either the matrix Hilbert dimension or vectorised Liouville dimension matches the generator size
   - Supported fidelity modes are `real`, `imag`, and `abs2`, matching the existing state fidelity helpers
+---
+
+## 2026-04-23 15:09 KST - US-029
+- Implemented `validate_waveform()`, `apply_freeze()`, `forward_propagators()`, and `forward_states()` in `optimalcontrol/grape.py`
+- Added waveform tests for time-row/channel-column validation, freeze restoration from an initial waveform, per-slice exponentials with `pwr_levels`, vector-state accumulation, and matrix-state Hilbert propagation
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: `optimalcontrol/grape.py`, `tests/test_grape.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - `forward_propagators()` is intentionally the single-drift path for now; ensemble expansion should wrap or extend it instead of silently ignoring additional drifts
+  - Freeze masks are validated against the full waveform shape when applied; `validate_control_problem()` can only check the channel count before a waveform is available
+  - `apply_freeze()` accepts an optional `initial_wfm` so future optimizers can restore fixed entries after candidate updates
 ---

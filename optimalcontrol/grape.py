@@ -6,8 +6,13 @@ from dataclasses import dataclass
 
 import numpy as np
 import numpy.typing as npt
+from scipy.linalg import expm
+
+from optimalcontrol.operators import unvec, vec
 
 Array = npt.NDArray[np.complex128]
+RealArray = npt.NDArray[np.float64]
+BoolArray = npt.NDArray[np.bool_]
 
 VALID_FIDELITY_MODES = {"real", "imag", "abs2"}
 
@@ -177,3 +182,128 @@ def validate_control_problem(cp: ControlProblem) -> None:
 
     if not cp.basis:
         raise ValueError("basis must be a non-empty string")
+
+
+def validate_waveform(wfm: RealArray, n_channels: int, n_steps: int) -> None:
+    """Raise ValueError if a waveform is not shaped as time rows by channels."""
+    if n_channels <= 0:
+        raise ValueError("n_channels must be positive")
+    if n_steps <= 0:
+        raise ValueError("n_steps must be positive")
+
+    array = np.asarray(wfm, dtype=np.float64)
+    expected_shape = (n_steps, n_channels)
+    if array.ndim != 2 or array.shape != expected_shape:
+        raise ValueError(f"waveform must have shape {expected_shape}, got {array.shape}")
+    if not np.all(np.isfinite(array)):
+        raise ValueError("waveform entries must be finite")
+
+
+def apply_freeze(
+    wfm: RealArray,
+    freeze_mask: BoolArray | None,
+    initial_wfm: RealArray | None = None,
+) -> RealArray:
+    """Return a waveform copy with frozen entries restored from an initial waveform.
+
+    If ``initial_wfm`` is not supplied, the frozen entries are already the current
+    waveform values and the function only validates the mask while returning a
+    mutable copy.
+    """
+    waveform = np.asarray(wfm, dtype=np.float64)
+    if waveform.ndim != 2:
+        raise ValueError(f"waveform must be two-dimensional, got shape {waveform.shape}")
+
+    result = waveform.copy()
+    if freeze_mask is None:
+        return result
+
+    mask = np.asarray(freeze_mask)
+    if mask.dtype != np.dtype(np.bool_):
+        raise ValueError("freeze mask must have boolean dtype")
+    if mask.shape != waveform.shape:
+        raise ValueError(f"freeze mask must have shape {waveform.shape}, got {mask.shape}")
+
+    if initial_wfm is None:
+        return result
+
+    initial = np.asarray(initial_wfm, dtype=np.float64)
+    validate_waveform(initial, waveform.shape[1], waveform.shape[0])
+    result[mask] = initial[mask]
+    return result
+
+
+def _single_drift(cp: ControlProblem) -> Array:
+    """Return the only drift currently supported by the non-ensemble path."""
+    if len(cp.drifts) != 1:
+        raise ValueError("forward propagation currently supports exactly one drift")
+    return np.asarray(cp.drifts[0], dtype=np.complex128)
+
+
+def _slice_generator(cp: ControlProblem, waveform_row: RealArray) -> Array:
+    """Assemble the generator for one pulse slice."""
+    generator = _single_drift(cp).copy()
+    for channel_index, operator in enumerate(cp.operators):
+        amplitude = np.complex128(waveform_row[channel_index] * cp.pwr_levels[channel_index])
+        generator += amplitude * np.asarray(operator, dtype=np.complex128)
+    return generator
+
+
+def forward_propagators(cp: ControlProblem, wfm: RealArray) -> list[Array]:
+    """Return per-slice propagators for a waveform under a control problem."""
+    validate_control_problem(cp)
+    waveform = np.asarray(wfm, dtype=np.float64)
+    if waveform.ndim != 2:
+        raise ValueError(f"waveform must be two-dimensional, got shape {waveform.shape}")
+    validate_waveform(waveform, len(cp.operators), waveform.shape[0])
+    effective_waveform = apply_freeze(waveform, cp.freeze)
+
+    propagators: list[Array] = []
+    for waveform_row in effective_waveform:
+        generator = _slice_generator(cp, waveform_row)
+        propagators.append(np.asarray(expm(generator * cp.pulse_dt), dtype=np.complex128))
+    return propagators
+
+
+def _validate_square_propagator(propagator: Array) -> None:
+    """Raise ValueError if a propagator is not square."""
+    if propagator.ndim != 2 or propagator.shape[0] != propagator.shape[1]:
+        raise ValueError(f"propagator must be square, got shape {propagator.shape}")
+
+
+def _apply_propagator(state: Array, propagator: Array) -> Array:
+    """Apply a Hilbert-space or Liouville-space propagator to one state."""
+    state_arr = np.asarray(state, dtype=np.complex128)
+    propagator_arr = np.asarray(propagator, dtype=np.complex128)
+    _validate_square_propagator(propagator_arr)
+
+    if state_arr.ndim == 1:
+        if propagator_arr.shape != (state_arr.shape[0], state_arr.shape[0]):
+            raise ValueError(
+                f"propagator shape {propagator_arr.shape} cannot act on "
+                f"state shape {state_arr.shape}"
+            )
+        return propagator_arr @ state_arr
+
+    if state_arr.ndim == 2 and state_arr.shape[0] == state_arr.shape[1]:
+        if propagator_arr.shape == state_arr.shape:
+            return propagator_arr @ state_arr @ propagator_arr.conj().T
+        liouville_shape = (state_arr.size, state_arr.size)
+        if propagator_arr.shape == liouville_shape:
+            return unvec(propagator_arr @ vec(state_arr), state_arr.shape[0])
+        raise ValueError(
+            f"propagator shape {propagator_arr.shape} cannot act on "
+            f"state shape {state_arr.shape}"
+        )
+
+    raise ValueError(f"state must be a vector or square matrix, got shape {state_arr.shape}")
+
+
+def forward_states(rho_init: Array, propagators: list[Array]) -> list[Array]:
+    """Return accumulated states [rho_0, rho_1, ..., rho_N]."""
+    current = np.asarray(rho_init, dtype=np.complex128).copy()
+    states = [current.copy()]
+    for propagator in propagators:
+        current = _apply_propagator(current, propagator)
+        states.append(current.copy())
+    return states

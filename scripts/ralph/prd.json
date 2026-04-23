@@ -460,8 +460,8 @@
         "Typecheck passes"
       ],
       "priority": 29,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented validate_waveform(), apply_freeze(), forward_propagators(), and forward_states() in optimalcontrol/grape.py. Waveforms are real arrays shaped as time rows by control channels; freeze masks must match the full waveform shape when applied. forward_propagators() currently supports the single-drift non-ensemble path, scales each channel by pwr_levels, assembles generator slices, and exponentiates generator*pulse_dt with scipy.linalg.expm. forward_states() accumulates vector states, Hilbert-space matrix states, and Liouville-space matrix propagation via vec/unvec. Added tests/test_grape.py coverage for waveform validation, freeze restoration, propagator construction, and forward state accumulation."
     },
     {
       "id": "US-030",
