@@ -1,3 +1,17 @@
+## 2026-04-23 - US-053
+- Created examples/rope_finite_time_efficiency.py: plots finite-time g_T vs T for n=1, J=100 Hz
+- Created examples/rope_finite_time_controls.py: plots three-phase u1/u2 controls and RF amplitude for T=0.263/J, n=1
+- Created examples/rope_sodium_formate.py: physical parameters J=193 Hz, T2=1.4 ms, k=1/(pi*T2); n=1.178, g_inf=0.367, prints Tcrit
+- Created examples/rope_hard_pulse.py: converts finite-time ROPE to hard-pulse approximation; prints 55.14 deg flip angle from acos(u1(0)) matching JMR paper
+- All scripts run headless with matplotlib.use("Agg"), save PNGs to examples/output/, guard under if __name__ == "__main__", and expose a run() function returning a primary numpy array
+- Files changed: examples/rope_finite_time_efficiency.py, examples/rope_finite_time_controls.py, examples/rope_sodium_formate.py, examples/rope_hard_pulse.py, examples/output/*.png, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Sodium formate relaxation rate convention: k_hz = 1/(pi*T2) so that exp(-pi*k_hz*t) = exp(-t/T2), matching the package inept_efficiency() signature
+  - rope_hard_pulse_angle() takes the boundary u1(0) value (from rope_phase1_control at t=0) and returns acos(u1/amplitude) in degrees; for the JMR example this is 55.14 deg
+  - When displaying RF amplitude waveforms, clip or handle the singularity at t=0 and at phase boundaries where u1 approaches 1; use NaN for display rather than clamping which can mislead
+  - The hard-pulse script returns a 3-element float64 array [h1_deg, h2_deg, alpha_u1_deg] so snapshot tests (US-055) can validate all three flip angle values
+---
+
 ## 2026-04-23 - US-052
 - Created examples/rope_efficiency_vs_n.py reproducing ROPE vs INEPT efficiency over n in [0, 3]
 - Created examples/rope_gain_Ia_2IbSc.py reproducing ROPE gain over INEPT for the Ia->2IbSc transfer

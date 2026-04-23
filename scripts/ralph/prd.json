@@ -845,8 +845,8 @@
         "Typecheck passes"
       ],
       "priority": 53,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created four headless ROPE finite-time example scripts: rope_finite_time_efficiency.py (g_T vs T for n=1), rope_finite_time_controls.py (three-phase u1/u2/amplitude waveform for T=0.263/J), rope_sodium_formate.py (J=193 Hz, T2=1.4 ms physical parameters with k=1/(pi*T2) convention), and rope_hard_pulse.py (hard-pulse approximation from rope_finite_angles and rope_hard_pulse_angle, prints 55.14 deg flip angle matching JMR paper). All scripts use matplotlib.use('Agg'), save PNGs to examples/output/, and guard execution under if __name__ == '__main__'."
     },
     {
       "id": "US-054",
