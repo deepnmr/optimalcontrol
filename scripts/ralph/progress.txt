@@ -124,6 +124,7 @@
 - L-BFGS helpers in `optimalcontrol/optimizers.py` store curvature for minimising `-f`: use `s = wfm_new - wfm_old`, `y = grad_old - grad_new`, and fall back to the raw gradient if the two-loop recursion does not produce an ascent direction.
 - Newton-Raphson in `optimalcontrol/optimizers.py` works on the exact small-waveform `grape_hessian()` by solving the Newton system for `-f`; regularisation shifts `-H` to positive-definite before solving, and `rfo=True` swaps in an augmented-Hessian level shift.
 - Optimizer checkpoints in `optimalcontrol/optimizers.py` are JSON files that always store waveform and fidelity history, and optimizer-driven saves also persist `n_feval` plus L-BFGS memory so resumed runs can match uninterrupted trajectories; function-level `checkpoint_path` overrides `ControlProblem.checkpoint_path`.
+- `run_grape()` lives in `optimalcontrol/optimizers.py` and imports `waveform_from_result()` locally to avoid an `optimizers.py` ↔ `io.py` import cycle; it returns the exported `Waveform` plus the raw `OptimResult`.
 - Optimizer tests can monkeypatch `optimalcontrol.optimizers.grape_xy` and `grape_gradient` for deterministic toy objectives; monkeypatch `line_search_cubic` to a fixed positive step when checkpoint tests need non-converged partial runs.
 - Product-operator matrix-state GRAPE transfer tests should use `basis="dense"`; `basis="hilbert"` is reserved for pure-state vector GRAPE and rejects square matrix states.
 - Waveform I/O lives in `optimalcontrol/io.py`; exported `Waveform.data` is shaped `(n_channels, n_steps)`, while GRAPE internals use `(n_steps, n_channels)`, so transpose only at I/O boundaries such as `waveform_from_result()` or `loaded.data.T`.
@@ -726,4 +727,17 @@ Started: 2026-04-23
   - `ControlProblem.pwr_levels` is per-channel scaling for normal GRAPE problems when its length equals `len(operators)`, and an RF-power ensemble axis only when the length differs
   - Ensemble dispatch in `grape_xy()`/`grape_gradient()` should strip penalties from the expanded member problems and subtract the total penalty exactly once at the top level
   - Apply freeze masks after penalty-gradient subtraction so frozen waveform entries remain zero-gradient even when penalties are active
+---
+
+## 2026-04-23 20:38 KST - US-058
+- Added optional `trajectory` diagnostics to `OptimResult` and wired `produce_trajectory=True` through `lbfgs_grape()` and `newton_raphson()`
+- Added `run_grape()` as the top-level optimizer convenience wrapper returning `(Waveform, OptimResult)` and relying on existing optimizer checkpoint saves when `ControlProblem.checkpoint_path` is set
+- Exported `run_grape` from `optimalcontrol.__init__`
+- Added optimizer tests covering trajectory attachment, `run_grape()` waveform/checkpoint output, public export, and unknown-method validation
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest` (145 passed)
+- Files changed: `optimalcontrol/optimizers.py`, `optimalcontrol/__init__.py`, `tests/test_optimizers.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Keep `run_grape()` in `optimizers.py` but import `waveform_from_result()` locally inside the function to avoid a circular import with `io.py`
+  - `OptimResult.trajectory` stores copied complex state arrays and remains `None` unless explicitly requested with `produce_trajectory=True`
+  - Existing optimizer checkpoint machinery already saves on converged exits through `ControlProblem.checkpoint_path`; `run_grape()` should not overwrite L-BFGS checkpoints with a reduced manual checkpoint
 ---

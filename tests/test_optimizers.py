@@ -8,6 +8,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+import optimalcontrol
 import optimalcontrol.optimizers as optimizers
 from optimalcontrol.grape import ControlProblem, grape_xy
 from optimalcontrol.operators import Ix, Iy, Iz
@@ -231,6 +232,58 @@ def test_newton_raphson_rejects_missing_exact_hessian(
 
     with pytest.raises(ValueError, match="exact Hessian"):
         optimizers.newton_raphson(cp, wfm0)
+
+
+def test_lbfgs_grape_attaches_trajectory_when_requested() -> None:
+    cp = _optimizer_control_problem(n_steps=3, n_channels=2)
+    wfm0 = np.zeros((3, 2), dtype=np.float64)
+
+    result = optimizers.lbfgs_grape(cp, wfm0, produce_trajectory=True)
+
+    assert result.trajectory is not None
+    assert len(result.trajectory) == wfm0.shape[0] + 1
+    for state in result.trajectory:
+        np.testing.assert_allclose(state, cp.rho_init[0], atol=1e-12, rtol=1e-12)
+
+
+def test_newton_raphson_attaches_trajectory_when_requested() -> None:
+    cp = _optimizer_control_problem(n_steps=2, n_channels=1)
+    wfm0 = np.zeros((2, 1), dtype=np.float64)
+
+    result = optimizers.newton_raphson(cp, wfm0, produce_trajectory=True)
+
+    assert result.trajectory is not None
+    assert len(result.trajectory) == wfm0.shape[0] + 1
+    for state in result.trajectory:
+        np.testing.assert_allclose(state, cp.rho_init[0], atol=1e-12, rtol=1e-12)
+
+
+def test_run_grape_returns_waveform_result_and_checkpoint(
+    tmp_path: pathlib.Path,
+) -> None:
+    cp = _optimizer_control_problem(n_steps=3, n_channels=2)
+    checkpoint_path = tmp_path / "run-grape-checkpoint.json"
+    cp.checkpoint_path = str(checkpoint_path)
+    wfm0 = np.zeros((3, 2), dtype=np.float64)
+
+    waveform, result = optimizers.run_grape(cp, wfm0, produce_trajectory=True)
+
+    assert optimalcontrol.run_grape is optimizers.run_grape
+    assert result.converged is True
+    assert result.trajectory is not None
+    assert checkpoint_path.exists()
+    np.testing.assert_allclose(waveform.data, result.wfm_final.T, atol=1e-12, rtol=1e-12)
+    loaded_waveform, loaded_history = optimizers.load_checkpoint(str(checkpoint_path))
+    np.testing.assert_allclose(loaded_waveform, result.wfm_final, atol=1e-12, rtol=1e-12)
+    assert loaded_history == pytest.approx(result.history)
+
+
+def test_run_grape_rejects_unknown_method() -> None:
+    cp = _optimizer_control_problem(n_steps=1, n_channels=1)
+    wfm0 = np.zeros((1, 1), dtype=np.float64)
+
+    with pytest.raises(ValueError, match="method"):
+        optimizers.run_grape(cp, wfm0, method="unsupported")
 
 
 def _run_optimizer(

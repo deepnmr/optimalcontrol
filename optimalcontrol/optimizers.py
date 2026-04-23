@@ -5,7 +5,7 @@ import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -19,6 +19,10 @@ from optimalcontrol.grape import (
     validate_waveform,
 )
 
+if TYPE_CHECKING:
+    from optimalcontrol.io import Waveform
+
+Array = npt.NDArray[np.complex128]
 RealArray = npt.NDArray[np.float64]
 Objective = Callable[[RealArray], float]
 Gradient = Callable[[RealArray], RealArray]
@@ -35,6 +39,7 @@ class OptimResult:
     converged: bool
     reason: str
     history: list[float]
+    trajectory: list[Array] | None = None
 
 
 class LBFGSState(TypedDict):
@@ -658,6 +663,7 @@ def _result(
     converged: bool,
     reason: str,
     history: list[float],
+    trajectory: list[Array] | None = None,
 ) -> OptimResult:
     """Build an optimizer result with copied mutable fields."""
     return OptimResult(
@@ -668,6 +674,51 @@ def _result(
         converged=converged,
         reason=reason,
         history=history.copy(),
+        trajectory=None
+        if trajectory is None
+        else [np.asarray(state, dtype=np.complex128).copy() for state in trajectory],
+    )
+
+
+def _trajectory_for_result(
+    cp: ControlProblem,
+    waveform: RealArray,
+    produce_trajectory: bool,
+) -> list[Array] | None:
+    """Return final-waveform trajectory diagnostics when requested."""
+    if not produce_trajectory:
+        return None
+
+    from optimalcontrol.analysis import state_trajectory
+
+    return [
+        np.asarray(state, dtype=np.complex128).copy()
+        for state in state_trajectory(cp, waveform)
+    ]
+
+
+def _grape_result(
+    cp: ControlProblem,
+    wfm: RealArray,
+    fidelity: float,
+    n_iter: int,
+    n_feval: int,
+    converged: bool,
+    reason: str,
+    history: list[float],
+    *,
+    produce_trajectory: bool,
+) -> OptimResult:
+    """Build a GRAPE optimizer result with optional trajectory diagnostics."""
+    return _result(
+        wfm,
+        fidelity,
+        n_iter,
+        n_feval,
+        converged,
+        reason,
+        history,
+        trajectory=_trajectory_for_result(cp, wfm, produce_trajectory),
     )
 
 
@@ -863,6 +914,7 @@ def lbfgs_grape(
     tol_g: float = 1e-6,
     max_iter: int = 500,
     checkpoint_path: str | None = None,
+    produce_trajectory: bool = False,
 ) -> OptimResult:
     """Optimise GRAPE controls with limited-memory BFGS and line search."""
     _validate_optimizer_controls(tol_x, tol_g, max_iter)
@@ -897,7 +949,17 @@ def lbfgs_grape(
             n_feval=n_feval(),
             lbfgs_state=state,
         )
-        return _result(waveform, fidelity, completed_iter, n_feval(), True, "grad_tol", history)
+        return _grape_result(
+            cp,
+            waveform,
+            fidelity,
+            completed_iter,
+            n_feval(),
+            True,
+            "grad_tol",
+            history,
+            produce_trajectory=produce_trajectory,
+        )
     if completed_iter >= max_iter:
         _save_optimizer_checkpoint(
             checkpoint_file,
@@ -906,7 +968,17 @@ def lbfgs_grape(
             n_feval=n_feval(),
             lbfgs_state=state,
         )
-        return _result(waveform, fidelity, completed_iter, n_feval(), False, "max_iter", history)
+        return _grape_result(
+            cp,
+            waveform,
+            fidelity,
+            completed_iter,
+            n_feval(),
+            False,
+            "max_iter",
+            history,
+            produce_trajectory=produce_trajectory,
+        )
 
     for iteration in range(completed_iter + 1, max_iter + 1):
         direction = lbfgs_direction(state, gradient)
@@ -925,7 +997,8 @@ def lbfgs_grape(
                 n_feval=n_feval(),
                 lbfgs_state=state,
             )
-            return _result(
+            return _grape_result(
+                cp,
                 waveform,
                 fidelity,
                 iteration - 1,
@@ -933,6 +1006,7 @@ def lbfgs_grape(
                 True,
                 "step_tol",
                 history,
+                produce_trajectory=produce_trajectory,
             )
 
         previous_waveform = waveform
@@ -956,7 +1030,17 @@ def lbfgs_grape(
                 lbfgs_state=state,
             )
         if grad_norm <= tol_g:
-            return _result(waveform, fidelity, iteration, n_feval(), True, "grad_tol", history)
+            return _grape_result(
+                cp,
+                waveform,
+                fidelity,
+                iteration,
+                n_feval(),
+                True,
+                "grad_tol",
+                history,
+                produce_trajectory=produce_trajectory,
+            )
 
     _save_optimizer_checkpoint(
         checkpoint_file,
@@ -965,7 +1049,17 @@ def lbfgs_grape(
         n_feval=n_feval(),
         lbfgs_state=state,
     )
-    return _result(waveform, fidelity, max_iter, n_feval(), False, "max_iter", history)
+    return _grape_result(
+        cp,
+        waveform,
+        fidelity,
+        max_iter,
+        n_feval(),
+        False,
+        "max_iter",
+        history,
+        produce_trajectory=produce_trajectory,
+    )
 
 
 def newton_raphson(
@@ -977,6 +1071,7 @@ def newton_raphson(
     tol_g: float = 1e-6,
     max_iter: int = 200,
     checkpoint_path: str | None = None,
+    produce_trajectory: bool = False,
 ) -> OptimResult:
     """Optimise GRAPE controls with Newton-Raphson steps on the exact Hessian."""
     _validate_optimizer_controls(tol_x, tol_g, max_iter)
@@ -998,10 +1093,30 @@ def newton_raphson(
         raise ValueError(f"gradient shape {gradient.shape} must match wfm shape {waveform.shape}")
     if _array_norm(gradient) <= tol_g:
         _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
-        return _result(waveform, fidelity, completed_iter, n_feval(), True, "grad_tol", history)
+        return _grape_result(
+            cp,
+            waveform,
+            fidelity,
+            completed_iter,
+            n_feval(),
+            True,
+            "grad_tol",
+            history,
+            produce_trajectory=produce_trajectory,
+        )
     if completed_iter >= max_iter:
         _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
-        return _result(waveform, fidelity, completed_iter, n_feval(), False, "max_iter", history)
+        return _grape_result(
+            cp,
+            waveform,
+            fidelity,
+            completed_iter,
+            n_feval(),
+            False,
+            "max_iter",
+            history,
+            produce_trajectory=produce_trajectory,
+        )
 
     for iteration in range(completed_iter + 1, max_iter + 1):
         hessian = hessian_fn(waveform)
@@ -1015,7 +1130,8 @@ def newton_raphson(
         step_norm = _array_norm(step)
         if alpha <= 0.0 or step_norm <= tol_x:
             _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
-            return _result(
+            return _grape_result(
+                cp,
                 waveform,
                 fidelity,
                 iteration - 1,
@@ -1023,6 +1139,7 @@ def newton_raphson(
                 True,
                 "step_tol",
                 history,
+                produce_trajectory=produce_trajectory,
             )
 
         candidate = np.asarray(waveform + step, dtype=np.float64)
@@ -1038,7 +1155,55 @@ def newton_raphson(
         if iteration % 10 == 0 or grad_norm <= tol_g:
             _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
         if grad_norm <= tol_g:
-            return _result(waveform, fidelity, iteration, n_feval(), True, "grad_tol", history)
+            return _grape_result(
+                cp,
+                waveform,
+                fidelity,
+                iteration,
+                n_feval(),
+                True,
+                "grad_tol",
+                history,
+                produce_trajectory=produce_trajectory,
+            )
 
     _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
-    return _result(waveform, fidelity, max_iter, n_feval(), False, "max_iter", history)
+    return _grape_result(
+        cp,
+        waveform,
+        fidelity,
+        max_iter,
+        n_feval(),
+        False,
+        "max_iter",
+        history,
+        produce_trajectory=produce_trajectory,
+    )
+
+
+def run_grape(
+    cp: ControlProblem,
+    wfm0: RealArray,
+    method: str = "lbfgs",
+    **kwargs: object,
+) -> tuple["Waveform", OptimResult]:
+    """Optimise a GRAPE problem and return an exportable waveform plus result.
+
+    ``method`` accepts ``"lbfgs"``/``"lbfgs_grape"`` and
+    ``"newton"``/``"newton_raphson"``. Keyword arguments are passed directly to
+    the selected optimizer.
+    """
+    method_key = method.lower().replace("-", "_")
+    if method_key in {"lbfgs", "l_bfgs", "lbfgs_grape"}:
+        optimizer = cast(Callable[..., OptimResult], lbfgs_grape)
+    elif method_key in {"newton", "newton_raphson"}:
+        optimizer = cast(Callable[..., OptimResult], newton_raphson)
+    else:
+        raise ValueError("method must be 'lbfgs' or 'newton'")
+
+    result = optimizer(cp, wfm0, **kwargs)
+
+    from optimalcontrol.io import waveform_from_result
+
+    waveform = waveform_from_result(cp, wfm0, result)
+    return waveform, result

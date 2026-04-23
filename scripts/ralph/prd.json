@@ -922,8 +922,8 @@
         "Typecheck passes"
       ],
       "priority": 58,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added OptimResult.trajectory optional diagnostics, produce_trajectory support for lbfgs_grape() and newton_raphson(), and run_grape() convenience wrapper returning Waveform plus OptimResult. run_grape dispatches to L-BFGS/Newton and relies on existing optimizer checkpoint handling, so cp.checkpoint_path is saved on converged exits. Exported run_grape from optimalcontrol.__init__. Added tests for trajectory attachment, run_grape waveform/checkpoint behavior, and unknown method validation. Quality checks passed: ruff check ., mypy optimalcontrol/, python3 -m pytest (145 passed)."
     },
     {
       "id": "US-059",
