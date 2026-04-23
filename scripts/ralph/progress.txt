@@ -3,9 +3,20 @@
 - Typecheck: run `mypy optimalcontrol/` from project root; requires at least one .py file in the directory.
 - Install: `pip install -e ".[dev]"` installs runtime + dev dependencies in editable mode.
 - Tests: use `python3.10 -m pytest` (or `python3 -m pytest`), NOT bare `pytest` — the pytest script fails to pick up the editable install path in this environment. The `-m` flag ensures sys.path includes site-packages and the editable finder is registered.
+- Numpy type annotations: mypy strict mode requires `npt.NDArray[np.complex128]` (from `numpy.typing`), NOT bare `ndarray` — bare `ndarray` triggers "Missing type parameters for generic type" errors.
 
 # Ralph Progress Log
 Started: 2026-04-23
+---
+
+## 2026-04-23 - US-004
+- Created optimalcontrol/operators.py with Ix, Iy, Iz, Ip, Im, E returning npt.NDArray[np.complex128]
+- All operators are 2x2 complex128 arrays satisfying standard spin-1/2 algebra
+- Files changed: optimalcontrol/operators.py, scripts/ralph/prd.json
+- **Learnings for future iterations:**
+  - mypy strict mode requires `npt.NDArray[np.complex128]` not bare `ndarray` for return types
+  - PRD text says [Ix,Iy]=i*Iz/2 but the correct standard result for Ix=σ_x/2 is [Ix,Iy]=i*Iz; PRD text is wrong
+  - Standard spin-1/2 commutation: [Ix,Iy]=i*Iz, [Iy,Iz]=i*Ix, [Iz,Ix]=i*Iy (cyclic, factor of 1/2 not present when using I=σ/2 convention)
 ---
 
 ## 2026-04-23 - US-003

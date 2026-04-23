@@ -58,8 +58,8 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented Ix, Iy, Iz, Ip, Im, E in optimalcontrol/operators.py using numpy.typing.NDArray[np.complex128]. Standard relations: [Ix,Iy]=i*Iz (not i*Iz/2 as PRD text states — PRD text is wrong; the actual standard result is i*Iz for spin-1/2 operators I=sigma/2). Ip=Ix+i*Iy, Im=Ix-i*Iy verified."
     },
     {
       "id": "US-005",
