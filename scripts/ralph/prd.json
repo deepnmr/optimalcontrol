@@ -382,8 +382,8 @@
         "Typecheck passes"
       ],
       "priority": 24,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/crop.py with crop_zeta(), crop_eta(), crop_eta_prime(), and physical transfer limit helpers. CROP analytical rates and J_hz are treated as same-unit frequency scalars for dimensionless ratios; crop_zeta validates non-negative rates, positive J_hz, and ka >= kc."
     },
     {
       "id": "US-025",

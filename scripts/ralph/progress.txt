@@ -19,6 +19,7 @@
 - Finite-time ROPE solves Appendix B in scaled time `s = pi * J_hz * t`; `rope_j(s, n)` expects that scaled time, while public duration/switching APIs accept and return seconds.
 - ROPE waveform sampling uses physical seconds in `rope_waveform()`, but `rope_phase1_control()` and `rope_phase3_control()` use scaled times `pi * J_hz * t` because their signatures do not include `J_hz`.
 - ROPE analytical regression tests live in `tests/test_rope.py`; use `numpy.testing.assert_allclose` with the rtol requested by each story.
+- CROP analytical helpers live in `optimalcontrol/crop.py`; treat `ka`, `kc`, primed rates, and `J_hz` as same-unit frequency scalars for dimensionless ratios, with `ka >= kc` required for real `zeta`.
 
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
@@ -288,4 +289,15 @@ Started: 2026-04-23
 - **Learnings for future iterations:**
   - For waveform tests, compute the phase-II region from `rope_switching_time(T, n, J_hz)` and assert samples between `s` and `T-s` have `u1 == u2 == 1`
   - Use `math.atan2(1.0, 2.0)` in tests for `arccot(2)` to match the package's non-negative arccot convention
+---
+
+## 2026-04-23 14:41 KST - US-024
+- Created `optimalcontrol/crop.py` with CROP efficiency helpers: `crop_zeta()`, `crop_eta()`, and `crop_eta_prime()`
+- Added physical transfer limit helpers for `Iz -> 2IzSz`, `2IzSz -> Sz`, `Iz -> Sz`, and single-transition transfers
+- Validated non-negative CROP rates, positive `J_hz`, and the real-valued physical domain `ka >= kc`
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: optimalcontrol/crop.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - The CROP analytical formulas are dimensionless same-unit ratios; do not convert `J_hz` or rates to rad/s inside `crop.py`
+  - `crop_eta_prime()` is the same formula as `crop_eta()` applied to the primed spin-S rates
 ---
