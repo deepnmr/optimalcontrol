@@ -1,3 +1,20 @@
+## Codebase Patterns
+- Build backend: use setuptools (hatchling not available in this environment). Set `[tool.setuptools.packages.find]` with `include = ["optimalcontrol*"]` to avoid setuptools detecting refdoc/ as a top-level package.
+- Typecheck: run `mypy optimalcontrol/` from project root; requires at least one .py file in the directory.
+- Install: `pip install -e ".[dev]"` installs runtime + dev dependencies in editable mode.
+
 # Ralph Progress Log
 Started: 2026-04-23
+---
+
+## 2026-04-23 - US-001
+- Created directories: optimalcontrol/, tests/, examples/, docs/ (with .gitkeep placeholders)
+- Created pyproject.toml using setuptools backend (not hatchling which is unavailable)
+- Added [tool.setuptools.packages.find] to limit package discovery to optimalcontrol*
+- Added placeholder optimalcontrol/__init__.py with __version__ = '0.1.0' (needed for mypy)
+- Files changed: pyproject.toml, optimalcontrol/__init__.py, docs/.gitkeep, examples/.gitkeep, tests/.gitkeep
+- **Learnings for future iterations:**
+  - hatchling is not installed; always use setuptools as build backend
+  - refdoc/ directory at project root causes setuptools flat-layout detection to fail; must add packages.find include filter
+  - mypy requires at least one .py file to run successfully on a directory
 ---
