@@ -1,3 +1,14 @@
+## 2026-04-23 - US-008
+- Created tests/test_operators.py with 10 tests covering commutation relations, raising/lowering operators, place_operator, two_spin_product, and kron_product
+- Commutation relations tested as [Ix,Iy]=i*Iz (not i*Iz/2 as PRD states — using correct I=sigma/2 convention)
+- place_operator(Iz,0,2) verified against Iz⊗E = diag(0.5,0.5,-0.5,-0.5)
+- two_spin_product(Iz,Iz) verified against Iz⊗Iz = diag(0.25,-0.25,-0.25,0.25)
+- Files changed: tests/test_operators.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - PRD acceptance criteria says [Ix,Iy]=i*Iz/2 but the correct formula is [Ix,Iy]=i*Iz; write tests to match actual implementation
+  - Test file for operators lives in tests/test_operators.py; US-009 Liouville tests can be added to the same file or a new one
+---
+
 ## 2026-04-23 - US-007
 - Added assert_square, assert_hermitian, L_op, R_op, liouvillian_comm, double_comm, lindblad_dissipator, dense_or_sparse to optimalcontrol/operators.py
 - Column-major vec convention: L_op(A)=I⊗A (np.kron(I,A)), R_op(A)=A^T⊗I (np.kron(A.T,I))

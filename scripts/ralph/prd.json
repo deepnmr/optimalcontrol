@@ -123,8 +123,8 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created tests/test_operators.py with 10 tests. Commutation relations verified as [Ix,Iy]=i*Iz (PRD text says /2 which is wrong for I=sigma/2 convention). two_spin_product(Iz,Iz) matches diag(0.25,-0.25,-0.25,0.25). All pass with rtol=1e-12."
     },
     {
       "id": "US-009",
