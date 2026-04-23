@@ -1,3 +1,17 @@
+## 2026-04-23 - US-054
+- Created examples/crop_efficiency_vs_ka.py: plots CROP eta vs ka/J for kc/ka in [0, 0.5, 0.75, 0.99]
+- Created examples/crop_truncated_waveform.py: plots truncated CROP amplitude and irradiation frequency for ka/J=0.6 and 1.1, kc/ka=0.75
+- Created examples/crop_lossless_limit.py: plots eta vs kc/ka approaching 1 for ka/J in [0.3, 0.6, 1.0, 1.5]
+- Created examples/crop_regression_params.py: prints and plots eta regression values for stored test constants (0.7016 and 0.5855)
+- All scripts use matplotlib.use("Agg"), save PNGs to examples/output/, guard under if __name__ == "__main__", and expose run() returning NDArray[np.float64]
+- ruff --fix corrected import order in crop_regression_params.py (blank line between os and other imports was flagged as I001)
+- Files changed: examples/crop_efficiency_vs_ka.py, examples/crop_truncated_waveform.py, examples/crop_lossless_limit.py, examples/crop_regression_params.py, examples/output/*.png, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - CROP example scripts follow the same pattern as ROPE examples; no new API is needed from crop.py
+  - crop_pulse_params().truncation_window can be very large in the near-lossless regime (kc -> ka); always pass a finite truncation_window from params rather than computing it separately
+  - For the regression params script, use _CASES to store (ka/J, kc/ka, expected_eta) triples so the same constants can validate both printed output and returned array
+---
+
 ## 2026-04-23 - US-053
 - Created examples/rope_finite_time_efficiency.py: plots finite-time g_T vs T for n=1, J=100 Hz
 - Created examples/rope_finite_time_controls.py: plots three-phase u1/u2 controls and RF amplitude for T=0.263/J, n=1

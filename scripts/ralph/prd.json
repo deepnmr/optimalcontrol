@@ -861,8 +861,8 @@
         "Typecheck passes"
       ],
       "priority": 54,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created four headless CROP example scripts: crop_efficiency_vs_ka.py (eta vs ka/J for kc/ka in [0, 0.5, 0.75, 0.99]), crop_truncated_waveform.py (amplitude and irradiation frequency for ka/J=0.6 and 1.1 with kc/ka=0.75), crop_lossless_limit.py (eta vs kc/ka approaching 1 for several ka/J values), and crop_regression_params.py (prints and plots eta regression values matching test_crop.py stored constants). All scripts use matplotlib.use('Agg'), save PNGs to examples/output/, and guard under if __name__ == '__main__'."
     },
     {
       "id": "US-055",
