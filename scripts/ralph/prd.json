@@ -619,8 +619,8 @@
         "Typecheck passes"
       ],
       "priority": 39,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/distortions.py with distortion_noop(), distortion_tanh(), distortion_root(), distortion_single_pole(), distortion_single_zero(), diagnostic lower_upper_clip(), and companion *_deriv helpers. Distortions follow the package waveform convention of time rows by channels; the causal pole/zero filters use zero pre-history and derivative helpers return same-shape local sensitivities for later chain-rule integration."
     },
     {
       "id": "US-040",

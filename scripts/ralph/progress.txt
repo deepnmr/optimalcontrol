@@ -4,6 +4,7 @@
 - Install: `pip install -e ".[dev]"` installs runtime + dev dependencies in editable mode.
 - Tests: use `python3.10 -m pytest` (or `python3 -m pytest`), NOT bare `pytest` — the pytest script fails to pick up the editable install path in this environment. The `-m` flag ensures sys.path includes site-packages and the editable finder is registered.
 - Numpy type annotations: mypy strict mode requires `npt.NDArray[np.complex128]` (from `numpy.typing`), NOT bare `ndarray` — bare `ndarray` triggers "Missing type parameters for generic type" errors.
+- Distortion helpers live in `optimalcontrol/distortions.py`; keep waveform shape as `(n_steps, n_channels)` with time on axis 0 even though Spinach documents the transposed XY-by-time layout, and have `_deriv` helpers return same-shape local sensitivities rather than full Jacobians.
 - Superoperator convention (column-major): L_op(A) = I⊗A = np.kron(I,A), R_op(A) = A^T⊗I = np.kron(A.T,I). PRD text uses row-major labels — ignore and use these formulas.
 - scipy.sparse: import csr_matrix at module level; mypy handles it via scipy's inline stubs. Use Union[npt.NDArray[np.complex128], csr_matrix] for functions returning either.
 - Spin-system convention: `two_spin_system()` uses spin index 0 as I/source and 1 as S/target, with zero `shifts_hz` for on-resonance paper models and relaxation rates stored in rad/s.
@@ -484,4 +485,15 @@ Started: 2026-04-23
   - Treat penalty values as minimisation terms; future fidelity objectives should subtract penalty values and penalty gradients from the maximised GRAPE objective
   - `SNSA` computes spillout from the Euclidean row amplitude across channels, while `SNS` applies spillout independently to each Cartesian waveform sample
   - `total_penalty()` accepts named `PenaltySpec` entries or callables returning `(value, gradient)` and validates that gradients match waveform shape
+---
+
+## 2026-04-23 16:49 KST - US-039
+- Created `optimalcontrol/distortions.py` with `distortion_noop()`, `distortion_tanh()`, `distortion_root()`, `distortion_single_pole()`, `distortion_single_zero()`, `lower_upper_clip()`, and companion `_deriv` helpers
+- Implemented causal single-pole and single-zero filters over the package waveform convention of time rows by channels, with zero pre-history and same-shape local sensitivity arrays for later chain-rule use
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: `optimalcontrol/distortions.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Spinach documents distortion waveforms as XY rows by time columns, but this package keeps the established `(n_steps, n_channels)` convention and applies filter recurrences down axis 0
+  - For the simplified causal filter helpers in this package, the companion `_deriv` functions expose same-shape local sensitivities instead of full time-coupled Jacobian matrices
+  - `distortion_root_deriv()` uses `0.0` at zero-valued samples to avoid injecting infinities into later chain-rule consumers
 ---
