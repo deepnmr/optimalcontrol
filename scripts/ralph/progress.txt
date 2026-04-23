@@ -46,6 +46,8 @@
 - L-BFGS helpers in `optimalcontrol/optimizers.py` store curvature for minimising `-f`: use `s = wfm_new - wfm_old`, `y = grad_old - grad_new`, and fall back to the raw gradient if the two-loop recursion does not produce an ascent direction.
 - Newton-Raphson in `optimalcontrol/optimizers.py` works on the exact small-waveform `grape_hessian()` by solving the Newton system for `-f`; regularisation shifts `-H` to positive-definite before solving, and `rfo=True` swaps in an augmented-Hessian level shift.
 - Optimizer checkpoints in `optimalcontrol/optimizers.py` are JSON files that always store waveform and fidelity history, and optimizer-driven saves also persist `n_feval` plus L-BFGS memory so resumed runs can match uninterrupted trajectories; function-level `checkpoint_path` overrides `ControlProblem.checkpoint_path`.
+- Optimizer tests can monkeypatch `optimalcontrol.optimizers.grape_xy` and `grape_gradient` for deterministic toy objectives; monkeypatch `line_search_cubic` to a fixed positive step when checkpoint tests need non-converged partial runs.
+- Product-operator matrix-state GRAPE transfer tests should use `basis="dense"`; `basis="hilbert"` is reserved for pure-state vector GRAPE and rejects square matrix states.
 
 ## 2026-04-23 15:42 KST - US-034
 - Added finite-difference coverage for `grape_gradient()` on a one-spin Hilbert-space problem with 4 steps and 2 channels
@@ -557,4 +559,16 @@ Started: 2026-04-23
   - Checkpoint history keeps the initial fidelity at index 0, so resumed optimizer loops should restart from `len(history) - 1` completed iterations rather than from `len(history)`
   - Exact L-BFGS resume requires serialising the curvature memory (`s_history`, `y_history`, `rho_history`) alongside waveform/history; reloading only the waveform silently changes later search directions
   - Save final optimizer state on exit as well as every 10 iterations so short runs and converged runs still leave a usable checkpoint file
+---
+
+## 2026-04-23 17:36 KST - US-045
+- Added `lbfgs_grape()` convergence coverage on the exact quadratic maximisation objective `f(x)=-||x-x*||^2`
+- Added a real one-spin product-operator `Iz -> Ix` GRAPE transfer test confirming L-BFGS improves `grape_xy()` fidelity within 20 iterations
+- Added a L-BFGS checkpoint resume test: 5 iterations saved plus 5 resumed matches an uninterrupted 10-iteration run within `rtol=1e-6`
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: `tests/test_optimizers.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Matrix product-operator GRAPE tests need `basis="dense"`; `basis="hilbert"` is only for pure-state vectors
+  - For deterministic optimizer resume tests, monkeypatching `line_search_cubic()` to a fixed positive step keeps partial runs from converging before the checkpoint boundary
+  - L-BFGS quadratic tests can patch the optimizer module's imported `grape_xy()` and `grape_gradient()` directly without constructing a physical control problem
 ---

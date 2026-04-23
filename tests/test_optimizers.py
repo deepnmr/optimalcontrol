@@ -9,7 +9,9 @@ import numpy.typing as npt
 import pytest
 
 import optimalcontrol.optimizers as optimizers
-from optimalcontrol.grape import ControlProblem
+from optimalcontrol.grape import ControlProblem, grape_xy
+from optimalcontrol.operators import Ix, Iy, Iz
+from optimalcontrol.states import normalise_hs
 
 
 def _optimizer_control_problem(n_steps: int, n_channels: int) -> ControlProblem:
@@ -25,6 +27,21 @@ def _optimizer_control_problem(n_steps: int, n_channels: int) -> ControlProblem:
         pwr_levels=[1.0] * n_channels,
         freeze=None,
         basis="hilbert",
+    )
+
+
+def _one_spin_iz_to_ix_problem(n_steps: int) -> ControlProblem:
+    """Return a small one-spin product-operator transfer problem."""
+    return ControlProblem(
+        drifts=[np.zeros((2, 2), dtype=np.complex128)],
+        operators=[np.complex128(-1j) * Ix(), np.complex128(-1j) * Iy()],
+        rho_init=[normalise_hs(Iz())],
+        rho_targ=[normalise_hs(Ix())],
+        pulse_dt=0.1,
+        pwr_levels=[1.0, 1.0],
+        freeze=None,
+        fidelity_mode="real",
+        basis="dense",
     )
 
 
@@ -62,6 +79,95 @@ def _patch_quadratic_objective(
     monkeypatch.setattr(optimizers, "grape_xy", grape_xy)
     monkeypatch.setattr(optimizers, "grape_gradient", grape_gradient)
     monkeypatch.setattr(optimizers, "grape_hessian", grape_hessian)
+
+
+def test_lbfgs_grape_converges_on_negative_norm_quadratic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    optimum = np.array([[0.35, -0.2], [0.75, -0.45]], dtype=np.float64)
+    optimum_flat = optimum.reshape(-1).copy()
+
+    def grape_xy_quadratic(
+        _: ControlProblem,
+        wfm: npt.NDArray[np.float64],
+    ) -> float:
+        diff = wfm.reshape(-1) - optimum_flat
+        return float(-diff @ diff)
+
+    def grape_gradient_quadratic(
+        _: ControlProblem,
+        wfm: npt.NDArray[np.float64],
+    ) -> npt.NDArray[np.float64]:
+        diff = wfm.reshape(-1) - optimum_flat
+        return np.asarray((-2.0 * diff).reshape(wfm.shape), dtype=np.float64)
+
+    monkeypatch.setattr(optimizers, "grape_xy", grape_xy_quadratic)
+    monkeypatch.setattr(optimizers, "grape_gradient", grape_gradient_quadratic)
+    cp = _optimizer_control_problem(n_steps=2, n_channels=2)
+    wfm0 = np.zeros_like(optimum)
+
+    result = optimizers.lbfgs_grape(cp, wfm0, m=4, tol_x=1e-12, tol_g=1e-12, max_iter=10)
+
+    assert result.converged is True
+    np.testing.assert_allclose(result.wfm_final, optimum, atol=1e-5, rtol=0.0)
+
+
+def test_lbfgs_grape_improves_one_spin_iz_to_ix_transfer() -> None:
+    cp = _one_spin_iz_to_ix_problem(n_steps=4)
+    wfm0 = np.zeros((4, 2), dtype=np.float64)
+
+    initial_fidelity = grape_xy(cp, wfm0)
+    result = optimizers.lbfgs_grape(cp, wfm0, m=4, tol_x=0.0, tol_g=0.0, max_iter=20)
+
+    assert result.n_iter <= 20
+    assert result.fidelity_final > initial_fidelity + 0.9
+    assert result.fidelity_final > 0.999
+
+
+def test_lbfgs_checkpoint_resume_five_plus_five_matches_ten_iterations(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    optimum = np.array([[1.0, -0.5]], dtype=np.float64)
+    curvature = np.eye(optimum.size, dtype=np.float64)
+    _patch_quadratic_objective(monkeypatch, optimum, curvature)
+    monkeypatch.setattr(optimizers, "line_search_cubic", lambda *_args, **_kwargs: 0.25)
+    cp = _optimizer_control_problem(n_steps=1, n_channels=2)
+    wfm0 = np.zeros_like(optimum)
+
+    continuous = optimizers.lbfgs_grape(
+        cp,
+        wfm0,
+        m=4,
+        tol_x=0.0,
+        tol_g=0.0,
+        max_iter=10,
+    )
+    checkpoint_path = tmp_path / "lbfgs-five-plus-five.json"
+    partial = optimizers.lbfgs_grape(
+        cp,
+        wfm0,
+        m=4,
+        tol_x=0.0,
+        tol_g=0.0,
+        max_iter=5,
+        checkpoint_path=str(checkpoint_path),
+    )
+    resumed = optimizers.lbfgs_grape(
+        cp,
+        np.full_like(wfm0, 99.0),
+        m=4,
+        tol_x=0.0,
+        tol_g=0.0,
+        max_iter=10,
+        checkpoint_path=str(checkpoint_path),
+    )
+
+    assert partial.n_iter == 5
+    assert partial.reason == "max_iter"
+    assert resumed.n_iter == continuous.n_iter == 10
+    np.testing.assert_allclose(resumed.wfm_final, continuous.wfm_final, rtol=1e-6, atol=1e-12)
+    np.testing.assert_allclose(resumed.fidelity_final, continuous.fidelity_final, rtol=1e-6)
 
 
 def test_newton_raphson_converges_on_concave_quadratic(

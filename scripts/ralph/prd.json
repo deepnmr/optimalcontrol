@@ -715,8 +715,8 @@
         "Typecheck passes"
       ],
       "priority": 45,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added tests/test_optimizers.py coverage for lbfgs_grape on an exact negative-norm quadratic objective, a one-spin product-operator Iz->Ix transfer that improves grape_xy fidelity within 20 iterations, and a 5-iteration checkpoint plus 5-iteration resume matching an uninterrupted 10-iteration L-BFGS run within rtol=1e-6."
     },
     {
       "id": "US-046",
