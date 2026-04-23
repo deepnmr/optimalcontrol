@@ -1,8 +1,10 @@
 """Shared optimizer result types and line-search utilities."""
 
+import json
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TypedDict
 
 import numpy as np
@@ -53,6 +55,25 @@ class _LinePoint:
     dphi: float
 
 
+class _SerialisedLBFGSState(TypedDict):
+    """JSON-compatible representation of an ``LBFGSState``."""
+
+    m: int
+    s_history: list[list[list[float]]]
+    y_history: list[list[list[float]]]
+    rho_history: list[float]
+
+
+@dataclass(frozen=True)
+class _CheckpointData:
+    """Validated checkpoint contents used by the optimizers."""
+
+    wfm: RealArray
+    history: list[float]
+    n_feval: int = 0
+    lbfgs_state: LBFGSState | None = None
+
+
 def _as_real_array(name: str, value: RealArray) -> RealArray:
     """Return a finite float64 array."""
     array = np.asarray(value, dtype=np.float64)
@@ -90,6 +111,222 @@ def _initial_waveform(cp: ControlProblem, wfm0: RealArray) -> RealArray:
         raise ValueError(f"wfm0 must be two-dimensional, got shape {waveform.shape}")
     validate_waveform(waveform, len(cp.operators), waveform.shape[0])
     return waveform.copy()
+
+
+def _validate_checkpoint_path(path: str) -> Path:
+    """Return a usable checkpoint file path."""
+    if not path.strip():
+        raise ValueError("checkpoint_path must be a non-empty string")
+    checkpoint_path = Path(path)
+    if checkpoint_path.exists() and checkpoint_path.is_dir():
+        raise ValueError("checkpoint_path must point to a file, not a directory")
+    return checkpoint_path
+
+
+def _serialise_lbfgs_state(state: LBFGSState) -> _SerialisedLBFGSState:
+    """Return a JSON-compatible snapshot of an L-BFGS state."""
+    memory = _copy_lbfgs_state(state)
+    return {
+        "m": int(memory["m"]),
+        "s_history": [step.tolist() for step in memory["s_history"]],
+        "y_history": [curvature.tolist() for curvature in memory["y_history"]],
+        "rho_history": [float(rho) for rho in memory["rho_history"]],
+    }
+
+
+def _deserialise_lbfgs_state(raw: object) -> LBFGSState:
+    """Return a validated L-BFGS state restored from checkpoint JSON."""
+    if not isinstance(raw, dict):
+        raise ValueError("checkpoint lbfgs_state must be a JSON object")
+
+    try:
+        m_value = int(raw["m"])
+        s_raw = raw["s_history"]
+        y_raw = raw["y_history"]
+        rho_raw = raw["rho_history"]
+    except KeyError as exc:
+        raise ValueError(f"checkpoint lbfgs_state is missing {exc.args[0]!r}") from exc
+
+    if not isinstance(s_raw, list) or not isinstance(y_raw, list) or not isinstance(rho_raw, list):
+        raise ValueError("checkpoint lbfgs_state histories must be JSON lists")
+
+    s_history = [
+        _as_real_array("checkpoint s_history", np.asarray(value, dtype=np.float64))
+        for value in s_raw
+    ]
+    y_history = [
+        _as_real_array("checkpoint y_history", np.asarray(value, dtype=np.float64))
+        for value in y_raw
+    ]
+    rho_history = [float(value) for value in rho_raw]
+    if not all(math.isfinite(value) for value in rho_history):
+        raise ValueError("checkpoint rho_history entries must be finite")
+
+    state: LBFGSState = {
+        "m": m_value,
+        "s_history": s_history,
+        "y_history": y_history,
+        "rho_history": rho_history,
+    }
+    return _copy_lbfgs_state(state)
+
+
+def _checkpoint_history(result_so_far: list[float] | OptimResult) -> list[float]:
+    """Return the fidelity-history portion of a saveable result."""
+    raw_history = result_so_far.history if isinstance(result_so_far, OptimResult) else result_so_far
+    history = [float(value) for value in raw_history]
+    if not all(math.isfinite(value) for value in history):
+        raise ValueError("checkpoint history entries must be finite")
+    return history
+
+
+def _write_checkpoint(checkpoint_path: Path, checkpoint: _CheckpointData) -> None:
+    """Write one optimizer checkpoint to disk."""
+    waveform = _as_real_array("wfm", checkpoint.wfm)
+    if waveform.ndim != 2:
+        raise ValueError(f"wfm must be two-dimensional, got shape {waveform.shape}")
+
+    history = _checkpoint_history(checkpoint.history)
+    payload: dict[str, object] = {
+        "wfm": waveform.tolist(),
+        "history": history,
+        "n_feval": int(checkpoint.n_feval),
+    }
+    if checkpoint.n_feval < 0:
+        raise ValueError("checkpoint n_feval must be non-negative")
+    if checkpoint.lbfgs_state is not None:
+        payload["lbfgs_state"] = _serialise_lbfgs_state(checkpoint.lbfgs_state)
+
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _read_checkpoint(path: str | Path) -> _CheckpointData:
+    """Return validated checkpoint contents from disk."""
+    checkpoint_path = path if isinstance(path, Path) else _validate_checkpoint_path(path)
+    payload = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("checkpoint payload must be a JSON object")
+
+    if "wfm" not in payload or "history" not in payload:
+        raise ValueError("checkpoint payload must contain 'wfm' and 'history'")
+
+    waveform = _as_real_array("checkpoint wfm", np.asarray(payload["wfm"], dtype=np.float64))
+    if waveform.ndim != 2:
+        raise ValueError(f"checkpoint wfm must be two-dimensional, got shape {waveform.shape}")
+
+    history_value = payload["history"]
+    if not isinstance(history_value, list):
+        raise ValueError("checkpoint history must be a JSON list")
+    history = _checkpoint_history(history_value)
+
+    raw_n_feval = payload.get("n_feval", 0)
+    n_feval = int(raw_n_feval)
+    if n_feval < 0:
+        raise ValueError("checkpoint n_feval must be non-negative")
+
+    lbfgs_state = (
+        _deserialise_lbfgs_state(payload["lbfgs_state"])
+        if "lbfgs_state" in payload
+        else None
+    )
+    return _CheckpointData(wfm=waveform, history=history, n_feval=n_feval, lbfgs_state=lbfgs_state)
+
+
+def _effective_checkpoint_path(
+    cp: ControlProblem,
+    checkpoint_path: str | None,
+) -> Path | None:
+    """Return the checkpoint file requested by the optimizer call, if any."""
+    candidate = checkpoint_path if checkpoint_path is not None else cp.checkpoint_path
+    if candidate is None:
+        return None
+    return _validate_checkpoint_path(candidate)
+
+
+def _restore_checkpoint(
+    cp: ControlProblem,
+    wfm0: RealArray,
+    checkpoint_path: Path | None,
+) -> _CheckpointData:
+    """Return the starting optimizer state, loading a checkpoint if present."""
+    if checkpoint_path is not None and checkpoint_path.exists():
+        checkpoint = _read_checkpoint(checkpoint_path)
+        waveform = _initial_waveform(cp, checkpoint.wfm)
+        return _CheckpointData(
+            wfm=waveform,
+            history=checkpoint.history.copy(),
+            n_feval=checkpoint.n_feval,
+            lbfgs_state=checkpoint.lbfgs_state,
+        )
+
+    waveform = _initial_waveform(cp, wfm0)
+    return _CheckpointData(wfm=waveform, history=[], n_feval=0, lbfgs_state=None)
+
+
+def _save_optimizer_checkpoint(
+    checkpoint_path: Path | None,
+    waveform: RealArray,
+    history: list[float],
+    *,
+    n_feval: int,
+    lbfgs_state: LBFGSState | None = None,
+) -> None:
+    """Persist optimizer state when checkpointing is enabled."""
+    if checkpoint_path is None:
+        return
+    _write_checkpoint(
+        checkpoint_path,
+        _CheckpointData(
+            wfm=np.asarray(waveform, dtype=np.float64),
+            history=_checkpoint_history(history),
+            n_feval=n_feval,
+            lbfgs_state=None if lbfgs_state is None else _copy_lbfgs_state(lbfgs_state),
+        ),
+    )
+
+
+def save_checkpoint(path: str, wfm: RealArray, result_so_far: list[float] | OptimResult) -> None:
+    """Save a waveform and fidelity history to a JSON checkpoint file."""
+    checkpoint_path = _validate_checkpoint_path(path)
+    n_feval = result_so_far.n_feval if isinstance(result_so_far, OptimResult) else 0
+    _write_checkpoint(
+        checkpoint_path,
+        _CheckpointData(
+            wfm=np.asarray(wfm, dtype=np.float64),
+            history=_checkpoint_history(result_so_far),
+            n_feval=n_feval,
+            lbfgs_state=None,
+        ),
+    )
+
+
+def load_checkpoint(path: str) -> tuple[RealArray, list[float]]:
+    """Load a waveform and fidelity history from a JSON checkpoint file."""
+    checkpoint = _read_checkpoint(path)
+    return checkpoint.wfm.copy(), checkpoint.history.copy()
+
+
+def print_iteration_table(
+    n_iter: int,
+    fidelity: float,
+    penalty: float,
+    grad_norm: float,
+    step_norm: float,
+) -> None:
+    """Print one fixed-width optimizer diagnostics row."""
+    values = [fidelity, penalty, grad_norm, step_norm]
+    if n_iter < 0:
+        raise ValueError("n_iter must be non-negative")
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("iteration diagnostics must be finite")
+    print(
+        f"{n_iter:6d} {fidelity:13.6e} {penalty:13.6e} "
+        f"{grad_norm:13.6e} {step_norm:13.6e}"
+    )
 
 
 def _as_symmetric_matrix(name: str, value: RealArray) -> RealArray:
@@ -368,9 +605,15 @@ def line_search_cubic(
     return best_alpha
 
 
-def _counted_grape_objective(cp: ControlProblem) -> tuple[Objective, Callable[[], int]]:
+def _counted_grape_objective(
+    cp: ControlProblem,
+    *,
+    initial_count: int = 0,
+) -> tuple[Objective, Callable[[], int]]:
     """Return a GRAPE objective closure and a function-evaluation counter."""
-    n_feval = 0
+    if initial_count < 0:
+        raise ValueError("initial_count must be non-negative")
+    n_feval = initial_count
 
     def objective(wfm: RealArray) -> float:
         nonlocal n_feval
@@ -434,27 +677,38 @@ def gradient_ascent(
     tol_x: float = 1e-6,
     tol_g: float = 1e-6,
     max_iter: int = 500,
+    checkpoint_path: str | None = None,
 ) -> OptimResult:
     """Optimise GRAPE controls with steepest ascent and cubic line search."""
     _validate_optimizer_controls(tol_x, tol_g, max_iter)
-    waveform = _initial_waveform(cp, wfm0)
-    objective, n_feval = _counted_grape_objective(cp)
+    checkpoint_file = _effective_checkpoint_path(cp, checkpoint_path)
+    checkpoint = _restore_checkpoint(cp, wfm0, checkpoint_file)
+    waveform = checkpoint.wfm
+    objective, n_feval = _counted_grape_objective(cp, initial_count=checkpoint.n_feval)
     gradient_fn = _grape_gradient(cp)
 
-    fidelity = objective(waveform)
-    history = [fidelity]
+    history = checkpoint.history.copy()
+    fidelity = float(history[-1]) if history else objective(waveform)
+    if not history:
+        history.append(fidelity)
+    completed_iter = max(0, len(history) - 1)
     gradient = gradient_fn(waveform)
     if gradient.shape != waveform.shape:
         raise ValueError(f"gradient shape {gradient.shape} must match wfm shape {waveform.shape}")
     if _array_norm(gradient) <= tol_g:
-        return _result(waveform, fidelity, 0, n_feval(), True, "grad_tol", history)
+        _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
+        return _result(waveform, fidelity, completed_iter, n_feval(), True, "grad_tol", history)
+    if completed_iter >= max_iter:
+        _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
+        return _result(waveform, fidelity, completed_iter, n_feval(), False, "max_iter", history)
 
-    for iteration in range(1, max_iter + 1):
+    for iteration in range(completed_iter + 1, max_iter + 1):
         direction = gradient.copy()
         alpha = line_search_cubic(objective, gradient_fn, waveform, direction)
         step = np.asarray(alpha * direction, dtype=np.float64)
         step_norm = _array_norm(step)
         if alpha <= 0.0 or step_norm <= tol_x:
+            _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
             return _result(
                 waveform,
                 fidelity,
@@ -473,9 +727,13 @@ def gradient_ascent(
             raise ValueError(
                 f"gradient shape {gradient.shape} must match wfm shape {waveform.shape}"
             )
-        if _array_norm(gradient) <= tol_g:
+        grad_norm = _array_norm(gradient)
+        if iteration % 10 == 0 or grad_norm <= tol_g:
+            _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
+        if grad_norm <= tol_g:
             return _result(waveform, fidelity, iteration, n_feval(), True, "grad_tol", history)
 
+    _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
     return _result(waveform, fidelity, max_iter, n_feval(), False, "max_iter", history)
 
 
@@ -502,6 +760,21 @@ def _copy_lbfgs_state(state: LBFGSState) -> LBFGSState:
         "y_history": y_history,
         "rho_history": rho_history,
     }
+
+
+def _validate_lbfgs_checkpoint_state(state: LBFGSState, waveform_shape: tuple[int, ...]) -> None:
+    """Raise ValueError if restored L-BFGS arrays do not match the waveform shape."""
+    memory = _copy_lbfgs_state(state)
+    for name, history_list in (
+        ("s_history", memory["s_history"]),
+        ("y_history", memory["y_history"]),
+    ):
+        for index, array in enumerate(history_list):
+            if array.shape != waveform_shape:
+                raise ValueError(
+                    f"checkpoint {name}[{index}] shape {array.shape} "
+                    f"must match waveform shape {waveform_shape}"
+                )
 
 
 def lbfgs_update(
@@ -589,23 +862,53 @@ def lbfgs_grape(
     tol_x: float = 1e-6,
     tol_g: float = 1e-6,
     max_iter: int = 500,
+    checkpoint_path: str | None = None,
 ) -> OptimResult:
     """Optimise GRAPE controls with limited-memory BFGS and line search."""
     _validate_optimizer_controls(tol_x, tol_g, max_iter)
-    waveform = _initial_waveform(cp, wfm0)
-    state = lbfgs_state(m)
-    objective, n_feval = _counted_grape_objective(cp)
+    checkpoint_file = _effective_checkpoint_path(cp, checkpoint_path)
+    checkpoint = _restore_checkpoint(cp, wfm0, checkpoint_file)
+    waveform = checkpoint.wfm
+    if checkpoint.lbfgs_state is not None:
+        state = _copy_lbfgs_state(checkpoint.lbfgs_state)
+        if int(state["m"]) != m:
+            raise ValueError(
+                f"checkpoint L-BFGS memory m={state['m']} does not match requested m={m}"
+            )
+        _validate_lbfgs_checkpoint_state(state, waveform.shape)
+    else:
+        state = lbfgs_state(m)
+    objective, n_feval = _counted_grape_objective(cp, initial_count=checkpoint.n_feval)
     gradient_fn = _grape_gradient(cp)
 
-    fidelity = objective(waveform)
-    history = [fidelity]
+    history = checkpoint.history.copy()
+    fidelity = float(history[-1]) if history else objective(waveform)
+    if not history:
+        history.append(fidelity)
+    completed_iter = max(0, len(history) - 1)
     gradient = gradient_fn(waveform)
     if gradient.shape != waveform.shape:
         raise ValueError(f"gradient shape {gradient.shape} must match wfm shape {waveform.shape}")
     if _array_norm(gradient) <= tol_g:
-        return _result(waveform, fidelity, 0, n_feval(), True, "grad_tol", history)
+        _save_optimizer_checkpoint(
+            checkpoint_file,
+            waveform,
+            history,
+            n_feval=n_feval(),
+            lbfgs_state=state,
+        )
+        return _result(waveform, fidelity, completed_iter, n_feval(), True, "grad_tol", history)
+    if completed_iter >= max_iter:
+        _save_optimizer_checkpoint(
+            checkpoint_file,
+            waveform,
+            history,
+            n_feval=n_feval(),
+            lbfgs_state=state,
+        )
+        return _result(waveform, fidelity, completed_iter, n_feval(), False, "max_iter", history)
 
-    for iteration in range(1, max_iter + 1):
+    for iteration in range(completed_iter + 1, max_iter + 1):
         direction = lbfgs_direction(state, gradient)
         alpha = line_search_cubic(objective, gradient_fn, waveform, direction)
         if alpha <= 0.0 and not np.array_equal(direction, gradient):
@@ -615,6 +918,13 @@ def lbfgs_grape(
         step = np.asarray(alpha * direction, dtype=np.float64)
         step_norm = _array_norm(step)
         if alpha <= 0.0 or step_norm <= tol_x:
+            _save_optimizer_checkpoint(
+                checkpoint_file,
+                waveform,
+                history,
+                n_feval=n_feval(),
+                lbfgs_state=state,
+            )
             return _result(
                 waveform,
                 fidelity,
@@ -636,9 +946,25 @@ def lbfgs_grape(
                 f"gradient shape {gradient.shape} must match wfm shape {waveform.shape}"
             )
         state = lbfgs_update(state, waveform - previous_waveform, previous_gradient - gradient)
-        if _array_norm(gradient) <= tol_g:
+        grad_norm = _array_norm(gradient)
+        if iteration % 10 == 0 or grad_norm <= tol_g:
+            _save_optimizer_checkpoint(
+                checkpoint_file,
+                waveform,
+                history,
+                n_feval=n_feval(),
+                lbfgs_state=state,
+            )
+        if grad_norm <= tol_g:
             return _result(waveform, fidelity, iteration, n_feval(), True, "grad_tol", history)
 
+    _save_optimizer_checkpoint(
+        checkpoint_file,
+        waveform,
+        history,
+        n_feval=n_feval(),
+        lbfgs_state=state,
+    )
     return _result(waveform, fidelity, max_iter, n_feval(), False, "max_iter", history)
 
 
@@ -650,24 +976,34 @@ def newton_raphson(
     tol_x: float = 1e-6,
     tol_g: float = 1e-6,
     max_iter: int = 200,
+    checkpoint_path: str | None = None,
 ) -> OptimResult:
     """Optimise GRAPE controls with Newton-Raphson steps on the exact Hessian."""
     _validate_optimizer_controls(tol_x, tol_g, max_iter)
-    waveform = _initial_waveform(cp, wfm0)
-    objective, n_feval = _counted_grape_objective(cp)
+    checkpoint_file = _effective_checkpoint_path(cp, checkpoint_path)
+    checkpoint = _restore_checkpoint(cp, wfm0, checkpoint_file)
+    waveform = checkpoint.wfm
+    objective, n_feval = _counted_grape_objective(cp, initial_count=checkpoint.n_feval)
     gradient_fn = _grape_gradient(cp)
     hessian_fn = _grape_hessian(cp)
     freeze_mask = None if cp.freeze is None else np.asarray(cp.freeze, dtype=np.bool_)
 
-    fidelity = objective(waveform)
-    history = [fidelity]
+    history = checkpoint.history.copy()
+    fidelity = float(history[-1]) if history else objective(waveform)
+    if not history:
+        history.append(fidelity)
+    completed_iter = max(0, len(history) - 1)
     gradient = gradient_fn(waveform)
     if gradient.shape != waveform.shape:
         raise ValueError(f"gradient shape {gradient.shape} must match wfm shape {waveform.shape}")
     if _array_norm(gradient) <= tol_g:
-        return _result(waveform, fidelity, 0, n_feval(), True, "grad_tol", history)
+        _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
+        return _result(waveform, fidelity, completed_iter, n_feval(), True, "grad_tol", history)
+    if completed_iter >= max_iter:
+        _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
+        return _result(waveform, fidelity, completed_iter, n_feval(), False, "max_iter", history)
 
-    for iteration in range(1, max_iter + 1):
+    for iteration in range(completed_iter + 1, max_iter + 1):
         hessian = hessian_fn(waveform)
         step_direction = _newton_step(gradient, hessian, regularise=regularise, rfo=rfo)
         if freeze_mask is not None:
@@ -678,6 +1014,7 @@ def newton_raphson(
         step = np.asarray(alpha * step_direction, dtype=np.float64)
         step_norm = _array_norm(step)
         if alpha <= 0.0 or step_norm <= tol_x:
+            _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
             return _result(
                 waveform,
                 fidelity,
@@ -697,7 +1034,11 @@ def newton_raphson(
             raise ValueError(
                 f"gradient shape {gradient.shape} must match wfm shape {waveform.shape}"
             )
-        if _array_norm(gradient) <= tol_g:
+        grad_norm = _array_norm(gradient)
+        if iteration % 10 == 0 or grad_norm <= tol_g:
+            _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
+        if grad_norm <= tol_g:
             return _result(waveform, fidelity, iteration, n_feval(), True, "grad_tol", history)
 
+    _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
     return _result(waveform, fidelity, max_iter, n_feval(), False, "max_iter", history)

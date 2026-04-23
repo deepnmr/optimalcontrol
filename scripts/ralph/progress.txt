@@ -45,6 +45,7 @@
 - Optimizer helpers live in `optimalcontrol/optimizers.py`; `line_search_cubic()` treats `f` as a maximisation objective, internally applies Wolfe checks to `-f`, and returns `0.0` for non-ascent directions.
 - L-BFGS helpers in `optimalcontrol/optimizers.py` store curvature for minimising `-f`: use `s = wfm_new - wfm_old`, `y = grad_old - grad_new`, and fall back to the raw gradient if the two-loop recursion does not produce an ascent direction.
 - Newton-Raphson in `optimalcontrol/optimizers.py` works on the exact small-waveform `grape_hessian()` by solving the Newton system for `-f`; regularisation shifts `-H` to positive-definite before solving, and `rfo=True` swaps in an augmented-Hessian level shift.
+- Optimizer checkpoints in `optimalcontrol/optimizers.py` are JSON files that always store waveform and fidelity history, and optimizer-driven saves also persist `n_feval` plus L-BFGS memory so resumed runs can match uninterrupted trajectories; function-level `checkpoint_path` overrides `ControlProblem.checkpoint_path`.
 
 ## 2026-04-23 15:42 KST - US-034
 - Added finite-difference coverage for `grape_gradient()` on a one-spin Hilbert-space problem with 4 steps and 2 channels
@@ -544,4 +545,16 @@ Started: 2026-04-23
   - The Newton path should regularise the curvature of `-f` rather than the raw maximisation Hessian `H`, because a local maximum of `f` corresponds to a positive-definite system in the minimised objective
   - `grape_hessian()` returns `None` above 50 waveform parameters, so `newton_raphson()` should stay scoped to small problems and fail explicitly instead of silently downgrading to a first-order method
   - Reusing `line_search_cubic()` after forming a Newton or RFO direction keeps the optimizer aligned with the repo's maximisation objective convention while still allowing full-step acceptance near a well-behaved optimum
+---
+
+## 2026-04-23 17:31 KST - US-044
+- Added `save_checkpoint()`, `load_checkpoint()`, and `print_iteration_table()` to `optimalcontrol/optimizers.py` for JSON checkpoint round-trips and fixed-width Spinach-style diagnostics rows
+- Updated `gradient_ascent()`, `lbfgs_grape()`, and `newton_raphson()` to accept `checkpoint_path`, resume from existing checkpoints, save every 10 iterations and on exit, and carry `n_feval` plus L-BFGS memory through optimizer-managed checkpoints
+- Extended `tests/test_optimizers.py` with checkpoint save/load coverage, exact row-format coverage for `print_iteration_table()`, and resume-equivalence checks for all three optimizers
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: `optimalcontrol/optimizers.py`, `tests/test_optimizers.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Checkpoint history keeps the initial fidelity at index 0, so resumed optimizer loops should restart from `len(history) - 1` completed iterations rather than from `len(history)`
+  - Exact L-BFGS resume requires serialising the curvature memory (`s_history`, `y_history`, `rho_history`) alongside waveform/history; reloading only the waveform silently changes later search directions
+  - Save final optimizer state on exit as well as every 10 iterations so short runs and converged runs still leave a usable checkpoint file
 ---

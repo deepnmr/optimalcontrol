@@ -699,8 +699,8 @@
         "Typecheck passes"
       ],
       "priority": 44,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added JSON save_checkpoint()/load_checkpoint() helpers and print_iteration_table() in optimalcontrol/optimizers.py. gradient_ascent(), lbfgs_grape(), and newton_raphson() now accept checkpoint_path, resume from existing checkpoints, save every 10 iterations plus on exit, and preserve n_feval along with L-BFGS memory so resumed runs match uninterrupted ones. Added tests for checkpoint round-trip, fixed-width iteration rows, and resume equivalence across all three optimizers."
     },
     {
       "id": "US-045",
