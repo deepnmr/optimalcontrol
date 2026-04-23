@@ -566,8 +566,8 @@
         "Typecheck passes"
       ],
       "priority": 36,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented expand_offsets(), expand_phase_cycle(), cartesian_product_ensemble(), correlated_rho_match(), and correlated_rho_drift() in optimalcontrol/ensemble.py. Offset expansion adds offset * sum(offset_operators) to drift generators and clears consumed offset metadata. Phase-cycle rows are interpreted as radians, with scalar rows applying global source-state phase and rows matching rho_init length applying per-state phases. ensemble_fidelity() and ensemble_gradient() now aggregate over the full Cartesian ensemble. Added tests/test_ensemble.py coverage for offset drift inclusion, phase-cycle source rotation, full Cartesian expansion, and correlated rho modes."
     },
     {
       "id": "US-037",

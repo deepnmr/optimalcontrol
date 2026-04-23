@@ -3,9 +3,14 @@
 import numpy as np
 
 from optimalcontrol.ensemble import (
+    cartesian_product_ensemble,
+    correlated_rho_drift,
+    correlated_rho_match,
     ensemble_fidelity,
     ensemble_gradient,
     expand_drifts,
+    expand_offsets,
+    expand_phase_cycle,
     expand_power_levels,
 )
 from optimalcontrol.grape import ControlProblem, grape_gradient, grape_xy
@@ -66,6 +71,95 @@ def test_expand_power_levels_scales_operators_and_resets_channel_power() -> None
             np.complex128(level) * cp.operators[0],
             rtol=1e-12,
         )
+
+
+def test_expand_offsets_adds_offset_operator_to_each_drift() -> None:
+    cp = _ensemble_control_problem()
+    cp.drifts = [np.zeros((2, 2), dtype=np.complex128)]
+    cp.offsets = [-0.25, 0.5]
+    cp.offset_operators = [np.complex128(-1j) * Iz()]
+
+    problems = expand_offsets(cp)
+
+    assert len(problems) == 2
+    for offset, problem in zip(cp.offsets, problems):
+        assert problem.offsets is None
+        assert problem.offset_operators is None
+        expected = np.complex128(offset) * cp.offset_operators[0]
+        np.testing.assert_allclose(problem.drifts[0], expected, rtol=1e-12)
+
+
+def test_expand_phase_cycle_rotates_initial_states_by_row_phases() -> None:
+    cp = _ensemble_control_problem()
+    rho_a = np.array([1.0, 0.0], dtype=np.complex128)
+    rho_b = np.array([0.0, 1.0], dtype=np.complex128)
+    cp.rho_init = [rho_a, rho_b]
+    cp.rho_targ = [rho_a.copy(), rho_b.copy()]
+    cp.phase_cycle = np.array([[0.0, np.pi], [np.pi / 2.0, -np.pi / 2.0]], dtype=np.float64)
+
+    problems = expand_phase_cycle(cp)
+
+    assert len(problems) == 2
+    assert problems[0].phase_cycle is None
+    np.testing.assert_allclose(problems[0].rho_init[0], rho_a, atol=1e-12)
+    np.testing.assert_allclose(problems[0].rho_init[1], -rho_b, atol=1e-12)
+    np.testing.assert_allclose(problems[1].rho_init[0], np.complex128(1j) * rho_a, atol=1e-12)
+    np.testing.assert_allclose(problems[1].rho_init[1], np.complex128(-1j) * rho_b, atol=1e-12)
+    np.testing.assert_allclose(problems[1].rho_targ[1], rho_b, atol=1e-12)
+
+
+def test_cartesian_product_ensemble_expands_all_active_axes() -> None:
+    cp = _ensemble_control_problem()
+    cp.offsets = [-0.2, 0.3]
+    cp.offset_operators = [np.complex128(-1j) * Iz()]
+    cp.phase_cycle = np.array([0.0, np.pi], dtype=np.float64)
+
+    problems = cartesian_product_ensemble(cp)
+
+    assert len(problems) == 16
+    for problem in problems:
+        assert len(problem.drifts) == 1
+        assert problem.pwr_levels == [1.0]
+        assert problem.offsets is None
+        assert problem.offset_operators is None
+        assert problem.phase_cycle is None
+
+
+def test_correlated_rho_match_returns_one_problem_per_state_pair() -> None:
+    cp = _ensemble_control_problem()
+    rho_a = np.array([1.0, 0.0], dtype=np.complex128)
+    rho_b = np.array([0.0, 1.0], dtype=np.complex128)
+    targ_a = normalise_2norm(np.array([1.0, 1.0j], dtype=np.complex128))
+    targ_b = normalise_2norm(np.array([1.0, -1.0j], dtype=np.complex128))
+    cp.rho_init = [rho_a, rho_b]
+    cp.rho_targ = [targ_a, targ_b]
+
+    problems = correlated_rho_match(cp)
+
+    assert len(problems) == 2
+    for index, problem in enumerate(problems):
+        assert len(problem.rho_init) == 1
+        assert len(problem.rho_targ) == 1
+        np.testing.assert_allclose(problem.rho_init[0], cp.rho_init[index], rtol=1e-12)
+        np.testing.assert_allclose(problem.rho_targ[0], cp.rho_targ[index], rtol=1e-12)
+
+
+def test_correlated_rho_drift_matches_drift_to_state_pair_by_index() -> None:
+    cp = _ensemble_control_problem()
+    rho_a = np.array([1.0, 0.0], dtype=np.complex128)
+    rho_b = np.array([0.0, 1.0], dtype=np.complex128)
+    cp.rho_init = [rho_a, rho_b]
+    cp.rho_targ = [rho_a.copy(), rho_b.copy()]
+
+    problems = correlated_rho_drift(cp)
+
+    assert len(problems) == 2
+    for index, problem in enumerate(problems):
+        assert len(problem.drifts) == 1
+        assert len(problem.rho_init) == 1
+        assert len(problem.rho_targ) == 1
+        np.testing.assert_allclose(problem.drifts[0], cp.drifts[index], rtol=1e-12)
+        np.testing.assert_allclose(problem.rho_init[0], cp.rho_init[index], rtol=1e-12)
 
 
 def test_ensemble_fidelity_averages_expanded_problem_fidelities() -> None:

@@ -36,6 +36,8 @@
 - GRAPE amplitude/phase adapters use XY waveforms shaped `(n_steps, 2)` with columns X and Y; `xy_to_ampl_phase()` returns 1-D per-step arrays and `ampl_phase_to_xy()` round-trips with `x=A*cos(phi)`, `y=A*sin(phi)`.
 - GRAPE curvilinear reparameterisation maps unconstrained waveform values into scalar bounds with `midpoint + half_width * tanh(wfm)`.
 - Ensemble expansion lives in `optimalcontrol/ensemble.py`; drift/RF-power axes are converted into single-drift GRAPE problems, and RF ensemble power levels are absorbed into scaled control operators with expanded `pwr_levels` reset to per-channel ones.
+- Ensemble optional axes clear consumed metadata after expansion: offsets add `offset * sum(offset_operators)` to drift generators, and phase-cycle rows are radians that rotate initial states by global or per-state complex phases.
+- Correlated ensemble modes are non-combinatorial: `correlated_rho_match()` splits matched source-target pairs, while `correlated_rho_drift()` requires one drift per source-target pair and matches them by index.
 
 ## 2026-04-23 15:42 KST - US-034
 - Added finite-difference coverage for `grape_gradient()` on a one-spin Hilbert-space problem with 4 steps and 2 channels
@@ -443,4 +445,18 @@ Started: 2026-04-23
   - Use `expand_drifts()` and `expand_power_levels()` as wrappers around the single-drift GRAPE path until later stories integrate ensembles into `grape_xy()` directly
   - `expand_power_levels()` treats seed `pwr_levels` as RF ensemble scalars, scales all control operators by each scalar, and resets expanded problem `pwr_levels` to `[1.0] * n_channels`
   - Ensemble fidelity and gradient aggregation should average member results over the drift-power Cartesian product
+---
+
+## 2026-04-23 16:08 KST - US-036
+- Implemented offset ensemble expansion with `expand_offsets()`, adding `offset * sum(offset_operators)` to drift generators and clearing consumed offset metadata
+- Implemented phase-cycle expansion with `expand_phase_cycle()`, interpreting rows as radians and rotating initial states by global or per-state complex phase factors
+- Implemented `cartesian_product_ensemble()` over drift, RF-power, offset, and phase-cycle axes, and routed `ensemble_fidelity()` / `ensemble_gradient()` through the full Cartesian expansion
+- Implemented correlated non-combinatorial modes `correlated_rho_match()` and `correlated_rho_drift()`
+- Added tests covering offset drift inclusion, phase-cycle source rotation, full Cartesian expansion, and correlated rho modes
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: `optimalcontrol/ensemble.py`, `tests/test_ensemble.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Expanded ensemble members should be directly evaluable by the single-drift GRAPE path, so consumed optional metadata should be reset to `None`
+  - A 1-D `phase_cycle` array is treated as one scalar global phase per cycle row; a 2-D row can provide one phase for all states or one phase per `rho_init` entry
+  - `rho_drift` is strict by design: it raises if the number of drifts does not match the number of matched source-target pairs
 ---
