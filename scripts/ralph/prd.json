@@ -87,8 +87,8 @@
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added comm, vec, unvec to operators.py. vec uses column-major (Fortran) order: vec(rho).flatten(order='F'), unvec inverts via reshape(order='F'). comm returns A@B - B@A. All three verified against known identities and round-trip tests."
     },
     {
       "id": "US-007",
