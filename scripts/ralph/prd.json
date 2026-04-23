@@ -763,8 +763,8 @@
         "Typecheck passes"
       ],
       "priority": 48,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/analysis.py with state_trajectory(), expectation_values(), coherence_order_populations(), and correlation_order_populations(). state_trajectory() reuses forward_propagators() and forward_states() from grape.py and returns rho_init[0] trajectory. expectation_values() computes Re(Tr(O@rho)) for matrix states and <psi|O|psi> for vector states. The two population functions raise NotImplementedError with docstring explaining that product-operator basis metadata is required."
     },
     {
       "id": "US-049",

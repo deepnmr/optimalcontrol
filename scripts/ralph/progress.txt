@@ -51,6 +51,18 @@
 - Waveform I/O lives in `optimalcontrol/io.py`; exported `Waveform.data` is shaped `(n_channels, n_steps)`, while GRAPE internals use `(n_steps, n_channels)`, so transpose only at I/O boundaries such as `waveform_from_result()` or `loaded.data.T`.
 - Spectrometer I/O in `optimalcontrol/io.py` is intentionally minimal: Bruker/JCAMP-DX helpers are documented stubs, heterodyne transforms rotate `x/y` channels by `exp(i*2*pi*carrier_hz*t)`, and FAPT import maps frequency/amplitude/phase/time rows to `Waveform` channels `frequency_hz`, `amplitude`, `phase_rad`.
 
+## 2026-04-23 - US-048
+- Created optimalcontrol/analysis.py with state_trajectory(), expectation_values(), coherence_order_populations(), and correlation_order_populations()
+- state_trajectory() reuses forward_propagators() and forward_states() from grape.py; returns [rho_0, ..., rho_N] for rho_init[0]
+- expectation_values() computes Re(Tr(O@rho)) for square matrix states and Re(<psi|O|psi>) for vector states
+- coherence_order_populations() and correlation_order_populations() raise NotImplementedError with explanatory docstrings
+- Files changed: optimalcontrol/analysis.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - analysis.py should import forward_propagators and forward_states from grape.py rather than re-implementing propagation
+  - expectation_values() uses Re(Tr(O@rho)) for density matrices and np.vdot for vector states; both paths use the same helper to avoid branch divergence
+  - NotImplementedError is the correct response for functions that require basis metadata not yet present in the system
+---
+
 ## 2026-04-23 15:42 KST - US-034
 - Added finite-difference coverage for `grape_gradient()` on a one-spin Hilbert-space problem with 4 steps and 2 channels
 - Added finite-difference coverage for `grape_gradient()` on a two-spin Liouville-space problem with 4 steps and 2 channels
