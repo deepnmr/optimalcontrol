@@ -584,8 +584,8 @@
         "Typecheck passes"
       ],
       "priority": 37,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented ordered serial_backend() and optional joblib_backend() in optimalcontrol/ensemble.py, with joblib falling back to the serial path when unavailable. Extended tests/test_ensemble.py with backend coverage plus the 2 drifts x 2 power levels Cartesian product, single-member ensemble fidelity equivalence to grape_xy, and correlated rho_match cardinality coverage."
     },
     {
       "id": "US-038",

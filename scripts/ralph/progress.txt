@@ -38,6 +38,7 @@
 - Ensemble expansion lives in `optimalcontrol/ensemble.py`; drift/RF-power axes are converted into single-drift GRAPE problems, and RF ensemble power levels are absorbed into scaled control operators with expanded `pwr_levels` reset to per-channel ones.
 - Ensemble optional axes clear consumed metadata after expansion: offsets add `offset * sum(offset_operators)` to drift generators, and phase-cycle rows are radians that rotate initial states by global or per-state complex phases.
 - Correlated ensemble modes are non-combinatorial: `correlated_rho_match()` splits matched source-target pairs, while `correlated_rho_drift()` requires one drift per source-target pair and matches them by index.
+- Ensemble backend helpers preserve input order; `joblib_backend()` is optional and falls back to `serial_backend()` when joblib is unavailable.
 
 ## 2026-04-23 15:42 KST - US-034
 - Added finite-difference coverage for `grape_gradient()` on a one-spin Hilbert-space problem with 4 steps and 2 channels
@@ -459,4 +460,15 @@ Started: 2026-04-23
   - Expanded ensemble members should be directly evaluable by the single-drift GRAPE path, so consumed optional metadata should be reset to `None`
   - A 1-D `phase_cycle` array is treated as one scalar global phase per cycle row; a 2-D row can provide one phase for all states or one phase per `rho_init` entry
   - `rho_drift` is strict by design: it raises if the number of drifts does not match the number of matched source-target pairs
+---
+
+## 2026-04-23 16:17 KST - US-037
+- Added ordered ensemble evaluation backends: `serial_backend()` and optional `joblib_backend()` with serial fallback when joblib is unavailable
+- Added deterministic ensemble tests for backend order/equivalence, 2 drifts x 2 power-level Cartesian expansion, single-member fidelity matching `grape_xy()`, and existing correlated rho-match cardinality
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: `optimalcontrol/ensemble.py`, `tests/test_ensemble.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Keep ensemble backend functions generic and order-preserving so they can evaluate either scalar fidelities or gradient arrays
+  - Do not add joblib as a required dependency for the optional parallel path; import it lazily and fall back to serial evaluation
+  - Single-member ensemble tests should compare directly against `grape_xy()` to guard aggregation behavior without numerical ambiguity
 ---

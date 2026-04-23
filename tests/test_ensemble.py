@@ -12,6 +12,8 @@ from optimalcontrol.ensemble import (
     expand_offsets,
     expand_phase_cycle,
     expand_power_levels,
+    joblib_backend,
+    serial_backend,
 )
 from optimalcontrol.grape import ControlProblem, grape_gradient, grape_xy
 from optimalcontrol.operators import Ix, Iz
@@ -44,6 +46,20 @@ def _drift_power_product(cp: ControlProblem) -> list[ControlProblem]:
     for drift_problem in expand_drifts(cp):
         problems.extend(expand_power_levels(drift_problem))
     return problems
+
+
+def test_serial_backend_applies_function_in_order() -> None:
+    values = serial_backend(lambda value: value * value, [1, 2, 3])
+
+    assert values == [1, 4, 9]
+
+
+def test_joblib_backend_matches_serial_backend() -> None:
+    problems = [1, 2, 3]
+
+    values = joblib_backend(lambda value: value + 0.5, problems, n_jobs=1)
+
+    assert values == serial_backend(lambda value: value + 0.5, problems)
 
 
 def test_expand_drifts_returns_one_problem_per_drift() -> None:
@@ -125,6 +141,17 @@ def test_cartesian_product_ensemble_expands_all_active_axes() -> None:
         assert problem.phase_cycle is None
 
 
+def test_cartesian_product_ensemble_with_two_drifts_and_two_powers_returns_four() -> None:
+    cp = _ensemble_control_problem()
+
+    problems = cartesian_product_ensemble(cp)
+
+    assert len(problems) == 4
+    for problem in problems:
+        assert len(problem.drifts) == 1
+        assert problem.pwr_levels == [1.0]
+
+
 def test_correlated_rho_match_returns_one_problem_per_state_pair() -> None:
     cp = _ensemble_control_problem()
     rho_a = np.array([1.0, 0.0], dtype=np.complex128)
@@ -176,6 +203,19 @@ def test_ensemble_fidelity_averages_expanded_problem_fidelities() -> None:
     )
 
     np.testing.assert_allclose(ensemble_fidelity(cp, waveform), expected, rtol=1e-12)
+
+
+def test_ensemble_fidelity_single_member_matches_grape_xy() -> None:
+    cp = _ensemble_control_problem()
+    cp.drifts = [cp.drifts[0]]
+    cp.pwr_levels = [1.0]
+    waveform = np.array([[0.12], [-0.04], [0.08]], dtype=np.float64)
+
+    np.testing.assert_allclose(
+        ensemble_fidelity(cp, waveform),
+        grape_xy(cp, waveform),
+        rtol=1e-12,
+    )
 
 
 def test_ensemble_gradient_averages_expanded_problem_gradients() -> None:

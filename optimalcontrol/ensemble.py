@@ -1,8 +1,9 @@
 """Ensemble expansion helpers for GRAPE control problems."""
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
+from typing import TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -11,6 +12,28 @@ from optimalcontrol.grape import ControlProblem, grape_gradient, grape_xy
 
 Array = npt.NDArray[np.complex128]
 RealArray = npt.NDArray[np.float64]
+ProblemT = TypeVar("ProblemT")
+ResultT = TypeVar("ResultT")
+
+
+def serial_backend(fn: Callable[[ProblemT], ResultT], problems: list[ProblemT]) -> list[ResultT]:
+    """Apply ``fn`` to each problem sequentially, preserving input order."""
+    return [fn(problem) for problem in problems]
+
+
+def joblib_backend(
+    fn: Callable[[ProblemT], ResultT],
+    problems: list[ProblemT],
+    n_jobs: int = -1,
+) -> list[ResultT]:
+    """Apply ``fn`` to problems with joblib when available, else serially."""
+    try:
+        from joblib import Parallel, delayed
+    except ImportError:
+        return serial_backend(fn, problems)
+
+    results = Parallel(n_jobs=n_jobs)(delayed(fn)(problem) for problem in problems)
+    return list(results)
 
 
 def _copy_complex_matrix(matrix: Array) -> Array:
