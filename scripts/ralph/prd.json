@@ -601,8 +601,8 @@
         "Typecheck passes"
       ],
       "priority": 38,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/penalties.py with NS, SNS, SNSA, DNS, PenaltySpec, and total_penalty(). Penalties return minimisation-style value/gradient pairs; gradients match waveform shape. Added tests/test_penalties.py with finite-difference coverage for NS, SNS, SNSA, and DNS plus total_penalty aggregation."
     },
     {
       "id": "US-039",

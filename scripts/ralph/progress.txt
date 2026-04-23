@@ -39,6 +39,8 @@
 - Ensemble optional axes clear consumed metadata after expansion: offsets add `offset * sum(offset_operators)` to drift generators, and phase-cycle rows are radians that rotate initial states by global or per-state complex phases.
 - Correlated ensemble modes are non-combinatorial: `correlated_rho_match()` splits matched source-target pairs, while `correlated_rho_drift()` requires one drift per source-target pair and matches them by index.
 - Ensemble backend helpers preserve input order; `joblib_backend()` is optional and falls back to `serial_backend()` when joblib is unavailable.
+- Penalty helpers live in `optimalcontrol/penalties.py`; each returns a minimisation-style `(value, gradient)` pair with gradient shaped like the 2-D float64 waveform.
+- Penalty conventions: `NS` is elementwise norm-square, `SNS` is elementwise Cartesian spillout above `abs(sample) > limit`, `SNSA` is row-amplitude spillout across channels, and `DNS` uses adjacent time-row finite differences.
 
 ## 2026-04-23 15:42 KST - US-034
 - Added finite-difference coverage for `grape_gradient()` on a one-spin Hilbert-space problem with 4 steps and 2 channels
@@ -471,4 +473,15 @@ Started: 2026-04-23
   - Keep ensemble backend functions generic and order-preserving so they can evaluate either scalar fidelities or gradient arrays
   - Do not add joblib as a required dependency for the optional parallel path; import it lazily and fall back to serial evaluation
   - Single-member ensemble tests should compare directly against `grape_xy()` to guard aggregation behavior without numerical ambiguity
+---
+
+## 2026-04-23 16:29 KST - US-038
+- Created `optimalcontrol/penalties.py` with `penalty_NS()`, `penalty_SNS()`, `penalty_SNSA()`, `penalty_DNS()`, `PenaltySpec`, and `total_penalty()`
+- Added finite-difference tests for penalty gradients plus aggregation coverage in `tests/test_penalties.py`
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: `optimalcontrol/penalties.py`, `tests/test_penalties.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Treat penalty values as minimisation terms; future fidelity objectives should subtract penalty values and penalty gradients from the maximised GRAPE objective
+  - `SNSA` computes spillout from the Euclidean row amplitude across channels, while `SNS` applies spillout independently to each Cartesian waveform sample
+  - `total_penalty()` accepts named `PenaltySpec` entries or callables returning `(value, gradient)` and validates that gradients match waveform shape
 ---
