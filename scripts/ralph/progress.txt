@@ -76,6 +76,7 @@
 ---
 
 ## Codebase Patterns
+- Documentation guides should use runnable Python snippets that import helpers from their defining modules; `optimalcontrol.__init__` intentionally exports only a curated public subset.
 - Build backend: use setuptools (hatchling not available in this environment). Set `[tool.setuptools.packages.find]` with `include = ["optimalcontrol*"]` to avoid setuptools detecting refdoc/ as a top-level package.
 - Typecheck: run `mypy optimalcontrol/` from project root; requires at least one .py file in the directory.
 - Install: `pip install -e ".[dev]"` installs runtime + dev dependencies in editable mode.
@@ -753,4 +754,19 @@ Started: 2026-04-23
   - Dense product-operator transfer tests should build anti-Hermitian generator controls (`-1j * operator`) and set `basis="dense"` for matrix states
   - RF power ensembles are triggered when `len(pwr_levels) != len(operators)`; use `fidelity_mode="abs2"` when the acceptance criterion requires a bounded [0, 1] fidelity
   - Exported `Waveform.data` is channel-by-time, so replay through `grape_xy()` uses `waveform.data.T` or `loaded.data.T`
+---
+
+## 2026-04-23 20:48 KST - US-060
+- Created docs/guide_spin_system.md with examples for `two_spin_system()` and direct `SpinSystem` construction
+- Created docs/guide_states.md with examples for `state_from_label()`, `single_transition_operator()`, `normalise_hs()`, and vector normalisation
+- Created docs/guide_operators.md with examples for `drift_hamiltonian()`, `control_operators()`, and `total_generator()`
+- Corrected docs/equations.md to match the implemented spin commutator and column-major Liouville superoperator convention
+- Manually ran all embedded Python snippets and verified they execute against the current package API
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest` (150 passed)
+- Files changed: docs/guide_spin_system.md, docs/guide_states.md, docs/guide_operators.md, docs/equations.md, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - The top-level `optimalcontrol` package exports only a curated subset; documentation for builder utilities should import from `optimalcontrol.spin_system`, `optimalcontrol.states`, or `optimalcontrol.operators`
+  - Documentation snippets can be smoke-tested directly with `python3 - <<'PY'` blocks before committing
+  - Keep docs/equations.md aligned with implementation conventions: spin-1/2 commutators use `[Ix,Iy]=i*Iz`, and column-major Liouville superoperators use `L(A)=I⊗A`, `R(A)=A^T⊗I`
+  - There is no existing CLAUDE.md near docs/, so reusable documentation guidance belongs in the consolidated Codebase Patterns section unless a docs-specific CLAUDE.md is added later
 ---

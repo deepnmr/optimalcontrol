@@ -124,8 +124,8 @@ function docstring:
 vec(ρ) = ρ.flatten(order='F')
 ```
 
-Left multiplication superoperator: `L(A) = A ⊗ I`
-Right multiplication superoperator: `R(A) = I ⊗ A^T`
+Left multiplication superoperator: `L(A) = I ⊗ A`
+Right multiplication superoperator: `R(A) = A^T ⊗ I`
 
 Liouvillian commutator: `L_comm(A) = −i (L(A) − R(A))`
 
@@ -149,7 +149,7 @@ E  = [[1, 0], [0, 1]]
 
 Commutation relations:
 ```
-[Ix, Iy] = i Iz / 2   (cyclic: [Iy, Iz] = i Ix / 2, [Iz, Ix] = i Iy / 2)
+[Ix, Iy] = i Iz   (cyclic: [Iy, Iz] = i Ix, [Iz, Ix] = i Iy)
 ```
 
 Multi-spin operators use the Kronecker product. For a two-spin system:

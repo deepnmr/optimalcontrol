@@ -955,8 +955,8 @@
         "Typecheck passes"
       ],
       "priority": 60,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created docs/guide_spin_system.md, docs/guide_states.md, and docs/guide_operators.md with runnable examples for factory/direct spin-system construction, state labels/single-transition operators/normalisation, and drift/control/total-generator usage. Corrected docs/equations.md operator convention text to match the implemented spin algebra and column-major Liouville convention. Manually ran the embedded snippets. Quality checks passed: ruff check ., mypy optimalcontrol/, python3 -m pytest (150 passed)."
     },
     {
       "id": "US-061",
