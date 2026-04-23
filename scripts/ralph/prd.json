@@ -219,8 +219,8 @@
         "Typecheck passes"
       ],
       "priority": 14,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/states.py with product-operator labels for I/S two-spin notation, unnormalised single-transition operators using S alpha/beta projectors, and Hilbert-Schmidt / Euclidean norm helpers. State labels follow I=spin 0 and S=spin 1; product labels such as 2IzSz include the conventional leading factor of 2."
     },
     {
       "id": "US-015",

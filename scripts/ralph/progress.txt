@@ -9,6 +9,7 @@
 - Spin-system convention: `two_spin_system()` uses spin index 0 as I/source and 1 as S/target, with zero `shifts_hz` for on-resonance paper models and relaxation rates stored in rad/s.
 - Hamiltonian builders live in `optimalcontrol/spin_system.py`; convert public `J_hz` and `shifts_hz` values to rad/s with `2*pi`, and use `Iz_i @ Iz_j` for scalar J drift without an extra factor of 2.
 - Liouville generators in `spin_system.py` are assembled by converting Hilbert-space Hamiltonians and control operators with `liouvillian_comm()`; control amplitudes multiply dimensionless spin operators and are assumed to already be in rad/s.
+- State labels in `optimalcontrol.states` are unnormalised product operators: `I*` labels act on spin 0, `S*` labels act on spin 1, and labels such as `2IzSz` include the literal leading factor of 2; apply `normalise_hs()` before fidelity evaluation.
 
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
@@ -164,4 +165,16 @@ Started: 2026-04-23
 - **Learnings for future iterations:**
   - Spin-system tests should construct paper-style fixtures with `two_spin_system()` so they inherit the 0=I/source, 1=S/target convention
   - Drift Hamiltonian assertions can use the diagonal Iz⊗Iz form: diag(0.25, -0.25, -0.25, 0.25) multiplied by `2*pi*J_hz`
+---
+
+## 2026-04-23 14:04 KST - US-014
+- Created optimalcontrol/states.py with product-operator state construction for Ix/Iy/Iz, Sx/Sy/Sz, and 2I*S* labels
+- Added single_transition_operator() for IzSalpha, IzSbeta, IxSbeta, and IySbeta using S-spin alpha/beta projectors
+- Added normalise_hs() and normalise_2norm() with zero-norm validation
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: optimalcontrol/states.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - state_from_label() returns unnormalised Hilbert-space matrices; fidelity callers should normalise explicitly with normalise_hs()
+  - Product-operator state labels follow the established two-spin convention: I=spin 0, S=spin 1, and `2IzSz` includes the literal factor of 2
+  - Single-transition labels are two-spin operators using S-alpha/S-beta projectors (`E/2 +/- Sz`) on the second spin
 ---
