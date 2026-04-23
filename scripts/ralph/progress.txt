@@ -35,6 +35,7 @@
 - `grape_xy()` dispatches `basis == "liouville"` to vectorised density propagation and `basis == "hilbert"` to pure-state vectors; the default dense path preserves the mixed representation behavior.
 - GRAPE amplitude/phase adapters use XY waveforms shaped `(n_steps, 2)` with columns X and Y; `xy_to_ampl_phase()` returns 1-D per-step arrays and `ampl_phase_to_xy()` round-trips with `x=A*cos(phi)`, `y=A*sin(phi)`.
 - GRAPE curvilinear reparameterisation maps unconstrained waveform values into scalar bounds with `midpoint + half_width * tanh(wfm)`.
+- Ensemble expansion lives in `optimalcontrol/ensemble.py`; drift/RF-power axes are converted into single-drift GRAPE problems, and RF ensemble power levels are absorbed into scaled control operators with expanded `pwr_levels` reset to per-channel ones.
 
 ## 2026-04-23 15:42 KST - US-034
 - Added finite-difference coverage for `grape_gradient()` on a one-spin Hilbert-space problem with 4 steps and 2 channels
@@ -430,4 +431,16 @@ Started: 2026-04-23
   - GRAPE amplitude/phase helpers keep the existing waveform convention of time rows by channels, with exactly two Cartesian columns for X/Y controls
   - Phase-only gradient projection can be evaluated from amplitude plus phase, or equivalently from the current XY waveform as `-y*g_x + x*g_y`
   - Tanh curvilinear bounds may numerically saturate at the bound for very large unconstrained values, so tests should use moderate values when checking strict interior behavior
+---
+
+## 2026-04-23 15:52 KST - US-035
+- Created `optimalcontrol/ensemble.py` with `expand_drifts()`, `expand_power_levels()`, `ensemble_fidelity()`, and `ensemble_gradient()`
+- Expanded drift and RF-power axes into single-drift GRAPE subproblems so existing `grape_xy()` and `grape_gradient()` can evaluate each member directly
+- Added `tests/test_ensemble.py` covering one-problem-per-drift expansion, RF power scaling/reset semantics, and mean fidelity/gradient aggregation against direct GRAPE calls
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: `optimalcontrol/ensemble.py`, `tests/test_ensemble.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Use `expand_drifts()` and `expand_power_levels()` as wrappers around the single-drift GRAPE path until later stories integrate ensembles into `grape_xy()` directly
+  - `expand_power_levels()` treats seed `pwr_levels` as RF ensemble scalars, scales all control operators by each scalar, and resets expanded problem `pwr_levels` to `[1.0] * n_channels`
+  - Ensemble fidelity and gradient aggregation should average member results over the drift-power Cartesian product
 ---

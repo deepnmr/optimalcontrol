@@ -550,8 +550,8 @@
         "Typecheck passes"
       ],
       "priority": 35,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/ensemble.py with drift expansion, RF power-level expansion, and mean ensemble fidelity/gradient aggregation. Expanded power-level problems absorb each scalar RF scale into all control operators and reset per-channel pwr_levels to ones so they can reuse the existing single-drift GRAPE path. Added tests/test_ensemble.py covering expansion semantics and aggregate fidelity/gradient means."
     },
     {
       "id": "US-036",
