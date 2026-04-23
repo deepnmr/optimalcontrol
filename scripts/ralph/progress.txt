@@ -7,6 +7,18 @@
 Started: 2026-04-23
 ---
 
+## 2026-04-23 - US-002
+- Created docs/source_notes.md summarising JMR 2003 (ROPE), PNAS 2003 (CROP), and Spinach contributions
+- Created docs/spinach_mapping.md mapping Spinach MATLAB fields/functions to Python equivalents
+- Created docs/equations.md with ROPE/CROP symbol tables, unit policy (Hz public / rad/s internal), state normalisation policy (Hilbert-Schmidt norm), Liouville-space conventions, and operator algebra
+- Files changed: docs/source_notes.md, docs/spinach_mapping.md, docs/equations.md, scripts/ralph/prd.json
+- **Learnings for future iterations:**
+  - Unit policy: Hz public API → multiply by 2π when building Hamiltonians; relaxation rates stored in rad/s
+  - State normalisation: normalise_hs must be called by callers before fidelity; fidelity functions do not normalise internally
+  - Liouville vectorisation: column-major (Fortran order) is the chosen convention; document any deviation
+  - docs/ directory is pure markdown; no Python code needed, so mypy on optimalcontrol/ is unaffected
+---
+
 ## 2026-04-23 - US-001
 - Created directories: optimalcontrol/, tests/, examples/, docs/ (with .gitkeep placeholders)
 - Created pyproject.toml using setuptools backend (not hatchling which is unavailable)

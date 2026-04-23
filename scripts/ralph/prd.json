@@ -30,8 +30,8 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created docs/source_notes.md, docs/spinach_mapping.md, docs/equations.md. Documented Hz vs rad/s unit policy (public API uses Hz; internal rad/s at Hamiltonian builders). Documented Hilbert-Schmidt norm state normalisation policy. Documented Liouville-space column-major vectorisation convention."
     },
     {
       "id": "US-003",
