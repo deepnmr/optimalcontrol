@@ -20,6 +20,7 @@
 - ROPE waveform sampling uses physical seconds in `rope_waveform()`, but `rope_phase1_control()` and `rope_phase3_control()` use scaled times `pi * J_hz * t` because their signatures do not include `J_hz`.
 - ROPE analytical regression tests live in `tests/test_rope.py`; use `numpy.testing.assert_allclose` with the rtol requested by each story.
 - CROP analytical helpers live in `optimalcontrol/crop.py`; treat `ka`, `kc`, primed rates, and `J_hz` as same-unit frequency scalars for dimensionless ratios, with `ka >= kc` required for real `zeta`.
+- CROP scalar pulse params use Hz units: residual bandwidth `sqrt(ka^2-kc^2)` for amplitude, `-J_hz/2` for the slowly relaxing beta multiplet carrier, and inverse residual bandwidth for the default truncation window.
 
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
@@ -300,4 +301,15 @@ Started: 2026-04-23
 - **Learnings for future iterations:**
   - The CROP analytical formulas are dimensionless same-unit ratios; do not convert `J_hz` or rates to rad/s inside `crop.py`
   - `crop_eta_prime()` is the same formula as `crop_eta()` applied to the primed spin-S rates
+---
+
+## 2026-04-23 14:48 KST - US-025
+- Implemented `crop_kc0_limit()`, `crop_lossless_limit()`, `single_transition_decomposition()`, `CROPPulse`, and `crop_pulse_params()` in `optimalcontrol/crop.py`
+- `crop_kc0_limit()` verifies the ROPE reduction against `rope_g(ka/J_hz)` within `1e-10`, while `crop_lossless_limit()` evaluates the exact `kc=ka` decoherence-free limit
+- `single_transition_decomposition()` identifies `IzSbeta` as the slowly relaxing component and `IzSalpha` as the fast component for the non-negative CROP rate convention
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: optimalcontrol/crop.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - CROP single-transition labels should match `states.single_transition_operator()` label spelling: `IzSalpha` and `IzSbeta`
+  - The PNAS lossless limit corresponds to weak selective irradiation of the beta multiplet at `-J/2`, so scalar CROP pulse params use that carrier and a residual-bandwidth amplitude
 ---

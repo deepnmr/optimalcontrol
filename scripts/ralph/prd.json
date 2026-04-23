@@ -398,8 +398,8 @@
         "Typecheck passes"
       ],
       "priority": 25,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented CROP limiting-case helpers, CROPPulse, single-transition decomposition, and scalar pulse parameter calculation. kc=0 is verified against rope_g(ka/J) within 1e-10; kc=ka returns the lossless efficiency. Pulse params use the residual relaxation bandwidth sqrt(ka^2-kc^2) in Hz, carrier -J/2 for the slowly relaxing beta multiplet, and inverse bandwidth as the default truncation window."
     },
     {
       "id": "US-026",

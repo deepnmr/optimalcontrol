@@ -1,6 +1,22 @@
 """Analytical CROP efficiency helpers from the PNAS 2003 paper."""
 
 import math
+from dataclasses import dataclass
+
+from optimalcontrol.rope import rope_g, rope_n
+from optimalcontrol.spin_system import SpinSystem
+
+
+@dataclass
+class CROPPulse:
+    """Scalar parameters used to seed a truncated CROP pulse waveform.
+
+    Amplitude and irradiation frequency use the paper-level Hz convention.
+    """
+
+    amplitude: float
+    irradiation_freq_hz: float
+    truncation_window: float
 
 
 def _validate_nonnegative(name: str, value: float) -> None:
@@ -65,3 +81,66 @@ def crop_limit_single_transition(eta: float, eta_prime: float) -> float:
     _validate_nonnegative("eta", eta)
     _validate_nonnegative("eta_prime", eta_prime)
     return math.sqrt(eta * eta + eta_prime * eta_prime)
+
+
+def crop_kc0_limit(ka: float, J_hz: float) -> float:
+    """Return the ``kc = 0`` CROP efficiency and verify the ROPE reduction.
+
+    In the absence of cross-correlated relaxation, the PNAS CROP expression
+    reduces to the JMR ROPE efficiency ``g(n=ka/J)``.
+    """
+    eta = crop_eta(ka, 0.0, J_hz)
+    expected = rope_g(rope_n(ka, J_hz))
+    if abs(eta - expected) > 1e-10:
+        raise ValueError("CROP kc=0 limit does not match ROPE efficiency")
+    return eta
+
+
+def crop_lossless_limit(ka: float, J_hz: float) -> float:
+    """Return the decoherence-free ``kc = ka`` CROP limiting efficiency."""
+    return crop_eta(ka, ka, J_hz)
+
+
+def single_transition_decomposition(sys: SpinSystem) -> dict[str, str]:
+    """Identify slow and fast I-spin single-transition components.
+
+    For non-negative CROP rates, ``IzSbeta`` has transverse relaxation
+    ``ka - kc`` and ``IzSalpha`` has ``ka + kc``. When ``kc = 0`` the rates are
+    tied; the beta component is returned as the stable convention.
+    """
+    if len(sys.spins) != 2:
+        raise ValueError("single_transition_decomposition requires a two-spin system")
+
+    ka = sys.relaxation.ka
+    kc = sys.relaxation.kc
+    _validate_nonnegative("ka", ka)
+    _validate_nonnegative("kc", kc)
+    if ka < kc:
+        raise ValueError("ka must be greater than or equal to kc")
+
+    alpha_rate = ka + kc
+    beta_rate = ka - kc
+    if beta_rate <= alpha_rate:
+        return {"slowly_relaxing": "IzSbeta", "fast_relaxing": "IzSalpha"}
+    return {"slowly_relaxing": "IzSalpha", "fast_relaxing": "IzSbeta"}
+
+
+def crop_pulse_params(ka: float, kc: float, J_hz: float) -> CROPPulse:
+    """Return scalar CROP pulse parameters in Hz units.
+
+    The scalar amplitude is the residual relaxation bandwidth
+    ``sqrt(ka**2 - kc**2)``. It vanishes in the decoherence-free limit
+    ``kc -> ka``, matching the paper's weak selective irradiation limit. The
+    carrier is centered on the slowly relaxing beta multiplet at ``-J/2``.
+    """
+    _ = crop_eta(ka, kc, J_hz)
+    residual_bandwidth = math.sqrt(max(0.0, ka * ka - kc * kc))
+    if residual_bandwidth == 0.0:
+        truncation_window = math.inf
+    else:
+        truncation_window = 1.0 / residual_bandwidth
+    return CROPPulse(
+        amplitude=residual_bandwidth,
+        irradiation_freq_hz=-0.5 * J_hz,
+        truncation_window=truncation_window,
+    )
