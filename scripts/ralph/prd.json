@@ -313,8 +313,8 @@
         "Typecheck passes"
       ],
       "priority": 20,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented rope_Tcrit(), rope_j(), rope_switching_time(), rope_finite_angles(), and rope_finite_efficiency() in optimalcontrol/rope.py. The Appendix B j(s) helper uses scaled time s = pi*J_hz*t because its API has no J parameter; physical seconds are converted in rope_switching_time(). For T <= Tcrit, rope_finite_efficiency() returns the INEPT/free-evolution branch while rope_switching_time() raises as required."
     },
     {
       "id": "US-021",

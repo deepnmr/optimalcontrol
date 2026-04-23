@@ -16,6 +16,7 @@
 - ROPE analytical helpers live in `optimalcontrol/rope.py`; paper-level functions use Hz-style formulas, require positive `J_hz`, and use `atan2(1.0, n)` for arccot on the physical non-negative branch.
 - `rope_g_inphase(n)` assumes equal I/S relative relaxation (`kI/J = kS/J = n`) and returns `rope_g(n) ** 2`; the full JMR expression is the product of separate I-side and S-side ROPE factors.
 - ROPE scalar trajectory helpers use dimensionless expectation values; singular ratios return `0.0` for zero numerator and `math.inf` for non-zero numerator over zero denominator.
+- Finite-time ROPE solves Appendix B in scaled time `s = pi * J_hz * t`; `rope_j(s, n)` expects that scaled time, while public duration/switching APIs accept and return seconds.
 
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
@@ -240,4 +241,16 @@ Started: 2026-04-23
 - **Learnings for future iterations:**
   - ROPE invariant helpers are scalar analytical utilities in `optimalcontrol/rope.py`; keep them separate from state expectation extraction
   - `rope_trajectory_invariant()` intentionally returns only the measured ratio so callers/tests can assert it against `rope_g(n)` with their chosen tolerance
+---
+
+## 2026-04-23 14:26 KST - US-020
+- Implemented finite-time ROPE helpers: `rope_Tcrit()`, `rope_j()`, `rope_switching_time()`, `rope_finite_angles()`, and `rope_finite_efficiency()`
+- `rope_switching_time()` solves Appendix B Eq. (10) with `scipy.optimize.brentq` and returns the physical switching time in seconds
+- Verified numerical limits manually: `rope_Tcrit(n=1,J=100)` matches `arccot(2)/(pi*100)`, `T=0.263/J` gives `s≈0.1/J`, and large-duration finite efficiency approaches `rope_g(n)`
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: optimalcontrol/rope.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Appendix B rescales time by `pi*J`; use scaled time inside `rope_j()` and convert at public boundaries that take `J_hz`
+  - For `T <= Tcrit`, the paper's optimal finite-time branch is free evolution/INEPT, but the switching-time solver has no switch and should raise
+  - Use `atan2` forms for finite-time angles to avoid division by zero near `j(s)=0`
 ---
