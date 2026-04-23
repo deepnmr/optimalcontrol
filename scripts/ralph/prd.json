@@ -1,0 +1,1010 @@
+{
+  "project": "optimalcontrol",
+  "branchName": "ralph/optimalcontrol-python-package",
+  "description": "Python optimal control package for NMR spin dynamics implementing analytical ROPE/CROP theories and numerical GRAPE optimization, with Spinach-compatible API, ensemble support, and paper-reproduction examples.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Create package directory structure and pyproject.toml",
+      "description": "As a developer, I want the project scaffold in place so that the package can be installed and developed locally.",
+      "acceptanceCriteria": [
+        "Create directories: optimalcontrol/, tests/, examples/, docs/",
+        "Create pyproject.toml with package name 'optimalcontrol', version '0.1.0', and runtime dependencies numpy and scipy",
+        "Add dev dependency group with pytest, ruff, mypy, and matplotlib",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Create documentation reference files",
+      "description": "As a developer, I want source-traceability documents so that every implementation decision can be traced back to the JMR/PNAS papers or Spinach.",
+      "acceptanceCriteria": [
+        "Create docs/source_notes.md summarising what each PDF (JMR 2003 ROPE, PNAS 2003 CROP) contributes to the implementation",
+        "Create docs/spinach_mapping.md mapping Spinach MATLAB concepts (grape_xy, control struct, drift/control operators) to their Python module equivalents",
+        "Create docs/equations.md documenting ROPE/CROP notation conventions including all symbols used in plan.md Phases 5 and 6",
+        "Define and document Hz vs rad/s unit policy: public API uses Hz; internal rad/s conversions occur at documented boundaries",
+        "Define and document state normalisation policy: Hilbert-Schmidt norm at all fidelity evaluation points",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Create package __init__.py, README, and smoke test",
+      "description": "As a developer, I want a minimal importable package with a README and a passing import test so that CI has a green baseline.",
+      "acceptanceCriteria": [
+        "Create optimalcontrol/__init__.py with __version__ = '0.1.0' and public API placeholders as empty stubs or TODO comments",
+        "Create README.md describing project goal, source references (both PDFs, Spinach wiki URL), and local commands: lint (ruff check .), typecheck (mypy optimalcontrol), test (pytest)",
+        "Create tests/test_imports.py that imports optimalcontrol and asserts __version__ == '0.1.0'",
+        "pytest tests/test_imports.py passes",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Implement spin-1/2 single-spin operators",
+      "description": "As a developer building spin system models, I need the six elementary spin-1/2 operators so that all Hamiltonians can be constructed from first principles.",
+      "acceptanceCriteria": [
+        "Implement optimalcontrol/operators.py with functions Ix(), Iy(), Iz(), Ip(), Im(), E() each returning a 2x2 numpy.ndarray",
+        "Operators satisfy standard spin-1/2 algebra: [Ix,Iy]=i*Iz/2 (cyclic), Ip = Ix+i*Iy, Im = Ix-i*Iy",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Implement tensor-product and operator placement helpers",
+      "description": "As a developer, I need to build multi-spin operators from single-spin ones so that I can construct two-spin Hamiltonians like 2IzSz.",
+      "acceptanceCriteria": [
+        "Implement kron_product(ops: list) -> ndarray that takes a list of single-spin matrices and returns their Kronecker product",
+        "Implement place_operator(op, spin_index, n_spins) -> ndarray that places a single-spin operator at position spin_index in an n_spins system, tensoring with identity elsewhere",
+        "Implement two_spin_product(op_i, op_s, n_spins=2) -> ndarray returning op_i ⊗ op_s for a two-spin system",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Implement Hilbert-space commutator and Liouville vectorisation",
+      "description": "As a developer, I need commutator and Liouville-space utilities so that I can build superoperators from Hamiltonians.",
+      "acceptanceCriteria": [
+        "Implement comm(A, B) -> ndarray returning A @ B - B @ A",
+        "Implement vec(rho) -> ndarray that column-stacks a density matrix into a vector (row-major or column-major, documented in docstring)",
+        "Implement unvec(v, dim) -> ndarray that inverts vec()",
+        "vec/unvec round-trip: unvec(vec(rho), dim) == rho for arbitrary 2x2 and 4x4 matrices",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Implement superoperators and Lindblad dissipator",
+      "description": "As a developer, I need left/right multiplication superoperators, the Liouvillian commutator, double-commutator, and Lindblad builder so that I can construct full relaxation Liouvillians.",
+      "acceptanceCriteria": [
+        "Implement L_op(A) -> ndarray returning left-multiplication superoperator (A ⊗ I in vec convention)",
+        "Implement R_op(A) -> ndarray returning right-multiplication superoperator (I ⊗ A^T in vec convention)",
+        "Implement liouvillian_comm(A) -> ndarray returning -1j*(L_op(A) - R_op(A))",
+        "Implement double_comm(F, rho_vec) -> ndarray computing action of [F,[F,·]] on vectorised rho",
+        "Implement lindblad_dissipator(Fk_list, a_kl) -> ndarray building the full Lindblad superoperator from operator list and coefficient matrix",
+        "Implement shape and Hermiticity validation helpers: assert_square(A), assert_hermitian(A, tol)",
+        "Implement dense_or_sparse(A, sparse=False) returning scipy.sparse.csr_matrix or ndarray based on flag",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Tests for spin operators and tensor-product helpers",
+      "description": "As a developer, I want tests for the operator core so that I can catch regressions in the algebraic identities.",
+      "acceptanceCriteria": [
+        "Create tests/test_operators.py",
+        "Test commutation relations [Ix,Iy]=i*Iz/2, [Iy,Iz]=i*Ix/2, [Iz,Ix]=i*Iy/2",
+        "Test Ip = Ix + i*Iy and Im = Ix - i*Iy",
+        "Test place_operator on a two-spin system: place_operator(Iz,0,2) matches expected 4x4 matrix",
+        "Test two_spin_product(Iz, Iz) matches expected 4x4 2IzSz/2 matrix",
+        "All assertions use numpy.testing.assert_allclose with rtol=1e-12",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Tests for Liouville-space utilities and superoperators",
+      "description": "As a developer, I want tests for the Liouville-space layer so that vectorisation and superoperator action are verified against direct computation.",
+      "acceptanceCriteria": [
+        "Add to tests/test_operators.py (or create tests/test_liouville.py)",
+        "Test vec/unvec round-trip on 2x2 and 4x4 random Hermitian matrices",
+        "Test liouvillian_comm(A) action on vec(rho) matches direct comm(A, rho) vectorised",
+        "Test Lindblad dissipator with a single operator F and unit coefficient reproduces expected formula",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Define spin system dataclasses",
+      "description": "As a researcher, I want structured dataclasses for spins, couplings, relaxation rates, and spin systems so that I can describe my NMR sample in one place.",
+      "acceptanceCriteria": [
+        "Create optimalcontrol/spin_system.py",
+        "Define Spin dataclass: isotope (str), gamma (float, rad/s/T), channel (str)",
+        "Define Coupling dataclass: spin_i (int), spin_j (int), J_hz (float)",
+        "Define RelaxationRates dataclass: kDD (float), kCSA_I (float), kCSA_S (float), ka (float), kc (float), ka_prime (float), kc_prime (float); all in rad/s",
+        "Define SpinSystem dataclass: spins (list[Spin]), couplings (list[Coupling]), shifts_hz (dict[int,float]), relaxation (RelaxationRates), basis (str, default 'dense')",
+        "Define two_spin_system(J_hz, kDD, kCSA_I, kCSA_S, ka, kc, ka_prime, kc_prime) factory returning SpinSystem for the paper's I-S heteronuclear system",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Implement Hamiltonian builders for the spin system",
+      "description": "As a researcher, I want functions that build the J-coupling drift Hamiltonian, chemical-shift Hamiltonian, and control operators from a SpinSystem so that I can assemble the total generator.",
+      "acceptanceCriteria": [
+        "Implement drift_hamiltonian(sys: SpinSystem) -> ndarray building H_J = 2*pi*J * IzSz for each coupling",
+        "Implement shift_hamiltonian(sys: SpinSystem) -> ndarray building H_CS = 2*pi * sum(delta_i * Iz_i)",
+        "Implement control_operators(sys: SpinSystem) -> dict[str, ndarray] returning {'Ix': ..., 'Iy': ..., 'Sx': ..., 'Sy': ...} for a two-spin system",
+        "All operators returned in rad/s units (multiply Hz values by 2*pi at construction)",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Implement relaxation Liouvillian builders and total generator",
+      "description": "As a researcher, I want relaxation Liouvillian builders (with and without DD-CSA cross-correlation) and a total generator assembler so that I can construct the full propagator.",
+      "acceptanceCriteria": [
+        "Implement relaxation_liouvillian(sys: SpinSystem) -> ndarray building the secular relaxation superoperator without cross-correlation using kI = kDD + kCSA_I and kS = kDD + kCSA_S",
+        "Implement relaxation_liouvillian_crosscorr(sys: SpinSystem) -> ndarray building the full Liouvillian including DD-CSA cross-correlation terms ka, kc, ka_prime, kc_prime",
+        "Implement total_generator(sys: SpinSystem, controls: dict[str,float]) -> ndarray returning L = L_drift + L_relax + sum(u_k * L_ctrl_k)",
+        "Implement validate_onresonance(sys: SpinSystem) raising ValueError if shifts are non-zero when on-resonance assumption is required",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Tests for spin system Hamiltonians and relaxation rates",
+      "description": "As a developer, I want tests verifying that Hamiltonians and Liouvillians match known analytical expressions for the two-spin paper system.",
+      "acceptanceCriteria": [
+        "Create tests/test_spin_system.py",
+        "Test drift_hamiltonian: 2x2 block structure consistent with 2*pi*J*IzSz for a known J",
+        "Test control_operators: Ix operator at spin 0 matches place_operator(Ix(), 0, 2)",
+        "Test relaxation rates: kI = kDD + kCSA_I, kS = kDD + kCSA_S from RelaxationRates fields",
+        "Test cross-correlated rates: ka, kc, ka_prime, kc_prime accessible from RelaxationRates",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Implement product-operator state construction and normalisation",
+      "description": "As a researcher, I want to build initial and target states from product-operator labels and normalise them so that fidelity evaluations are correctly scaled.",
+      "acceptanceCriteria": [
+        "Create optimalcontrol/states.py",
+        "Implement state_from_label(label: str, n_spins: int) -> ndarray supporting labels: 'Ix','Iy','Iz','Sx','Sy','Sz','2IxSz','2IySz','2IzSx','2IzSy','2IzSz'",
+        "Implement single_transition_operator(label: str) -> ndarray supporting labels: 'IzSalpha','IzSbeta','IxSbeta','IySbeta'",
+        "Implement normalise_hs(v: ndarray) -> ndarray normalising by Hilbert-Schmidt norm sqrt(Tr(v†v))",
+        "Implement normalise_2norm(v: ndarray) -> ndarray normalising by Euclidean 2-norm",
+        "Typecheck passes"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Implement fidelity functions",
+      "description": "As a researcher, I want overlap fidelity functions (real, imaginary, absolute-square) and multi-source/target averaged fidelity so that I can measure transfer efficiency for ROPE/CROP and GRAPE.",
+      "acceptanceCriteria": [
+        "Implement fidelity_real(rho_f, rho_t) -> float returning Re(Tr(rho_t† @ rho_f))",
+        "Implement fidelity_abs2(rho_f, rho_t) -> float returning |Tr(rho_t† @ rho_f)|^2",
+        "Implement fidelity_avg(rho_f_list, rho_t_list, weights=None) -> float returning weighted average fidelity over source-target pairs",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "Implement prefix, suffix, and dead-time hooks",
+      "description": "As a researcher, I want prefix transformation, suffix transformation, and dead-time drift propagation hooks so that I can handle INEPT-style bookend pulses and echo delays around the optimised sequence.",
+      "acceptanceCriteria": [
+        "Implement apply_prefix(rho, prefix_propagator) -> ndarray applying a fixed pre-rotation to the initial state",
+        "Implement apply_suffix(rho, suffix_propagator) -> ndarray applying a fixed post-rotation before fidelity evaluation",
+        "Implement dead_time_propagation(rho, generator, t_dead) -> ndarray propagating rho under generator for time t_dead using scipy.linalg.expm",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "Tests for states and fidelity",
+      "description": "As a developer, I want tests verifying paper transfer fidelities and hook behaviour so that the state/fidelity layer is validated against known results.",
+      "acceptanceCriteria": [
+        "Create tests/test_states.py",
+        "Test state_from_label('Iz', 2) returns a 4x4 matrix matching place_operator(Iz(),0,2)",
+        "Test fidelity_real(rho, rho) == 1.0 for a normalised state",
+        "Test paper transfers produce non-zero fidelity: state_from_label('Iz',2) is non-orthogonal to state_from_label('2IzSz',2)",
+        "Test dead_time_propagation with t_dead=0 returns rho unchanged",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-018",
+      "title": "Implement unconstrained ROPE efficiency and INEPT comparison",
+      "description": "As a researcher, I want the unconstrained ROPE efficiency formula and INEPT comparison so that I can quantify the gain from optimal control over the standard INEPT sequence.",
+      "acceptanceCriteria": [
+        "Create optimalcontrol/rope.py",
+        "Implement rope_n(kI, J) -> float returning n = kI / J (with kI and J in same units, Hz)",
+        "Implement rope_g(n) -> float returning g = sqrt(1 + n^2) - n",
+        "Implement inept_efficiency(t, J_hz, k_hz) -> float returning exp(-pi*k*t)*sin(pi*J*t)",
+        "Implement inept_optimal_time(n, J_hz) -> float returning t* = arccot(n)/(pi*J)",
+        "Implement inept_max_efficiency(n, J_hz) -> float evaluating inept_efficiency at t*",
+        "Implement rope_gain_over_inept(n, J_hz) -> float returning g / inept_max_efficiency",
+        "Implement rope_g_inphase(n) -> float for the in-phase Ix->Sx transfer efficiency (documented formula from JMR paper)",
+        "Typecheck passes"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-019",
+      "title": "Implement ROPE optimal return function and trajectory invariant",
+      "description": "As a researcher, I want the optimal return function V and the trajectory invariant relation so that I can verify the optimal trajectory condition for any point (r1, r2).",
+      "acceptanceCriteria": [
+        "Implement rope_V(r1, r2, n) -> float returning sqrt(g(n)^2 * r1^2 + r2^2)",
+        "Implement rope_u_ratio(r1, r2, n) -> float returning u2/u1 = g*r1/r2 with safe handling when r2==0 (return inf) and r1==0 (return 0)",
+        "Implement rope_trajectory_invariant(expect_2IySz, expect_Ix, n) -> float computing the ratio and comparing to g(n) — returns the ratio for the caller to assert",
+        "Typecheck passes"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-020",
+      "title": "Implement finite-time ROPE: critical duration, j(s), switching time solver",
+      "description": "As a researcher, I want the finite-time ROPE calculations (Tcrit, Appendix B j(s) function, switching time solver) so that I can compute optimal controls for a constrained transfer duration T.",
+      "acceptanceCriteria": [
+        "Implement rope_Tcrit(n, J_hz) -> float returning T_crit = arccot(2n)/(pi*J)",
+        "Implement rope_j(s, n) -> float implementing the j(s) function from Appendix B of JMR 2003",
+        "Implement rope_switching_time(T, n, J_hz) -> float solving for switching time s given total duration T using scipy.optimize; raise ValueError if T <= T_crit",
+        "Implement rope_finite_angles(T, n, J_hz) -> tuple[float,float] returning (h1, h2)",
+        "Implement rope_finite_efficiency(T, n, J_hz) -> float returning g_T",
+        "Typecheck passes"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-021",
+      "title": "Implement finite-time ROPE waveform generator",
+      "description": "As a researcher, I want the three-phase ROPE control waveform sampler so that I can obtain time-discretised controls, RF amplitudes, and phases ready for use in a spectrometer.",
+      "acceptanceCriteria": [
+        "Implement rope_phase1_control(t, s, h1, h2, n) -> tuple[float,float] returning (u1(t), u2(t)) for phase I (t in [0, s])",
+        "Implement rope_phase3_control(t, T, s, h1, h2, n) -> tuple[float,float] returning controls for phase III using symmetry u2(t) = u1(T-t)",
+        "Implement rope_waveform(T, n, J_hz, dt) -> dict with keys 'times', 'u1', 'u2', 'amplitude', 'phase' as numpy arrays sampled at interval dt",
+        "Implement rope_hard_pulse_angle(h, amplitude) -> float converting a phase amplitude to a flip angle in degrees",
+        "Phase II region (s to T-s) returns u1=u2=1 exactly",
+        "Typecheck passes"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-022",
+      "title": "Tests for unconstrained ROPE",
+      "description": "As a developer, I want tests for the unconstrained ROPE formulas so that known analytical limits are verified.",
+      "acceptanceCriteria": [
+        "Create tests/test_rope.py",
+        "Test rope_g(n=0) == 1.0 (no-relaxation limit)",
+        "Test inept_max_efficiency(n=0, J_hz=100) is close to 1.0",
+        "Test rope_gain_over_inept(n=0, J_hz=100) == 1.0 within tolerance",
+        "Test rope_V(0, 1, n=1.0) == 1.0",
+        "All assertions use numpy.testing.assert_allclose with rtol=1e-8",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-023",
+      "title": "Tests for finite-time ROPE",
+      "description": "As a developer, I want tests for finite-time ROPE calculations so that the switching time solver and efficiency limits are validated.",
+      "acceptanceCriteria": [
+        "Test rope_Tcrit(n=1, J_hz=100) matches expected value arccot(2)/(pi*100)",
+        "Test rope_finite_efficiency(T, n=1, J_hz=100) approaches rope_g(n=1) as T -> large (e.g., T = 10/J)",
+        "Test rope_waveform returns arrays of correct length ceil(T/dt) and u1==u2==1 in the phase II region",
+        "Test that T <= Tcrit raises ValueError from rope_switching_time",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-024",
+      "title": "Implement CROP efficiency and physical transfer limits",
+      "description": "As a researcher, I want the CROP analytical efficiency functions and physical transfer limit table so that I can compute decoherence boundaries for cross-correlated spin systems.",
+      "acceptanceCriteria": [
+        "Create optimalcontrol/crop.py",
+        "Implement crop_zeta(ka, kc, J_hz) -> float returning sqrt((ka^2-kc^2)/(J^2+kc^2)); raise ValueError if ka < kc",
+        "Implement crop_eta(ka, kc, J_hz) -> float returning sqrt(1+zeta^2) - zeta",
+        "Implement crop_eta_prime(ka_prime, kc_prime, J_hz) -> float for spin-S rates",
+        "Implement crop_limit_Iz_to_2IzSz(eta) -> float returning eta",
+        "Implement crop_limit_2IzSz_to_Sz(eta_prime) -> float returning eta_prime",
+        "Implement crop_limit_Iz_to_Sz(eta, eta_prime) -> float returning eta * eta_prime",
+        "Implement crop_limit_single_transition(eta, eta_prime) -> float returning sqrt(eta^2 + eta_prime^2)",
+        "Typecheck passes"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-025",
+      "title": "Implement CROP limiting cases and pulse parameter container",
+      "description": "As a researcher, I want the CROP limiting-case functions and a pulse parameter container so that I can verify kc=0 reduces to ROPE and kc/ka->1 approaches lossless transfer.",
+      "acceptanceCriteria": [
+        "Implement crop_kc0_limit(ka, J_hz) -> float verifying that crop_eta(ka, kc=0, J_hz) matches rope_g(n=ka/J_hz) within 1e-10",
+        "Implement crop_lossless_limit(ka, J_hz) -> float returning crop_eta(ka, kc=ka, J_hz) which should approach 1.0 as kc->ka",
+        "Implement single_transition_decomposition(sys: SpinSystem) -> dict returning {'slowly_relaxing': str, 'fast_relaxing': str} identifying multiplet components",
+        "Define CROPPulse dataclass: amplitude (float), irradiation_freq_hz (float), truncation_window (float)",
+        "Implement crop_pulse_params(ka, kc, J_hz) -> CROPPulse computing the CROP pulse amplitude and irradiation frequency",
+        "Typecheck passes"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-026",
+      "title": "Implement CROP waveform generator and robustness sweep",
+      "description": "As a researcher, I want a truncated CROP waveform generator and a robustness sweep so that I can generate pulse shapes and evaluate how performance varies with relaxation parameters.",
+      "acceptanceCriteria": [
+        "Implement crop_waveform(ka, kc, J_hz, dt, truncation_window) -> dict with keys 'times', 'amplitude', 'irrad_freq' as numpy arrays",
+        "Implement crop_robustness_sweep(ka_over_J_values, kc_over_ka_values, J_hz) -> ndarray of shape (len(ka_over_J), len(kc_over_ka)) containing crop_eta values",
+        "Values in robustness_sweep are in range [0, 1]; assert no value exceeds 1+1e-10",
+        "Typecheck passes"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-027",
+      "title": "Tests for CROP analytical functions",
+      "description": "As a developer, I want tests verifying CROP efficiency against the PNAS paper limiting cases and regression values.",
+      "acceptanceCriteria": [
+        "Create tests/test_crop.py",
+        "Test crop_kc0_limit: crop_eta(ka=60, kc=0, J_hz=100) matches rope_g(n=0.6) within rtol=1e-8",
+        "Test crop_lossless_limit: crop_eta(ka=100, kc=99.999, J_hz=100) is within 0.01 of 1.0",
+        "Test monotonic improvement: for kc in [0, 0.3*ka, 0.6*ka, 0.9*ka], crop_eta is non-decreasing",
+        "Test regression values: crop_eta(ka=60, kc=45, J_hz=100) and crop_eta(ka=110, kc=82.5, J_hz=100) match stored expected values within rtol=1e-6",
+        "Test no efficiency above 1+1e-10 in robustness_sweep over a 5x5 grid",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-028",
+      "title": "Define ControlProblem dataclass",
+      "description": "As a researcher, I want a ControlProblem dataclass that mirrors the Spinach control structure so that I can describe a GRAPE optimisation problem in familiar terms.",
+      "acceptanceCriteria": [
+        "Create optimalcontrol/grape.py",
+        "Define ControlProblem dataclass with required fields: drifts (list[ndarray]), operators (list[ndarray]), rho_init (list[ndarray]), rho_targ (list[ndarray]), pulse_dt (float), pwr_levels (list[float]), freeze (ndarray | None)",
+        "Define optional fields: fidelity_mode (str, default 'real'), offsets (list[float] | None), offset_operators (list[ndarray] | None), phase_cycle (ndarray | None), basis (str, default 'dense'), penalties (list | None), checkpoint_path (str | None)",
+        "Implement validate_control_problem(cp: ControlProblem) raising ValueError for mismatched dimensions or invalid fidelity_mode",
+        "Typecheck passes"
+      ],
+      "priority": 28,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-029",
+      "title": "Implement waveform shape utilities and forward propagation cache",
+      "description": "As a developer, I want waveform validation, freeze-mask application, and a forward propagation cache so that GRAPE has a clean, testable propagation layer.",
+      "acceptanceCriteria": [
+        "Implement validate_waveform(wfm: ndarray, n_channels: int, n_steps: int) raising ValueError for wrong shape",
+        "Implement apply_freeze(wfm: ndarray, freeze_mask: ndarray | None) -> ndarray returning wfm with frozen entries held at their initial values",
+        "Implement forward_propagators(cp: ControlProblem, wfm: ndarray) -> list[ndarray] returning list of per-slice propagators U_k using scipy.linalg.expm",
+        "Implement forward_states(rho_init: ndarray, propagators: list[ndarray]) -> list[ndarray] returning accumulated states [rho_0, rho_1, ..., rho_N]",
+        "Typecheck passes"
+      ],
+      "priority": 29,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-030",
+      "title": "Implement backward adjoint propagation and grape_xy fidelity",
+      "description": "As a developer, I want backward adjoint propagation and the grape_xy fidelity entry point so that the core GRAPE loop is functional.",
+      "acceptanceCriteria": [
+        "Implement backward_states(rho_targ: ndarray, propagators: list[ndarray]) -> list[ndarray] returning backward-propagated target states",
+        "Implement final_fidelity(fwd_states: list, bwd_states: list, mode: str) -> float evaluating fidelity between final forward state and initial backward state",
+        "Implement grape_xy(cp: ControlProblem, wfm: ndarray) -> float returning scalar fidelity (Spinach-compatible entry point, single return value)",
+        "Typecheck passes"
+      ],
+      "priority": 30,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-031",
+      "title": "Implement directional derivative and gradient accumulation",
+      "description": "As a developer, I want the auxiliary-matrix directional derivative of the matrix exponential and gradient accumulation over slices so that GRAPE has an analytical gradient.",
+      "acceptanceCriteria": [
+        "Implement dir_diff_expm(H, dH, dt) -> ndarray computing the directional derivative of expm(-1j*H*dt) in direction dH using the 2x2 block auxiliary matrix method",
+        "Implement grape_gradient(cp: ControlProblem, wfm: ndarray) -> ndarray of same shape as wfm containing dF/d(wfm[k,c]) accumulated over slices and control channels",
+        "Gradient entries for frozen channels (freeze_mask==True) are set to zero",
+        "Typecheck passes"
+      ],
+      "priority": 31,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-032",
+      "title": "Implement Hessian path and Liouville/Hilbert GRAPE variants",
+      "description": "As a developer, I want a Hessian placeholder, an exact Hessian for small systems, and Liouville/Hilbert-space variant dispatch so that GRAPE can be used in different physical models.",
+      "acceptanceCriteria": [
+        "Implement grape_hessian(cp: ControlProblem, wfm: ndarray) -> ndarray | None returning None when n_steps * n_channels > 50 (Hessian too large) or the exact Hessian matrix otherwise",
+        "Implement grape_xy_liouville(cp: ControlProblem, wfm: ndarray) -> float for Liouville-space propagation (density matrix in vectorised form)",
+        "Implement grape_xy_hilbert(cp: ControlProblem, wfm: ndarray) -> float for Hilbert-space propagation (pure-state, closed system)",
+        "Typecheck passes"
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-033",
+      "title": "Implement phase-only and amplitude-phase GRAPE adapters",
+      "description": "As a researcher, I want phase-only and amplitude-phase parameterisation adapters so that I can optimise in amplitude/phase space and convert back to Cartesian XY.",
+      "acceptanceCriteria": [
+        "Implement xy_to_ampl_phase(wfm_xy: ndarray) -> tuple[ndarray, ndarray] returning (amplitude, phase) arrays",
+        "Implement ampl_phase_to_xy(amplitude: ndarray, phase: ndarray) -> ndarray returning Cartesian wfm",
+        "Implement phase_only_gradient(grad_xy: ndarray, amplitude: ndarray) -> ndarray converting Cartesian gradient to phase-only gradient via chain rule",
+        "Implement curvilinear_reparameterise(wfm: ndarray, bounds: tuple[float,float]) -> ndarray applying tanh reparameterisation to enforce bounds",
+        "Typecheck passes"
+      ],
+      "priority": 33,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-034",
+      "title": "Tests for GRAPE gradient and propagation",
+      "description": "As a developer, I want finite-difference gradient tests for GRAPE so that I can confirm the analytical gradient matches numerical differences on small systems.",
+      "acceptanceCriteria": [
+        "Create tests/test_grape.py",
+        "Test grape_gradient against finite differences on a one-spin Hilbert-space problem with n_steps=4, n_channels=2; relative error <= 1e-5",
+        "Test grape_gradient against finite differences on a two-spin Liouville-space problem with n_steps=4; relative error <= 1e-5",
+        "Test freeze mask: gradient entries at frozen indices are exactly zero",
+        "Test grape_xy returns float in [0, 1] for a random waveform",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 34,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-035",
+      "title": "Implement ensemble expansion over drift generators and power levels",
+      "description": "As a researcher, I want ensemble expansion over multiple drift generators and control power levels so that I can design pulses robust to sample heterogeneity and RF miscalibration.",
+      "acceptanceCriteria": [
+        "Create optimalcontrol/ensemble.py",
+        "Implement expand_drifts(cp: ControlProblem) -> list[ControlProblem] returning one problem per drift generator",
+        "Implement expand_power_levels(cp: ControlProblem) -> list[ControlProblem] returning one problem per pwr_levels entry with scaled operators",
+        "Implement ensemble_fidelity(cp: ControlProblem, wfm: ndarray) -> float returning mean fidelity over all expanded problems",
+        "Implement ensemble_gradient(cp: ControlProblem, wfm: ndarray) -> ndarray returning mean gradient over all expanded problems",
+        "Typecheck passes"
+      ],
+      "priority": 35,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-036",
+      "title": "Implement ensemble expansion over offsets, phase cycles, and correlated modes",
+      "description": "As a researcher, I want offset and phase-cycle ensemble dimensions and correlated ensemble modes so that I can handle chemical-shift distributions and phase-alternated experiments.",
+      "acceptanceCriteria": [
+        "Implement expand_offsets(cp: ControlProblem) -> list[ControlProblem] adding offset_operators * offset to drift for each offset value",
+        "Implement expand_phase_cycle(cp: ControlProblem) -> list[ControlProblem] rotating initial states by each phase-cycle row",
+        "Implement cartesian_product_ensemble(cp: ControlProblem) -> list[ControlProblem] building the full cross-product over all active dimensions",
+        "Implement correlated_rho_match(cp: ControlProblem) -> list[ControlProblem] for rho_match mode",
+        "Implement correlated_rho_drift(cp: ControlProblem) -> list[ControlProblem] for rho_drift mode",
+        "Typecheck passes"
+      ],
+      "priority": 36,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-037",
+      "title": "Implement parallel backends and tests for ensemble",
+      "description": "As a developer, I want serial and optional parallel backends for ensemble evaluation and tests verifying correct aggregation so that ensemble GRAPE is testable deterministically.",
+      "acceptanceCriteria": [
+        "Implement serial_backend(fn, problems: list) -> list applying fn to each problem sequentially",
+        "Implement joblib_backend(fn, problems: list, n_jobs=-1) -> list applying fn in parallel using joblib if available, falling back to serial otherwise",
+        "Create tests/test_ensemble.py",
+        "Test cartesian_product_ensemble with 2 drifts x 2 power_levels returns 4 problems",
+        "Test ensemble_fidelity with single-element ensemble matches grape_xy directly",
+        "Test correlated_rho_match returns len(rho_init) problems (not a cross-product)",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 37,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-038",
+      "title": "Implement waveform penalty functions",
+      "description": "As a researcher, I want norm-square and derivative norm-square penalty functions with values, gradients, and separated reporting so that hardware constraints can be included in optimisation.",
+      "acceptanceCriteria": [
+        "Create optimalcontrol/penalties.py",
+        "Implement penalty_NS(wfm, weight) -> tuple[float, ndarray] returning (value, gradient) for norm-square penalty",
+        "Implement penalty_SNS(wfm, limit, weight) -> tuple[float, ndarray] for spillout norm-square Cartesian penalty (energy above limit)",
+        "Implement penalty_SNSA(wfm, limit, weight) -> tuple[float, ndarray] for spillout norm-square amplitude penalty",
+        "Implement penalty_DNS(wfm, weight) -> tuple[float, ndarray] for derivative norm-square penalty (finite differences of wfm along time axis)",
+        "Implement total_penalty(wfm, penalty_list) -> tuple[float, ndarray] summing all active penalties",
+        "Typecheck passes"
+      ],
+      "priority": 38,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-039",
+      "title": "Implement waveform distortion models",
+      "description": "As a researcher, I want amplifier and filter distortion models with derivative hooks so that GRAPE gradients remain correct when hardware non-idealities are included.",
+      "acceptanceCriteria": [
+        "Implement distortion_noop(wfm) -> ndarray returning wfm unchanged",
+        "Implement distortion_tanh(wfm, scale) -> ndarray applying tanh(wfm/scale)*scale compression",
+        "Implement distortion_root(wfm, scale) -> ndarray applying sign(wfm)*sqrt(|wfm|/scale)*scale",
+        "Implement distortion_single_pole(wfm, alpha) -> ndarray applying IIR low-pass filter with pole alpha",
+        "Implement distortion_single_zero(wfm, beta) -> ndarray applying FIR zero filter with coefficient beta",
+        "Each distortion function has a companion distortion_*_deriv(wfm, ...) -> ndarray returning element-wise derivative for gradient chain rule",
+        "Implement lower_upper_clip(wfm, lb, ub) -> ndarray clipping for diagnostics only (not used in gradient path)",
+        "Typecheck passes"
+      ],
+      "priority": 39,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-040",
+      "title": "Tests for penalties and distortions",
+      "description": "As a developer, I want tests verifying penalty values and gradients and distortion identity and filter responses.",
+      "acceptanceCriteria": [
+        "Create tests/test_penalties.py",
+        "Test penalty_NS gradient against finite differences with rtol=1e-6",
+        "Test penalty_SNS gradient against finite differences with rtol=1e-6",
+        "Test penalty_DNS gradient against finite differences with rtol=1e-6",
+        "Test distortion_noop returns input unchanged",
+        "Test distortion_single_pole with alpha=0 returns input unchanged",
+        "Test distortion_tanh_deriv matches finite difference of distortion_tanh with rtol=1e-6",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 40,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-041",
+      "title": "Implement optimizer result dataclass and line search",
+      "description": "As a developer, I want an optimizer result dataclass and a cubic bracketed line search so that all optimizers have a common output contract and a shared step-size mechanism.",
+      "acceptanceCriteria": [
+        "Create optimalcontrol/optimizers.py",
+        "Define OptimResult dataclass: wfm_final (ndarray), fidelity_final (float), n_iter (int), n_feval (int), converged (bool), reason (str), history (list[float])",
+        "Implement line_search_cubic(f, grad, wfm, direction, alpha0=1.0, max_iter=20) -> float returning step size satisfying Wolfe conditions or best found",
+        "Typecheck passes"
+      ],
+      "priority": 41,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-042",
+      "title": "Implement gradient ascent and LBFGS optimizers",
+      "description": "As a researcher, I want gradient ascent and LBFGS optimizer paths so that I can run GRAPE with the most common optimisation algorithms.",
+      "acceptanceCriteria": [
+        "Implement gradient_ascent(cp, wfm0, tol_x=1e-6, tol_g=1e-6, max_iter=500) -> OptimResult using fixed step size with line search",
+        "Implement lbfgs_state(m=10) returning an empty LBFGS memory dictionary",
+        "Implement lbfgs_update(state, wfm_diff, grad_diff) -> dict updating the LBFGS memory",
+        "Implement lbfgs_direction(state, grad) -> ndarray returning the LBFGS quasi-Newton search direction",
+        "Implement lbfgs_grape(cp, wfm0, m=10, tol_x=1e-6, tol_g=1e-6, max_iter=500) -> OptimResult",
+        "Typecheck passes"
+      ],
+      "priority": 42,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-043",
+      "title": "Implement Newton-Raphson optimizer with convergence checks",
+      "description": "As a developer, I want a Newton-Raphson optimizer with Hessian regularisation and RFO option so that small-waveform problems can converge quadratically.",
+      "acceptanceCriteria": [
+        "Implement newton_raphson(cp, wfm0, regularise=True, rfo=False, tol_x=1e-6, tol_g=1e-6, max_iter=200) -> OptimResult",
+        "Regularisation adds lambda*I to the Hessian when it is indefinite (lambda chosen by minimum eigenvalue + epsilon)",
+        "RFO option applies the rational function optimisation level-shifted step when rfo=True",
+        "Convergence checks: step norm < tol_x OR gradient norm < tol_g OR n_iter >= max_iter",
+        "OptimResult.reason is one of 'step_tol', 'grad_tol', 'max_iter'",
+        "Typecheck passes"
+      ],
+      "priority": 43,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-044",
+      "title": "Implement checkpoint save/resume and verbose iteration table",
+      "description": "As a researcher, I want optimizer checkpoint save/resume and a verbose iteration table matching Spinach diagnostics so that long optimisations can be safely interrupted and resumed.",
+      "acceptanceCriteria": [
+        "Implement save_checkpoint(path, wfm, result_so_far) -> None saving wfm and history to a JSON file",
+        "Implement load_checkpoint(path) -> tuple[ndarray, list[float]] loading wfm and history from JSON",
+        "Implement print_iteration_table(n_iter, fidelity, penalty, grad_norm, step_norm) printing a fixed-width row matching the Spinach fminnewton output format",
+        "All three optimizers (gradient_ascent, lbfgs_grape, newton_raphson) accept checkpoint_path: str | None; if provided, save checkpoint every 10 iterations and load on start if file exists",
+        "Typecheck passes"
+      ],
+      "priority": 44,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-045",
+      "title": "Tests for optimizers",
+      "description": "As a developer, I want tests verifying optimizer correctness on a quadratic toy problem and GRAPE improvement on a small state-transfer problem.",
+      "acceptanceCriteria": [
+        "Create tests/test_optimizers.py",
+        "Test lbfgs_grape on quadratic objective f(x)=-||x-x*||^2 converges to x* within tol_x=1e-5",
+        "Test lbfgs_grape improves grape_xy fidelity over 20 iterations on a one-spin Iz->Ix transfer",
+        "Test checkpoint: run 5 iterations, save, resume, run 5 more; final fidelity matches uninterrupted 10-iteration run within rtol=1e-6",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 45,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-046",
+      "title": "Implement waveform container and CSV/JSON I/O",
+      "description": "As a researcher, I want a waveform container with metadata and CSV/JSON import/export so that I can save optimised pulses and reload them for replay or spectrometer upload.",
+      "acceptanceCriteria": [
+        "Create optimalcontrol/io.py",
+        "Define Waveform dataclass: channels (list[str]), units (str), times (ndarray), data (ndarray, shape n_channels x n_steps), metadata (dict), problem_hash (str)",
+        "Implement waveform_from_result(cp, wfm, result) -> Waveform constructing from OptimResult",
+        "Implement export_csv(wfm: Waveform, path: str) -> None writing header row and data",
+        "Implement export_json(wfm: Waveform, path: str) -> None writing JSON with all fields",
+        "Implement import_json(path: str) -> Waveform reconstructing from JSON",
+        "Typecheck passes"
+      ],
+      "priority": 46,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-047",
+      "title": "Implement spectrometer format stubs and heterodyne transformation",
+      "description": "As a researcher, I want Bruker and JCAMP-DX export/import stubs and a heterodyne transformation helper so that I have a documented pathway to spectrometer-ready pulse files.",
+      "acceptanceCriteria": [
+        "Implement export_bruker(wfm: Waveform, path: str) -> None writing a minimal Bruker-format text file with a docstring documenting its limitations and that it is not production-ready",
+        "Implement import_jcamp_dx(path: str) -> Waveform parsing a minimal JCAMP-DX file with docstring documenting limitations",
+        "Implement heterodyne_transform(wfm: Waveform, carrier_hz: float) -> Waveform shifting the waveform by the carrier frequency",
+        "Implement fapt_import(path: str) -> Waveform parsing frequency-amplitude-phase-time tabular format",
+        "Typecheck passes"
+      ],
+      "priority": 47,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-048",
+      "title": "Implement trajectory analysis",
+      "description": "As a researcher, I want trajectory analysis functions for state populations, spin expectation values, coherence order, and correlation order so that I can inspect how the spin state evolves during optimised pulses.",
+      "acceptanceCriteria": [
+        "Create optimalcontrol/analysis.py",
+        "Implement state_trajectory(cp: ControlProblem, wfm: ndarray) -> list[ndarray] returning the list of density matrices at each time slice",
+        "Implement expectation_values(trajectory: list, ops: dict[str,ndarray]) -> dict[str, ndarray] returning expectation value of each operator at each time step",
+        "Implement coherence_order_populations(trajectory: list) -> ndarray if basis metadata supports it (raise NotImplementedError otherwise)",
+        "Implement correlation_order_populations(trajectory: list) -> ndarray if basis metadata supports it (raise NotImplementedError otherwise)",
+        "Typecheck passes"
+      ],
+      "priority": 48,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-049",
+      "title": "Implement robustness histogram and spectrogram data generation",
+      "description": "As a researcher, I want robustness histogram and spectrogram data generation so that I can characterise pulse performance across parameter distributions.",
+      "acceptanceCriteria": [
+        "Implement robustness_histogram(cp_template: ControlProblem, wfm: ndarray, param_grid: dict) -> ndarray of fidelity values over the parameter grid",
+        "Implement spectrogram_data(wfm: ndarray, channel_pair: tuple[int,int], dt: float) -> tuple[ndarray,ndarray,ndarray] returning (times, freqs, power) from scipy.signal.spectrogram",
+        "Typecheck passes"
+      ],
+      "priority": 49,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-050",
+      "title": "Implement plotting functions",
+      "description": "As a researcher, I want plotting functions for controls, ROPE/CROP efficiency curves, and trajectories so that I can visually inspect and share results without writing boilerplate matplotlib code.",
+      "acceptanceCriteria": [
+        "Create optimalcontrol/plotting.py",
+        "Implement plot_xy_controls(wfm: Waveform) -> matplotlib.figure.Figure plotting u_x and u_y vs time",
+        "Implement plot_ampl_phase(wfm: Waveform) -> matplotlib.figure.Figure plotting amplitude and phase vs time",
+        "Implement plot_rope_efficiency(n_values, J_hz) -> matplotlib.figure.Figure plotting ROPE vs INEPT efficiency curves",
+        "Implement plot_crop_robustness(ka_over_J_values, kc_over_ka_values, J_hz) -> matplotlib.figure.Figure as a 2D colour map",
+        "Implement plot_trajectory(trajectory: list, ops: dict[str,ndarray]) -> matplotlib.figure.Figure plotting expectation values vs time",
+        "All functions accept optional ax: matplotlib.axes.Axes argument; create a new figure if None",
+        "Typecheck passes"
+      ],
+      "priority": 50,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-051",
+      "title": "Tests for I/O and plotting",
+      "description": "As a developer, I want tests for waveform import/export round trips and plotting functions returning figure objects so that I/O and visualisation code is verified.",
+      "acceptanceCriteria": [
+        "Create tests/test_io.py",
+        "Test JSON export/import round trip: exported and re-imported Waveform has identical times, data, and metadata",
+        "Test CSV export produces a file with correct number of rows (n_steps + 1 header)",
+        "Create tests/test_plotting.py",
+        "Test plot_xy_controls returns a matplotlib Figure without calling plt.show()",
+        "Test plot_rope_efficiency returns a matplotlib Figure for n_values=[0, 0.5, 1.0]",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 51,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-052",
+      "title": "Create ROPE paper reproduction examples: efficiency curves",
+      "description": "As a researcher, I want runnable example scripts that reproduce the JMR 2003 ROPE efficiency and gain figures so that I can verify the package against the published results.",
+      "acceptanceCriteria": [
+        "Create examples/rope_efficiency_vs_n.py reproducing ROPE vs INEPT efficiency as a function of n in [0, 3]",
+        "Create examples/rope_gain_Ia_2IbSc.py reproducing ROPE gain curve for the Ia->2IbSc transfer",
+        "Create examples/rope_inphase_gain.py reproducing in-phase transfer gain curve",
+        "Each script runs headless (matplotlib backend='Agg') and saves a figure to examples/output/",
+        "Each script can be imported without side effects (guard under if __name__ == '__main__')",
+        "python examples/rope_efficiency_vs_n.py exits with code 0",
+        "Typecheck passes"
+      ],
+      "priority": 52,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-053",
+      "title": "Create ROPE finite-time and hard-pulse examples",
+      "description": "As a researcher, I want finite-time ROPE example scripts including sodium-formate parameters and the hard-pulse approximation so that I can reproduce the experimental pulse sequence from the JMR paper.",
+      "acceptanceCriteria": [
+        "Create examples/rope_finite_time_efficiency.py plotting g_T vs T for n=1",
+        "Create examples/rope_finite_time_controls.py plotting the three-phase controls for n=1",
+        "Create examples/rope_sodium_formate.py using J=193 Hz, T2=1.4 ms",
+        "Create examples/rope_hard_pulse.py converting the finite-time ROPE waveform to a hard-pulse approximation and printing flip angles",
+        "All scripts run headless and exit with code 0",
+        "Typecheck passes"
+      ],
+      "priority": 53,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-054",
+      "title": "Create CROP paper reproduction examples",
+      "description": "As a researcher, I want CROP example scripts reproducing PNAS 2003 figures so that I can verify the decoherence boundary calculations.",
+      "acceptanceCriteria": [
+        "Create examples/crop_efficiency_vs_ka.py plotting eta vs ka/J for kc/ka in [0, 0.5, 0.75, 0.99]",
+        "Create examples/crop_truncated_waveform.py plotting truncated CROP amplitude and irradiation frequency for ka/J=0.6 and 1.1, kc/ka=0.75",
+        "Create examples/crop_lossless_limit.py showing kc/ka->1 decoherence-free limit",
+        "Create examples/crop_regression_params.py printing eta values for ka/J=0.6, 1.1 and kc/ka=0.75",
+        "All scripts run headless and exit with code 0",
+        "Typecheck passes"
+      ],
+      "priority": 54,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-055",
+      "title": "Add example data snapshots and headless test runner",
+      "description": "As a developer, I want expected-data snapshots for all examples and a test that runs every example headless so that regressions in paper reproduction are caught by CI.",
+      "acceptanceCriteria": [
+        "Create tests/test_examples.py that imports and runs each example script in headless mode using subprocess or importlib",
+        "All example scripts complete without exception",
+        "Create examples/expected/ directory with one .npz snapshot per example containing the primary numerical output array",
+        "test_examples.py loads each snapshot and asserts the example output matches within rtol=1e-4",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 55,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-056",
+      "title": "Integrate operator core, ROPE, and CROP into public API",
+      "description": "As a researcher, I want a single import (import optimalcontrol) to expose all analytical functions so that I do not need to know the internal module structure.",
+      "acceptanceCriteria": [
+        "Update optimalcontrol/__init__.py to export: Ix, Iy, Iz, comm, liouvillian_comm, SpinSystem, two_spin_system, state_from_label, fidelity_real, rope_g, rope_waveform, crop_eta, crop_waveform, CROPPulse",
+        "All exported names are importable as optimalcontrol.<name>",
+        "No circular imports",
+        "Typecheck passes"
+      ],
+      "priority": 56,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-057",
+      "title": "Integrate penalties and ensemble into grape_xy",
+      "description": "As a researcher, I want grape_xy to transparently apply penalties and ensemble aggregation when configured in ControlProblem so that I get a single combined objective.",
+      "acceptanceCriteria": [
+        "Update grape_xy to call total_penalty when cp.penalties is not None and subtract penalty value from fidelity",
+        "Update grape_gradient to subtract penalty gradient when cp.penalties is not None",
+        "Update grape_xy and grape_gradient to call ensemble_fidelity / ensemble_gradient when cp has multiple drifts or pwr_levels",
+        "End-to-end test: grape_xy with NS penalty returns lower value than without penalty for same waveform",
+        "Typecheck passes"
+      ],
+      "priority": 57,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-058",
+      "title": "Integrate optimizer, checkpointing, and trajectory diagnostics",
+      "description": "As a researcher, I want optimizers to automatically produce trajectory diagnostics and waveform containers at convergence so that results are immediately usable.",
+      "acceptanceCriteria": [
+        "Update lbfgs_grape and newton_raphson to accept produce_trajectory: bool = False; if True, call state_trajectory on the final waveform and attach to OptimResult as a new optional field",
+        "Update OptimResult dataclass to include trajectory: list[ndarray] | None",
+        "Implement run_grape(cp, wfm0, method='lbfgs', **kwargs) -> tuple[Waveform, OptimResult] as the top-level convenience function",
+        "run_grape saves a checkpoint on convergence if cp.checkpoint_path is set",
+        "Export run_grape from optimalcontrol.__init__",
+        "Typecheck passes"
+      ],
+      "priority": 58,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-059",
+      "title": "End-to-end integration tests",
+      "description": "As a developer, I want end-to-end tests covering the full pipeline from spin system to waveform export so that integration regressions are caught.",
+      "acceptanceCriteria": [
+        "Create tests/test_integration.py",
+        "Test: analytical ROPE waveform for n=1 gives fidelity > INEPT for Iz->2IzSz",
+        "Test: run_grape from random initial waveform on Iz->2IzSz transfer improves fidelity over 10 iterations",
+        "Test: ensemble power robustness (2 power levels) runs without error and returns fidelity in [0,1]",
+        "Test: optimizer checkpoint resume with lbfgs_grape reproduces uninterrupted result within rtol=1e-5",
+        "Test: Waveform exported to JSON and re-imported gives same grape_xy fidelity within rtol=1e-10",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 59,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-060",
+      "title": "Add documentation pages for spin system, states, and operators",
+      "description": "As a researcher, I want written documentation explaining how to define spin systems, initial/target states, and drift/control operators so that I can get started without reading the source code.",
+      "acceptanceCriteria": [
+        "Create docs/guide_spin_system.md showing how to use two_spin_system() and SpinSystem with a worked example",
+        "Create docs/guide_states.md showing state_from_label, single_transition_operator, and normalise_hs with examples",
+        "Create docs/guide_operators.md showing drift_hamiltonian, control_operators, and total_generator with examples",
+        "Each guide includes a minimal runnable code snippet",
+        "Typecheck passes"
+      ],
+      "priority": 60,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-061",
+      "title": "Add documentation pages for ROPE/CROP, GRAPE, ensembles, and paper figures",
+      "description": "As a researcher, I want written documentation for the analytical and numerical optimal control functions so that I can run calculations and reproduce the published results.",
+      "acceptanceCriteria": [
+        "Create docs/guide_rope_crop.md showing rope_g, rope_waveform, crop_eta, crop_waveform with a sodium-formate worked example",
+        "Create docs/guide_grape.md showing ControlProblem construction, grape_xy, run_grape, and optimizer selection",
+        "Create docs/guide_ensembles_penalties.md showing ensemble dimensions and penalty configuration in ControlProblem",
+        "Create docs/guide_paper_figures.md showing which example script reproduces which paper figure",
+        "Typecheck passes"
+      ],
+      "priority": 61,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-062",
+      "title": "Configure lint, typecheck, docstring coverage, and performance benchmarks",
+      "description": "As a developer, I want ruff, mypy, and docstring coverage configured with zero baseline violations and performance benchmarks for matrix exponential and ensemble scaling.",
+      "acceptanceCriteria": [
+        "Add [tool.ruff] configuration to pyproject.toml with select=['E','F','I'] and zero violations on ruff check .",
+        "Add [tool.mypy] configuration with strict=true; mypy optimalcontrol passes with zero errors",
+        "Create benchmarks/bench_expm.py timing scipy.linalg.expm and dir_diff_expm for 4x4 and 16x16 matrices",
+        "Create benchmarks/bench_ensemble.py timing ensemble_fidelity for 1, 4, 16, 64 ensemble members",
+        "Add error-message tests in tests/test_validation.py for invalid dimensions, invalid fidelity_mode, and negative J",
+        "Typecheck passes"
+      ],
+      "priority": 62,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-063",
+      "title": "Add reproducibility controls, versioning policy, changelog, and milestone tags",
+      "description": "As a developer, I want random seed controls, a semantic versioning policy, a changelog, and internal milestone markers so that the package is release-ready.",
+      "acceptanceCriteria": [
+        "Implement set_random_seed(seed: int) -> None in optimalcontrol/__init__.py calling numpy.random.seed(seed) for reproducible initial waveform guesses",
+        "Create CHANGELOG.md with a v0.1.0 entry listing the four internal milestones: analytical ROPE/CROP complete, GRAPE dense complete, ensemble/penalty complete, examples/docs complete",
+        "Add semantic versioning policy section to README.md: MAJOR.MINOR.PATCH, no breaking changes on PATCH, deprecation warnings on MINOR",
+        "Add numerical tolerance policy to docs/equations.md: dense path rtol=1e-10, sparse path rtol=1e-8",
+        "Run pytest and record pass/fail baseline count in CHANGELOG.md under v0.1.0",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 63,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
