@@ -6,7 +6,17 @@ import pathlib
 import numpy as np
 
 from optimalcontrol.grape import ControlProblem
-from optimalcontrol.io import Waveform, export_csv, export_json, import_json, waveform_from_result
+from optimalcontrol.io import (
+    Waveform,
+    export_bruker,
+    export_csv,
+    export_json,
+    fapt_import,
+    heterodyne_transform,
+    import_jcamp_dx,
+    import_json,
+    waveform_from_result,
+)
 from optimalcontrol.optimizers import OptimResult
 
 
@@ -89,3 +99,114 @@ def test_csv_export_writes_header_and_one_row_per_time_step(
     assert rows[0] == ["time", "x", "y"]
     assert len(rows) == waveform.times.shape[0] + 1
     assert rows[1] == ["0", "0.10000000000000001", "-0.10000000000000001"]
+
+
+def test_export_bruker_writes_documented_minimal_shape_stub(
+    tmp_path: pathlib.Path,
+) -> None:
+    waveform = _waveform()
+    path = tmp_path / "shape.stub"
+
+    export_bruker(waveform, path)
+
+    text = path.read_text(encoding="utf-8")
+    assert "##DATA TYPE= Shape Data" in text
+    assert "##NPOINTS= 3" in text
+    assert "##CHANNELS= amplitude,phase_deg" in text
+    assert "not production-ready" in text
+    assert "##XYPOINTS= (XY..XY)" in text
+
+
+def test_import_jcamp_dx_parses_minimal_xy_table(tmp_path: pathlib.Path) -> None:
+    path = tmp_path / "shape.dx"
+    path.write_text(
+        "\n".join(
+            [
+                "##TITLE= demo",
+                "##JCAMP-DX= 5.00",
+                "##UNITS= a.u.",
+                "##NPOINTS= 3",
+                "##CHANNELS= x,y",
+                "##$OPTIMALCONTROL_TIMES= 0 0.25 0.5",
+                "##$OPTIMALCONTROL_PROBLEM_HASH= abc123",
+                "##XYPOINTS= (XY..XY)",
+                "1.0, 0.0",
+                "0.0, 1.0",
+                "-1.0, 0.0",
+                "##END=",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = import_jcamp_dx(path)
+
+    assert loaded.channels == ["x", "y"]
+    assert loaded.units == "a.u."
+    assert loaded.problem_hash == "abc123"
+    np.testing.assert_allclose(loaded.times, np.array([0.0, 0.25, 0.5]), rtol=1e-12)
+    np.testing.assert_allclose(
+        loaded.data,
+        np.array([[1.0, 0.0, -1.0], [0.0, 1.0, 0.0]], dtype=np.float64),
+        rtol=1e-12,
+    )
+
+
+def test_heterodyne_transform_rotates_xy_envelope_by_carrier() -> None:
+    waveform = Waveform(
+        channels=["x", "y"],
+        units="a.u.",
+        times=np.array([0.0, 0.25, 0.5], dtype=np.float64),
+        data=np.array([[1.0, 1.0, 1.0], [0.0, 0.0, 0.0]], dtype=np.float64),
+        metadata={},
+        problem_hash="abc123",
+    )
+
+    shifted = heterodyne_transform(waveform, carrier_hz=1.0)
+
+    np.testing.assert_allclose(shifted.times, waveform.times, rtol=1e-12)
+    np.testing.assert_allclose(
+        shifted.data,
+        np.array([[1.0, 0.0, -1.0], [0.0, 1.0, 0.0]], dtype=np.float64),
+        atol=1e-12,
+        rtol=1e-12,
+    )
+    assert shifted.metadata["heterodyne_carrier_hz"] == 1.0
+
+
+def test_fapt_import_parses_frequency_amplitude_phase_time_table(
+    tmp_path: pathlib.Path,
+) -> None:
+    path = tmp_path / "pulse.fapt"
+    path.write_text(
+        "\n".join(
+            [
+                "# frequency_hz amplitude phase_rad time_s",
+                "100.0, 0.25, 0.0, 0.0",
+                "110.0, 0.50, 1.5707963267948966, 0.25",
+                "120.0, 0.75, 3.141592653589793, 0.50",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = fapt_import(path)
+
+    assert loaded.channels == ["frequency_hz", "amplitude", "phase_rad"]
+    assert loaded.units == "Hz/a.u./rad"
+    np.testing.assert_allclose(loaded.times, np.array([0.0, 0.25, 0.5]), rtol=1e-12)
+    np.testing.assert_allclose(
+        loaded.data,
+        np.array(
+            [
+                [100.0, 110.0, 120.0],
+                [0.25, 0.50, 0.75],
+                [0.0, 1.5707963267948966, 3.141592653589793],
+            ],
+            dtype=np.float64,
+        ),
+        rtol=1e-12,
+    )
+    assert str(loaded.problem_hash).startswith("fapt:")

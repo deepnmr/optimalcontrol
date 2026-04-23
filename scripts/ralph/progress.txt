@@ -49,6 +49,7 @@
 - Optimizer tests can monkeypatch `optimalcontrol.optimizers.grape_xy` and `grape_gradient` for deterministic toy objectives; monkeypatch `line_search_cubic` to a fixed positive step when checkpoint tests need non-converged partial runs.
 - Product-operator matrix-state GRAPE transfer tests should use `basis="dense"`; `basis="hilbert"` is reserved for pure-state vector GRAPE and rejects square matrix states.
 - Waveform I/O lives in `optimalcontrol/io.py`; exported `Waveform.data` is shaped `(n_channels, n_steps)`, while GRAPE internals use `(n_steps, n_channels)`, so transpose only at I/O boundaries such as `waveform_from_result()` or `loaded.data.T`.
+- Spectrometer I/O in `optimalcontrol/io.py` is intentionally minimal: Bruker/JCAMP-DX helpers are documented stubs, heterodyne transforms rotate `x/y` channels by `exp(i*2*pi*carrier_hz*t)`, and FAPT import maps frequency/amplitude/phase/time rows to `Waveform` channels `frequency_hz`, `amplitude`, `phase_rad`.
 
 ## 2026-04-23 15:42 KST - US-034
 - Added finite-difference coverage for `grape_gradient()` on a one-spin Hilbert-space problem with 4 steps and 2 channels
@@ -583,4 +584,17 @@ Started: 2026-04-23
   - Keep optimized GRAPE arrays as `(n_steps, n_channels)` internally, but export `Waveform.data` as `(n_channels, n_steps)` to match the PRD I/O contract
   - `waveform_from_result()` is the boundary that transposes `OptimResult.wfm_final`; callers that import JSON and want to rerun `grape_xy()` should pass `loaded.data.T`
   - `Waveform.units` is currently `"a.u."` because stored waveform samples are raw GRAPE multipliers, not `pwr_levels`-scaled physical amplitudes
+---
+
+## 2026-04-23 17:51 KST - US-047
+- Added `export_bruker()`, `import_jcamp_dx()`, `heterodyne_transform()`, and `fapt_import()` to `optimalcontrol/io.py`
+- Bruker export writes a documented non-production stub with amplitude/phase-degree `##XYPOINTS` and private optimalcontrol metadata tags
+- JCAMP-DX import parses a minimal flat-tag file with numeric `##XYPOINTS`, optional `##CHANNELS`, optional private time points, and stable source hashing
+- Added `tests/test_io.py` coverage for the Bruker stub output, JCAMP-DX parsing, heterodyne carrier rotation, and FAPT table import
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: `optimalcontrol/io.py`, `tests/test_io.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Treat Bruker and JCAMP-DX support as interoperability stubs unless a later story adds real spectrometer calibration and validation
+  - `heterodyne_transform()` requires exported `x` and `y` channels and rotates `x+i*y` by `exp(i*2*pi*carrier_hz*t)`; use a negative carrier for the opposite shift
+  - FAPT import keeps the fourth column as the `Waveform.times` axis and stores the first three columns as channel rows
 ---

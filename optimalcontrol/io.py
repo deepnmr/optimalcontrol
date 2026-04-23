@@ -172,6 +172,111 @@ def _output_path(path: str | Path) -> Path:
     return output
 
 
+def _input_path(path: str | Path) -> Path:
+    """Return an existing file path suitable for reading."""
+    if isinstance(path, str) and not path.strip():
+        raise ValueError("path must be a non-empty string")
+    input_path = Path(path)
+    if not input_path.exists():
+        raise FileNotFoundError(input_path)
+    if input_path.is_dir():
+        raise ValueError("path must point to a file, not a directory")
+    return input_path
+
+
+def _source_hash(prefix: str, payload: bytes) -> str:
+    """Return a deterministic hash for imported waveform files."""
+    digest = hashlib.sha256(payload).hexdigest()
+    return f"{prefix}:{digest}"
+
+
+def _strip_inline_comment(line: str) -> str:
+    """Remove simple inline comments from tabular text lines."""
+    stripped = line
+    for marker in ("$$", "#"):
+        marker_index = stripped.find(marker)
+        if marker_index >= 0:
+            stripped = stripped[:marker_index]
+    return stripped.strip()
+
+
+def _split_float_tokens(text: str) -> list[float]:
+    """Parse comma/whitespace separated finite floats from a text fragment."""
+    normalised = text
+    for character in ",;()":
+        normalised = normalised.replace(character, " ")
+
+    values: list[float] = []
+    for token in normalised.split():
+        try:
+            value = float(token)
+        except ValueError as exc:
+            raise ValueError(f"could not parse float token {token!r}") from exc
+        if not math.isfinite(value):
+            raise ValueError("numeric table entries must be finite")
+        values.append(value)
+    return values
+
+
+def _split_label_list(text: str) -> list[str]:
+    """Parse comma/whitespace separated labels from a JCAMP-style value."""
+    normalised = text.strip().strip("()")
+    if "," in normalised:
+        parts = normalised.split(",")
+    else:
+        parts = normalised.split()
+    labels = [part.strip().strip("<>\"'") for part in parts]
+    return _validate_channels([label for label in labels if label])
+
+
+def _numeric_table(lines: list[str], source_name: str) -> RealArray:
+    """Parse a rectangular finite numeric table."""
+    rows: list[list[float]] = []
+    width: int | None = None
+    for line_number, line in enumerate(lines, start=1):
+        cleaned = _strip_inline_comment(line)
+        if not cleaned:
+            continue
+        values = _split_float_tokens(cleaned)
+        if not values:
+            continue
+        if width is None:
+            width = len(values)
+        elif len(values) != width:
+            raise ValueError(
+                f"{source_name} row {line_number} has {len(values)} columns, "
+                f"expected {width}"
+            )
+        rows.append(values)
+
+    if not rows:
+        raise ValueError(f"{source_name} contains no numeric data")
+    return np.asarray(rows, dtype=np.float64)
+
+
+def _xy_channel_indices(wfm: Waveform) -> tuple[int, int]:
+    """Return row indices for x/y waveform channels."""
+    lowered = [channel.lower() for channel in wfm.channels]
+    if "x" not in lowered or "y" not in lowered:
+        raise ValueError("waveform must contain 'x' and 'y' channels")
+    return lowered.index("x"), lowered.index("y")
+
+
+def _bruker_amplitude_phase_deg(wfm: Waveform) -> tuple[RealArray, RealArray]:
+    """Return amplitude and degree phase arrays for minimal Bruker export."""
+    if len(wfm.channels) == 1:
+        amplitude = np.asarray(wfm.data[0, :], dtype=np.float64)
+        phase_deg = np.zeros_like(amplitude, dtype=np.float64)
+        return amplitude, phase_deg
+
+    x_index, y_index = _xy_channel_indices(wfm)
+    x_values = np.asarray(wfm.data[x_index, :], dtype=np.float64)
+    y_values = np.asarray(wfm.data[y_index, :], dtype=np.float64)
+    amplitude = np.asarray(np.hypot(x_values, y_values), dtype=np.float64)
+    phase_deg = np.asarray(np.degrees(np.arctan2(y_values, x_values)), dtype=np.float64)
+    return amplitude, phase_deg
+
+
 def _payload_value(payload: dict[str, object], key: str) -> object:
     """Return a required JSON object field."""
     if key not in payload:
@@ -317,7 +422,7 @@ def export_json(wfm: Waveform, path: str | Path) -> None:
 
 def import_json(path: str | Path) -> Waveform:
     """Load a waveform from the JSON format written by :func:`export_json`."""
-    payload_raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    payload_raw = json.loads(_input_path(path).read_text(encoding="utf-8"))
     if not isinstance(payload_raw, dict):
         raise ValueError("waveform JSON payload must be an object")
     payload = cast(dict[str, object], payload_raw)
@@ -329,4 +434,257 @@ def import_json(path: str | Path) -> Waveform:
         data=np.asarray(_payload_value(payload, "data"), dtype=np.float64),
         metadata=metadata,
         problem_hash=_payload_string(payload, "problem_hash"),
+    )
+
+
+def export_bruker(wfm: Waveform, path: str | Path) -> None:
+    """Write a minimal Bruker-style shape text file.
+
+    This is an interoperability stub, not a production-ready Bruker exporter.
+    It writes an amplitude/phase ``##XYPOINTS`` table plus a few metadata tags,
+    but it does not perform spectrometer calibration, power normalisation,
+    vendor-specific shape parameter validation, or safety checks required before
+    loading a pulse on hardware.
+    """
+    amplitude, phase_deg = _bruker_amplitude_phase_deg(wfm)
+    output = _output_path(path)
+    with output.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write("##TITLE= optimalcontrol minimal Bruker shape\n")
+        handle.write("##JCAMP-DX= 5.00\n")
+        handle.write("##DATA TYPE= Shape Data\n")
+        handle.write("##ORIGIN= optimalcontrol\n")
+        handle.write("##OWNER= optimalcontrol\n")
+        handle.write("##UNITS= " + wfm.units + "\n")
+        handle.write("##NPOINTS= " + str(int(wfm.times.shape[0])) + "\n")
+        handle.write("##CHANNELS= amplitude,phase_deg\n")
+        handle.write("##$OPTIMALCONTROL_PROBLEM_HASH= " + wfm.problem_hash + "\n")
+        handle.write(
+            "##$OPTIMALCONTROL_LIMITATIONS= "
+            "Minimal stub only; not production-ready for spectrometer use.\n"
+        )
+        handle.write(
+            "##$OPTIMALCONTROL_TIMES= "
+            + " ".join(_format_float(float(value)) for value in wfm.times)
+            + "\n"
+        )
+        handle.write("##XYPOINTS= (XY..XY)\n")
+        for step_index in range(wfm.times.shape[0]):
+            handle.write(
+                _format_float(float(amplitude[step_index]))
+                + ", "
+                + _format_float(float(phase_deg[step_index]))
+                + "\n"
+            )
+        handle.write("##END=\n")
+
+
+def _jcamp_default_times(tags: dict[str, str], n_points: int) -> RealArray:
+    """Return a time axis from simple JCAMP axis tags or sample indices."""
+    if n_points <= 0:
+        raise ValueError("n_points must be positive")
+
+    first_raw = tags.get("FIRSTX")
+    last_raw = tags.get("LASTX")
+    delta_raw = tags.get("DELTAX")
+    if first_raw is not None and delta_raw is not None:
+        first = float(first_raw)
+        delta = float(delta_raw)
+        if not math.isfinite(first) or not math.isfinite(delta):
+            raise ValueError("FIRSTX and DELTAX must be finite")
+        return np.asarray(first + delta * np.arange(n_points, dtype=np.float64), dtype=np.float64)
+
+    if first_raw is not None and last_raw is not None:
+        first = float(first_raw)
+        last = float(last_raw)
+        if not math.isfinite(first) or not math.isfinite(last):
+            raise ValueError("FIRSTX and LASTX must be finite")
+        return np.asarray(np.linspace(first, last, n_points, dtype=np.float64), dtype=np.float64)
+
+    return np.arange(n_points, dtype=np.float64)
+
+
+def _parse_jcamp(text: str) -> tuple[dict[str, str], list[str]]:
+    """Parse a small subset of JCAMP-DX tags and the XYPOINTS table."""
+    tags: dict[str, str] = {}
+    xy_lines: list[str] = []
+    in_xy_points = False
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("$$"):
+            continue
+        if line.startswith("##"):
+            body = line[2:]
+            if "=" not in body:
+                raise ValueError(f"invalid JCAMP tag line {line!r}")
+            key_raw, value = body.split("=", 1)
+            key = key_raw.strip().upper()
+            value = value.strip()
+            if key == "END":
+                break
+            tags[key] = value
+            in_xy_points = key == "XYPOINTS"
+            continue
+        if in_xy_points:
+            xy_lines.append(line)
+
+    if "XYPOINTS" not in tags:
+        raise ValueError("JCAMP-DX file is missing ##XYPOINTS")
+    return tags, xy_lines
+
+
+def import_jcamp_dx(path: str | Path) -> Waveform:
+    """Parse a minimal JCAMP-DX waveform file.
+
+    This is a deliberately small import stub, not a full JCAMP-DX reader. It
+    recognises flat ``##KEY= value`` tags, a numeric ``##XYPOINTS`` table, and
+    optional ``##CHANNELS`` plus ``##$OPTIMALCONTROL_TIMES`` metadata. It does
+    not support compressed JCAMP encodings, multi-block files, vendor-specific
+    Bruker shape semantics, or spectrometer validation.
+    """
+    input_file = _input_path(path)
+    payload = input_file.read_bytes()
+    tags, xy_lines = _parse_jcamp(payload.decode("utf-8"))
+    table = _numeric_table(xy_lines, "JCAMP-DX XYPOINTS")
+
+    n_points = int(table.shape[0])
+    expected_points_raw = tags.get("NPOINTS")
+    if expected_points_raw is not None and int(float(expected_points_raw)) != n_points:
+        raise ValueError(
+            f"JCAMP-DX NPOINTS={expected_points_raw} does not match "
+            f"{n_points} parsed rows"
+        )
+
+    channels_raw = tags.get("CHANNELS")
+    channels = _split_label_list(channels_raw) if channels_raw is not None else []
+    times_raw = tags.get("$OPTIMALCONTROL_TIMES")
+    if times_raw is not None:
+        times = np.asarray(_split_float_tokens(times_raw), dtype=np.float64)
+        if times.shape[0] != n_points:
+            raise ValueError(
+                f"JCAMP-DX private time axis has {times.shape[0]} points, "
+                f"expected {n_points}"
+            )
+        if not channels:
+            channels = _default_channels(int(table.shape[1]))
+        elif table.shape[1] != len(channels):
+            raise ValueError(
+                f"JCAMP-DX table has {table.shape[1]} columns, "
+                f"expected {len(channels)} channels"
+            )
+        data = np.asarray(table.T, dtype=np.float64)
+    elif channels and table.shape[1] == len(channels) + 1:
+        times = np.asarray(table[:, 0], dtype=np.float64)
+        data = np.asarray(table[:, 1:].T, dtype=np.float64)
+    elif channels:
+        if table.shape[1] != len(channels):
+            raise ValueError(
+                f"JCAMP-DX table has {table.shape[1]} columns, "
+                f"expected {len(channels)} channels"
+            )
+        times = _jcamp_default_times(tags, n_points)
+        data = np.asarray(table.T, dtype=np.float64)
+    elif table.shape[1] == 2:
+        channels = ["signal"]
+        times = np.asarray(table[:, 0], dtype=np.float64)
+        data = np.asarray(table[:, 1].reshape(1, n_points), dtype=np.float64)
+    else:
+        channels = _default_channels(int(table.shape[1]))
+        times = _jcamp_default_times(tags, n_points)
+        data = np.asarray(table.T, dtype=np.float64)
+
+    problem_hash = (
+        tags.get("$OPTIMALCONTROL_PROBLEM_HASH")
+        or tags.get("PROBLEM_HASH")
+        or _source_hash("jcamp-dx", payload)
+    )
+    metadata: dict[str, object] = {
+        "format": "JCAMP-DX",
+        "source_path": str(input_file),
+        "tags": tags,
+    }
+    return Waveform(
+        channels=channels,
+        units=tags.get("UNITS", "a.u."),
+        times=times,
+        data=data,
+        metadata=metadata,
+        problem_hash=problem_hash,
+    )
+
+
+def heterodyne_transform(wfm: Waveform, carrier_hz: float) -> Waveform:
+    """Return an x/y waveform shifted by a carrier frequency in Hz.
+
+    The exported Cartesian envelope is treated as ``x(t) + i*y(t)`` and rotated
+    by ``exp(i*2*pi*carrier_hz*t)``. Passing a negative carrier applies the
+    opposite frequency shift.
+    """
+    if not math.isfinite(carrier_hz):
+        raise ValueError("carrier_hz must be finite")
+    x_index, y_index = _xy_channel_indices(wfm)
+    phase = np.asarray(2.0 * math.pi * carrier_hz * wfm.times, dtype=np.float64)
+    envelope = np.asarray(
+        wfm.data[x_index, :] + np.complex128(1j) * wfm.data[y_index, :],
+        dtype=np.complex128,
+    )
+    shifted = np.asarray(envelope * np.exp(np.complex128(1j) * phase), dtype=np.complex128)
+    data = wfm.data.copy()
+    data[x_index, :] = np.real(shifted)
+    data[y_index, :] = np.imag(shifted)
+
+    metadata = dict(wfm.metadata)
+    metadata["heterodyne_carrier_hz"] = float(carrier_hz)
+    metadata["heterodyne_convention"] = "x+i*y multiplied by exp(i*2*pi*carrier_hz*t)"
+    return Waveform(
+        channels=list(wfm.channels),
+        units=wfm.units,
+        times=wfm.times.copy(),
+        data=data,
+        metadata=metadata,
+        problem_hash=wfm.problem_hash,
+    )
+
+
+def fapt_import(path: str | Path) -> Waveform:
+    """Parse a frequency-amplitude-phase-time tabular waveform file.
+
+    The minimal FAPT format accepted here is a text table with four numeric
+    columns ordered as frequency in Hz, amplitude in arbitrary units, phase in
+    radians, and time in seconds. A single header row and ``#`` or ``$$`` comments
+    are ignored.
+    """
+    input_file = _input_path(path)
+    payload = input_file.read_bytes()
+    rows: list[list[float]] = []
+    for line_number, line in enumerate(payload.decode("utf-8").splitlines(), start=1):
+        cleaned = _strip_inline_comment(line)
+        if not cleaned:
+            continue
+        try:
+            values = _split_float_tokens(cleaned)
+        except ValueError:
+            if rows:
+                raise ValueError(f"invalid FAPT numeric row {line_number}") from None
+            continue
+        if len(values) != 4:
+            raise ValueError(f"FAPT row {line_number} has {len(values)} columns, expected 4")
+        rows.append(values)
+
+    if not rows:
+        raise ValueError("FAPT file contains no numeric data")
+
+    table = np.asarray(rows, dtype=np.float64)
+    metadata: dict[str, object] = {
+        "format": "FAPT",
+        "source_path": str(input_file),
+        "columns": ["frequency_hz", "amplitude", "phase_rad", "time_s"],
+    }
+    return Waveform(
+        channels=["frequency_hz", "amplitude", "phase_rad"],
+        units="Hz/a.u./rad",
+        times=np.asarray(table[:, 3], dtype=np.float64),
+        data=np.asarray(table[:, :3].T, dtype=np.float64),
+        metadata=metadata,
+        problem_hash=_source_hash("fapt", payload),
     )

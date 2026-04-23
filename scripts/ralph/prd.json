@@ -747,8 +747,8 @@
         "Typecheck passes"
       ],
       "priority": 47,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added export_bruker(), import_jcamp_dx(), heterodyne_transform(), and fapt_import() to optimalcontrol/io.py. Bruker and JCAMP-DX support is deliberately stub-level with docstring limitations; export_bruker writes amplitude/phase-degree XYPOINTS plus private optimalcontrol tags, import_jcamp_dx parses flat minimal tags and numeric XYPOINTS. heterodyne_transform rotates x/y envelopes by exp(i*2*pi*carrier_hz*t). fapt_import parses frequency/amplitude/phase/time rows into Waveform channels frequency_hz, amplitude, phase_rad."
     },
     {
       "id": "US-048",
