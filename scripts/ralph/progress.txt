@@ -1,3 +1,15 @@
+## 2026-04-23 - US-056
+- Updated optimalcontrol/__init__.py to activate all public API exports (uncommenting all TODO stubs)
+- Exported: Ix, Iy, Iz, comm, liouvillian_comm, SpinSystem, two_spin_system, state_from_label, fidelity_real, rope_g, rope_waveform, crop_eta, crop_waveform, CROPPulse
+- Added __all__ list with all exported names
+- ruff --fix corrected import sort order (alphabetical by module)
+- Files changed: optimalcontrol/__init__.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - The __init__.py placeholder pattern (commented-out imports with TODO story references) works cleanly for staged API activation
+  - ruff I001 import-sort rule reorders into alphabetical module groups; use ruff --fix to auto-correct
+  - No circular imports arise because all submodules are independent leaves
+---
+
 ## 2026-04-23 - US-055
 - Created tests/test_examples.py with two parametrized test functions: test_example_runs_without_exception and test_example_matches_snapshot, covering all 11 example scripts
 - Created examples/expected/ directory with one .npz snapshot per example (key "output") by running each example's run() function once before committing

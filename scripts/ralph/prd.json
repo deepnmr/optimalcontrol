@@ -891,8 +891,8 @@
         "Typecheck passes"
       ],
       "priority": 56,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Activated all public API exports in optimalcontrol/__init__.py: Ix, Iy, Iz, comm, liouvillian_comm from operators; SpinSystem, two_spin_system from spin_system; state_from_label, fidelity_real from states; rope_g, rope_waveform from rope; CROPPulse, crop_eta, crop_waveform from crop. Added __all__ list. Ruff import-sorter reordered imports alphabetically. No circular imports; all 136 tests pass."
     },
     {
       "id": "US-057",
