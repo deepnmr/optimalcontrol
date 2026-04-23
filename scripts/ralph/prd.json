@@ -283,8 +283,8 @@
         "Typecheck passes"
       ],
       "priority": 18,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/rope.py with rope_n(), rope_g(), INEPT efficiency/optimal-time/max-efficiency helpers, rope_gain_over_inept(), and rope_g_inphase(). ROPE/INEPT analytical helpers validate non-negative relaxation ratios/rates and positive J. rope_g_inphase(n) implements the equal-rate JMR formula g_in = g(n)^2."
     },
     {
       "id": "US-019",

@@ -13,6 +13,8 @@
 - Fidelity helpers in `optimalcontrol.states` expect pre-normalised arrays and use `np.vdot(rho_t, rho_f)` as the overlap, matching `Tr(rho_t† @ rho_f)` for matrices while also supporting vectorised states.
 - Product-operator basis states such as `Iz` and `2IzSz` are Hilbert-Schmidt orthogonal at the state-construction layer; test transfer efficiency after applying a propagator, not by direct initial-target overlap.
 - State hooks in `optimalcontrol.states` accept Hilbert-space rotations for square matrix states (`U @ rho @ U.conj().T`) and Liouville-space propagators for matrix or vectorised states; `dead_time_propagation()` expects a Liouville generator and uses `expm(generator * t_dead)`.
+- ROPE analytical helpers live in `optimalcontrol/rope.py`; paper-level functions use Hz-style formulas, require positive `J_hz`, and use `atan2(1.0, n)` for arccot on the physical non-negative branch.
+- `rope_g_inphase(n)` assumes equal I/S relative relaxation (`kI/J = kS/J = n`) and returns `rope_g(n) ** 2`; the full JMR expression is the product of separate I-side and S-side ROPE factors.
 
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
@@ -215,4 +217,15 @@ Started: 2026-04-23
 - **Learnings for future iterations:**
   - Direct fidelity between distinct product-operator basis states is often zero; tests for physical transfers should include the propagator or analytical efficiency being validated
   - For dead-time hook tests, a `rho.size x rho.size` Liouville generator is the expected shape when `rho` is a square matrix state
+---
+
+## 2026-04-23 14:19 KST - US-018
+- Created `optimalcontrol/rope.py` with unconstrained ROPE efficiency, INEPT efficiency/optimal-time/max-efficiency, ROPE-over-INEPT gain, and equal-rate in-phase transfer efficiency helpers
+- Implemented physical-domain validation for non-negative relaxation parameters/rates and positive scalar-coupling magnitudes
+- Verified analytical no-relaxation limits manually: `rope_g(0)`, `inept_max_efficiency(0, 100)`, and `rope_gain_over_inept(0, 100)` all return 1.0
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: optimalcontrol/rope.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Use `math.atan2(1.0, n)` for `arccot(n)` so the `n=0` no-relaxation limit is handled cleanly
+  - The single-argument `rope_g_inphase(n)` encodes the JMR equal-rate case where `g_in = g(n)^2`; the general unequal-rate formula is the product of two separate ROPE factors
 ---
