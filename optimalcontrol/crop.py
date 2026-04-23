@@ -1,7 +1,11 @@
 """Analytical CROP efficiency helpers from the PNAS 2003 paper."""
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
+
+import numpy as np
+import numpy.typing as npt
 
 from optimalcontrol.rope import rope_g, rope_n
 from optimalcontrol.spin_system import SpinSystem
@@ -29,6 +33,21 @@ def _validate_positive(name: str, value: float) -> None:
     """Raise ValueError if a scalar parameter is not strictly positive."""
     if value <= 0.0:
         raise ValueError(f"{name} must be positive")
+
+
+def _validate_finite_positive(name: str, value: float) -> None:
+    """Raise ValueError if a scalar parameter is not finite and positive."""
+    _validate_positive(name, value)
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite")
+
+
+def _as_float_array(values: Iterable[float], name: str) -> npt.NDArray[np.float64]:
+    """Convert a one-dimensional iterable of floats to a float64 array."""
+    array = np.asarray(list(values), dtype=np.float64)
+    if array.ndim != 1:
+        raise ValueError(f"{name} must be one-dimensional")
+    return array
 
 
 def crop_zeta(ka: float, kc: float, J_hz: float) -> float:
@@ -144,3 +163,55 @@ def crop_pulse_params(ka: float, kc: float, J_hz: float) -> CROPPulse:
         irradiation_freq_hz=-0.5 * J_hz,
         truncation_window=truncation_window,
     )
+
+
+def crop_waveform(
+    ka: float, kc: float, J_hz: float, dt: float, truncation_window: float
+) -> dict[str, npt.NDArray[np.float64]]:
+    """Sample a symmetrically truncated CROP pulse waveform.
+
+    Times are physical seconds centered on zero. Amplitude and irradiation
+    frequency use the same Hz convention as ``crop_pulse_params()`` and the
+    PNAS figure labels.
+    """
+    _validate_finite_positive("dt", dt)
+    _validate_finite_positive("truncation_window", truncation_window)
+    params = crop_pulse_params(ka, kc, J_hz)
+
+    n_steps = max(1, math.ceil(truncation_window / dt))
+    time_offsets = np.arange(n_steps, dtype=np.float64) - 0.5 * (n_steps - 1)
+    times = time_offsets * dt
+    amplitude = np.full(n_steps, params.amplitude, dtype=np.float64)
+    irrad_freq = np.full(n_steps, params.irradiation_freq_hz, dtype=np.float64)
+
+    return {
+        "times": times,
+        "amplitude": amplitude,
+        "irrad_freq": irrad_freq,
+    }
+
+
+def crop_robustness_sweep(
+    ka_over_J_values: Iterable[float], kc_over_ka_values: Iterable[float], J_hz: float
+) -> npt.NDArray[np.float64]:
+    """Return CROP efficiency over a ``ka/J`` by ``kc/ka`` parameter grid."""
+    _validate_positive("J_hz", J_hz)
+    ka_ratios = _as_float_array(ka_over_J_values, "ka_over_J_values")
+    kc_ratios = _as_float_array(kc_over_ka_values, "kc_over_ka_values")
+    sweep = np.empty((len(ka_ratios), len(kc_ratios)), dtype=np.float64)
+
+    for row, ka_ratio in enumerate(ka_ratios):
+        _validate_nonnegative("ka_over_J", float(ka_ratio))
+        ka = float(ka_ratio) * J_hz
+        for col, kc_ratio in enumerate(kc_ratios):
+            ratio = float(kc_ratio)
+            _validate_nonnegative("kc_over_ka", ratio)
+            if ratio > 1.0:
+                raise ValueError("kc_over_ka must be less than or equal to 1")
+
+            eta = crop_eta(ka, ratio * ka, J_hz)
+            if eta < -1e-10 or eta > 1.0 + 1e-10:
+                raise AssertionError("CROP efficiency is outside the physical [0, 1] range")
+            sweep[row, col] = min(1.0, max(0.0, eta))
+
+    return sweep

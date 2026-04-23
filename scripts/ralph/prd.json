@@ -412,8 +412,8 @@
         "Typecheck passes"
       ],
       "priority": 26,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented crop_waveform() in optimalcontrol/crop.py returning centered physical-time samples and Hz-valued amplitude/irrad_freq arrays from the scalar CROP pulse parameters. Implemented crop_robustness_sweep() over ka/J and kc/ka grids, validating ratio domains and asserting efficiencies remain within the physical [0, 1] range with 1e-10 tolerance."
     },
     {
       "id": "US-027",

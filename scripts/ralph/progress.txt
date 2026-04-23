@@ -21,6 +21,7 @@
 - ROPE analytical regression tests live in `tests/test_rope.py`; use `numpy.testing.assert_allclose` with the rtol requested by each story.
 - CROP analytical helpers live in `optimalcontrol/crop.py`; treat `ka`, `kc`, primed rates, and `J_hz` as same-unit frequency scalars for dimensionless ratios, with `ka >= kc` required for real `zeta`.
 - CROP scalar pulse params use Hz units: residual bandwidth `sqrt(ka^2-kc^2)` for amplitude, `-J_hz/2` for the slowly relaxing beta multiplet carrier, and inverse residual bandwidth for the default truncation window.
+- CROP waveform sampling uses physical seconds centered on zero over `truncation_window`, and samples Hz-valued amplitude/frequency arrays from `crop_pulse_params()`.
 
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
@@ -312,4 +313,14 @@ Started: 2026-04-23
 - **Learnings for future iterations:**
   - CROP single-transition labels should match `states.single_transition_operator()` label spelling: `IzSalpha` and `IzSbeta`
   - The PNAS lossless limit corresponds to weak selective irradiation of the beta multiplet at `-J/2`, so scalar CROP pulse params use that carrier and a residual-bandwidth amplitude
+---
+
+## 2026-04-23 14:54 KST - US-026
+- Implemented `crop_waveform()` in `optimalcontrol/crop.py`, sampling centered physical-time CROP waveform arrays with keys `times`, `amplitude`, and `irrad_freq`
+- Implemented `crop_robustness_sweep()` over `ka/J` and `kc/ka` grids, with domain validation and an assertion that efficiencies stay within `[0, 1]` up to `1e-10`
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: `optimalcontrol/crop.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - CROP waveform arrays keep the `crop_pulse_params()` Hz convention for amplitude and irradiation frequency rather than converting to rad/s
+  - Robustness sweeps should build `ka = (ka/J) * J_hz` and `kc = (kc/ka) * ka`, and reject `kc/ka > 1`
 ---
