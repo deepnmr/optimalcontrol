@@ -3,6 +3,8 @@
 import math
 from typing import cast
 
+import numpy as np
+import numpy.typing as npt
 from scipy.optimize import brentq
 
 
@@ -27,6 +29,15 @@ def _arccot_nonnegative(x: float) -> float:
 def _coth(x: float) -> float:
     """Return coth(x)."""
     return 1.0 / math.tanh(x)
+
+
+def _clamp_unit_interval(value: float) -> float:
+    """Clamp small floating point excursions to the physical [0, 1] range."""
+    if -1e-14 < value < 0.0:
+        return 0.0
+    if 1.0 < value < 1.0 + 1e-14:
+        return 1.0
+    return value
 
 
 def rope_n(kI: float, J: float) -> float:
@@ -203,3 +214,175 @@ def rope_finite_efficiency(T: float, n: float, J_hz: float) -> float:
     if denominator == 0.0:
         raise ValueError("finite-time ROPE angle denominator is zero")
     return math.exp(n * (h1 - h2)) * (1.0 - n * math.sin(2.0 * h2)) / denominator
+
+
+def _rope_finite_efficiency_from_angles(h1: float, h2: float, n: float) -> float:
+    """Return finite-time ROPE efficiency from precomputed phase angles."""
+    denominator = math.sin(h1 + h2)
+    if denominator == 0.0:
+        raise ValueError("finite-time ROPE angle denominator is zero")
+    return math.exp(n * (h1 - h2)) * (1.0 - n * math.sin(2.0 * h2)) / denominator
+
+
+def _rope_phi(t_scaled: float, n: float) -> float:
+    """Return the finite-time phase-I phi(t) for scaled time pi*J*t."""
+    return 2.0 * math.asinh(n) + 2.0 * t_scaled * math.sqrt(1.0 + n * n)
+
+
+def rope_phase1_control(t: float, s: float, h1: float, h2: float, n: float) -> tuple[float, float]:
+    """Return dimensionless phase-I controls ``(u1, u2)``.
+
+    ``t`` and ``s`` are scaled times, where ``scaled_time = pi * J_hz * seconds``.
+    Phase I has ``0 <= t <= s`` and ``u2 = 1``.
+    """
+    _validate_nonnegative("t", t)
+    _validate_nonnegative("s", s)
+    _validate_nonnegative("n", n)
+    if t > s + 1e-14:
+        raise ValueError("t must be within the phase-I interval [0, s]")
+    if n == 0.0 or s == 0.0 or t >= s:
+        return (1.0, 1.0)
+
+    j_s = rope_j(s, n)
+    tan_h2 = math.tan(h2)
+    if tan_h2 == 0.0:
+        raise ValueError("h2 produces a zero tangent")
+
+    g_T = _rope_finite_efficiency_from_angles(h1, h2, n)
+    R1 = g_T / math.sqrt(tan_h2 * tan_h2 + j_s)
+    R2 = g_T / math.sqrt(1.0 + j_s / (tan_h2 * tan_h2))
+    A = math.sinh(_rope_phi(s / 2.0, n))
+    B = math.cosh(_rope_phi(s, n))
+    cosh_phi_t = math.cosh(_rope_phi(t, n))
+
+    numerator = R1 * R1 * (1.0 + cosh_phi_t)
+    denominator = (B * R1 * R1 + 2.0 * A * A * R2 * R2) - R1 * R1 * cosh_phi_t
+    if denominator <= 0.0:
+        raise ValueError("phase-I control denominator must be positive")
+    u1_squared = _clamp_unit_interval(numerator / denominator)
+    if u1_squared < 0.0 or u1_squared > 1.0:
+        raise ValueError("phase-I control is outside the physical [0, 1] range")
+    return (math.sqrt(u1_squared), 1.0)
+
+
+def rope_phase3_control(
+    t: float, T: float, s: float, h1: float, h2: float, n: float
+) -> tuple[float, float]:
+    """Return dimensionless phase-III controls using ``u2(t) = u1(T - t)``.
+
+    ``t``, ``T``, and ``s`` use the scaled ``pi * J_hz * seconds`` convention.
+    """
+    _validate_nonnegative("t", t)
+    _validate_nonnegative("T", T)
+    _validate_nonnegative("s", s)
+    if t > T + 1e-14:
+        raise ValueError("t must be within the transfer duration [0, T]")
+    if s > 0.5 * T + 1e-14:
+        raise ValueError("s must not exceed T/2")
+    if n == 0.0 or t <= T - s:
+        return (1.0, 1.0)
+
+    mirrored_t = max(0.0, T - t)
+    u1_mirrored, _ = rope_phase1_control(mirrored_t, s, h1, h2, n)
+    return (1.0, u1_mirrored)
+
+
+def _rope_rf_amplitude(u: float, t_scaled: float, n: float, J_hz: float) -> float:
+    """Return shaped-pulse RF angular amplitude for a phase-I-like control."""
+    u = _clamp_unit_interval(u)
+    if u <= 0.0:
+        return 0.0
+    if u >= 1.0:
+        return math.inf
+
+    phi = _rope_phi(t_scaled, n)
+    return (
+        2.0
+        * math.pi
+        * J_hz
+        * u
+        / math.sqrt(1.0 - u * u)
+        * math.tanh(0.5 * phi)
+        * math.sqrt(1.0 + n * n)
+    )
+
+
+def rope_waveform(
+    T: float, n: float, J_hz: float, dt: float
+) -> dict[str, npt.NDArray[np.float64]]:
+    """Sample the finite-time ROPE controls and RF waveform.
+
+    Returns arrays with keys ``times``, ``u1``, ``u2``, ``amplitude``, and
+    ``phase``. Times are in seconds, controls are dimensionless cosines, RF
+    amplitudes are angular amplitudes in rad/s, and phases are radians
+    (``pi/2`` for phase-I y irradiation, ``0`` for phase-III x irradiation).
+    """
+    _validate_positive("T", T)
+    _validate_nonnegative("n", n)
+    _validate_positive("J_hz", J_hz)
+    _validate_positive("dt", dt)
+
+    n_steps = math.ceil(T / dt)
+    times = np.arange(n_steps, dtype=np.float64) * dt
+    u1 = np.ones(n_steps, dtype=np.float64)
+    u2 = np.ones(n_steps, dtype=np.float64)
+    amplitude = np.zeros(n_steps, dtype=np.float64)
+    phase = np.zeros(n_steps, dtype=np.float64)
+
+    if T <= rope_Tcrit(n, J_hz) or n == 0.0:
+        return {
+            "times": times,
+            "u1": u1,
+            "u2": u2,
+            "amplitude": amplitude,
+            "phase": phase,
+        }
+
+    switching_time = rope_switching_time(T, n, J_hz)
+    h1, h2 = rope_finite_angles(T, n, J_hz)
+    scaled_total = math.pi * J_hz * T
+    scaled_switch = math.pi * J_hz * switching_time
+    phase3_start = T - switching_time
+
+    for idx, t_seconds in enumerate(times):
+        t = float(t_seconds)
+        t_scaled = math.pi * J_hz * t
+        if t < switching_time:
+            phase1_u1, phase1_u2 = rope_phase1_control(t_scaled, scaled_switch, h1, h2, n)
+            u1[idx] = phase1_u1
+            u2[idx] = phase1_u2
+            amplitude[idx] = _rope_rf_amplitude(phase1_u1, t_scaled, n, J_hz)
+            phase[idx] = math.pi / 2.0
+        elif t <= phase3_start:
+            u1[idx] = 1.0
+            u2[idx] = 1.0
+        else:
+            phase3_u1, phase3_u2 = rope_phase3_control(
+                t_scaled, scaled_total, scaled_switch, h1, h2, n
+            )
+            mirrored_scaled = max(0.0, scaled_total - t_scaled)
+            u1[idx] = phase3_u1
+            u2[idx] = phase3_u2
+            amplitude[idx] = _rope_rf_amplitude(phase3_u2, mirrored_scaled, n, J_hz)
+
+    return {
+        "times": times,
+        "u1": u1,
+        "u2": u2,
+        "amplitude": amplitude,
+        "phase": phase,
+    }
+
+
+def rope_hard_pulse_angle(h: float, amplitude: float) -> float:
+    """Return a boundary hard-pulse flip angle in degrees.
+
+    ``h`` is the dimensionless boundary control value and ``amplitude`` is the
+    dimensionless full-scale control. For the paper example, ``h/amplitude`` is
+    ``u1(0)`` and the hard-pulse angle is ``acos(u1(0))``.
+    """
+    _validate_positive("amplitude", amplitude)
+    ratio = _clamp_unit_interval(h / amplitude)
+    if ratio < 0.0 or ratio > 1.0:
+        raise ValueError("h / amplitude must be within [0, 1]")
+    return math.degrees(math.acos(ratio))

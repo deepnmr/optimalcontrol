@@ -329,8 +329,8 @@
         "Typecheck passes"
       ],
       "priority": 21,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented rope_phase1_control(), rope_phase3_control(), rope_waveform(), and rope_hard_pulse_angle() in optimalcontrol/rope.py. Phase-control helpers use scaled time pi*J_hz*t; rope_waveform() accepts physical seconds and returns ceil(T/dt) samples. Phase II samples are exactly u1=u2=1 with zero RF amplitude, and the n=1, T=0.263/J paper example gives u1(0)=0.5716 and hard-pulse angle 55.14 degrees."
     },
     {
       "id": "US-022",

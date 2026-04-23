@@ -17,6 +17,7 @@
 - `rope_g_inphase(n)` assumes equal I/S relative relaxation (`kI/J = kS/J = n`) and returns `rope_g(n) ** 2`; the full JMR expression is the product of separate I-side and S-side ROPE factors.
 - ROPE scalar trajectory helpers use dimensionless expectation values; singular ratios return `0.0` for zero numerator and `math.inf` for non-zero numerator over zero denominator.
 - Finite-time ROPE solves Appendix B in scaled time `s = pi * J_hz * t`; `rope_j(s, n)` expects that scaled time, while public duration/switching APIs accept and return seconds.
+- ROPE waveform sampling uses physical seconds in `rope_waveform()`, but `rope_phase1_control()` and `rope_phase3_control()` use scaled times `pi * J_hz * t` because their signatures do not include `J_hz`.
 
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
@@ -253,4 +254,16 @@ Started: 2026-04-23
   - Appendix B rescales time by `pi*J`; use scaled time inside `rope_j()` and convert at public boundaries that take `J_hz`
   - For `T <= Tcrit`, the paper's optimal finite-time branch is free evolution/INEPT, but the switching-time solver has no switch and should raise
   - Use `atan2` forms for finite-time angles to avoid division by zero near `j(s)=0`
+---
+
+## 2026-04-23 14:33 KST - US-021
+- Implemented finite-time ROPE waveform helpers: `rope_phase1_control()`, `rope_phase3_control()`, `rope_waveform()`, and `rope_hard_pulse_angle()`
+- `rope_waveform()` returns `times`, `u1`, `u2`, `amplitude`, and `phase` arrays with `ceil(T/dt)` samples; physical inputs are seconds and Hz, RF amplitudes are angular rad/s values
+- Verified the paper example `n=1`, `T=0.263/J`: switching time is about `0.1/J`, `u1(0)=0.5716`, and `rope_hard_pulse_angle(u1(0), 1.0)=55.14` degrees
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: optimalcontrol/rope.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - The phase-control helper APIs do not accept `J_hz`, so pass scaled times `pi * J_hz * seconds`; only `rope_waveform()` should expose physical seconds for this story
+  - Phase II samples should be classified before shaped-pulse amplitude calculation so the singular boundary is represented as `u1=u2=1` with zero RF amplitude
+  - The hard-pulse boundary angle for the JMR example is `acos(u1(0))`, not `asin(u1(0))`, matching the reported 55 degree pulse
 ---
