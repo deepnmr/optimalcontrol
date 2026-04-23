@@ -76,3 +76,32 @@ def rope_g_inphase(n: float) -> float:
     """
     g = rope_g(n)
     return g * g
+
+
+def rope_V(r1: float, r2: float, n: float) -> float:
+    """Return the ROPE optimal return function V(r1, r2)."""
+    g = rope_g(n)
+    return math.sqrt(g * g * r1 * r1 + r2 * r2)
+
+
+def rope_u_ratio(r1: float, r2: float, n: float) -> float:
+    """Return the unconstrained optimal control ratio u2/u1 = g*r1/r2."""
+    if r1 == 0.0:
+        _validate_nonnegative("n", n)
+        return 0.0
+    if r2 == 0.0:
+        _validate_nonnegative("n", n)
+        return math.inf
+    return rope_g(n) * r1 / r2
+
+
+def rope_trajectory_invariant(expect_2IySz: float, expect_Ix: float, n: float) -> float:
+    """Return <2IySz>/<Ix> for comparison with the optimal invariant g(n)."""
+    if expect_2IySz == 0.0:
+        _validate_nonnegative("n", n)
+        return 0.0
+    if expect_Ix == 0.0:
+        _validate_nonnegative("n", n)
+        return math.inf
+    _validate_nonnegative("n", n)
+    return expect_2IySz / expect_Ix

@@ -297,8 +297,8 @@
         "Typecheck passes"
       ],
       "priority": 19,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented rope_V(), rope_u_ratio(), and rope_trajectory_invariant() in optimalcontrol/rope.py. The return function uses g(n) from rope_g(); ratio helpers validate non-negative n and handle singular zero-amplitude cases with 0.0 for zero numerators and math.inf for non-zero numerator over zero denominator."
     },
     {
       "id": "US-020",

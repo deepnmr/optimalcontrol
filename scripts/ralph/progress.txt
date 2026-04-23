@@ -15,6 +15,7 @@
 - State hooks in `optimalcontrol.states` accept Hilbert-space rotations for square matrix states (`U @ rho @ U.conj().T`) and Liouville-space propagators for matrix or vectorised states; `dead_time_propagation()` expects a Liouville generator and uses `expm(generator * t_dead)`.
 - ROPE analytical helpers live in `optimalcontrol/rope.py`; paper-level functions use Hz-style formulas, require positive `J_hz`, and use `atan2(1.0, n)` for arccot on the physical non-negative branch.
 - `rope_g_inphase(n)` assumes equal I/S relative relaxation (`kI/J = kS/J = n`) and returns `rope_g(n) ** 2`; the full JMR expression is the product of separate I-side and S-side ROPE factors.
+- ROPE scalar trajectory helpers use dimensionless expectation values; singular ratios return `0.0` for zero numerator and `math.inf` for non-zero numerator over zero denominator.
 
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
@@ -228,4 +229,15 @@ Started: 2026-04-23
 - **Learnings for future iterations:**
   - Use `math.atan2(1.0, n)` for `arccot(n)` so the `n=0` no-relaxation limit is handled cleanly
   - The single-argument `rope_g_inphase(n)` encodes the JMR equal-rate case where `g_in = g(n)^2`; the general unequal-rate formula is the product of two separate ROPE factors
+---
+
+## 2026-04-23 14:22 KST - US-019
+- Implemented ROPE optimal return and trajectory helpers: `rope_V()`, `rope_u_ratio()`, and `rope_trajectory_invariant()`
+- `rope_V()` evaluates `sqrt(g(n)^2*r1^2 + r2^2)` using the existing `rope_g()` domain validation
+- Ratio helpers validate `n` and handle singular cases without raising division errors: zero numerator returns `0.0`, non-zero numerator over zero denominator returns `math.inf`
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: optimalcontrol/rope.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - ROPE invariant helpers are scalar analytical utilities in `optimalcontrol/rope.py`; keep them separate from state expectation extraction
+  - `rope_trajectory_invariant()` intentionally returns only the measured ratio so callers/tests can assert it against `rope_g(n)` with their chosen tolerance
 ---
