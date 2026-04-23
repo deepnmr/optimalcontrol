@@ -171,8 +171,8 @@
         "Typecheck passes"
       ],
       "priority": 11,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added drift_hamiltonian(), shift_hamiltonian(), and control_operators() to optimalcontrol/spin_system.py. J couplings and chemical shifts are converted from public Hz fields to rad/s with 2*pi at construction. drift_hamiltonian sums 2*pi*J_hz*Iz_i*Iz_j over couplings with spin-index validation; control_operators returns Ix/Iy on spin 0 and Sx/Sy on spin 1 for two-spin systems."
     },
     {
       "id": "US-012",

@@ -67,6 +67,7 @@
 - Superoperator convention (column-major): L_op(A) = I⊗A = np.kron(I,A), R_op(A) = A^T⊗I = np.kron(A.T,I). PRD text uses row-major labels — ignore and use these formulas.
 - scipy.sparse: import csr_matrix at module level; mypy handles it via scipy's inline stubs. Use Union[npt.NDArray[np.complex128], csr_matrix] for functions returning either.
 - Spin-system convention: `two_spin_system()` uses spin index 0 as I/source and 1 as S/target, with zero `shifts_hz` for on-resonance paper models and relaxation rates stored in rad/s.
+- Hamiltonian builders live in `optimalcontrol/spin_system.py`; convert public `J_hz` and `shifts_hz` values to rad/s with `2*pi`, and use `Iz_i @ Iz_j` for scalar J drift without an extra factor of 2.
 
 # Ralph Progress Log
 Started: 2026-04-23
@@ -126,4 +127,17 @@ Started: 2026-04-23
   - Spin-system indices are 0=I/source and 1=S/target for the two-spin factory and later Hamiltonian builders should preserve that mapping
   - Public J couplings and shifts are in Hz; RelaxationRates fields and kI/kS derived rates are in rad/s
   - `ruff check .` may catch import-order drift in existing tests; `ruff check . --fix` is sufficient for these mechanical import sorts
+---
+
+## 2026-04-23 13:47 KST - US-011
+- Implemented drift_hamiltonian(), shift_hamiltonian(), and control_operators() in optimalcontrol/spin_system.py
+- drift_hamiltonian() builds 2*pi*J_hz*Iz_i*Iz_j terms for every coupling and validates spin indices
+- shift_hamiltonian() builds 2*pi*delta_hz*Iz_i terms from SpinSystem.shifts_hz
+- control_operators() returns {'Ix','Iy','Sx','Sy'} for the two-spin I/S convention
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: optimalcontrol/spin_system.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - The Hamiltonian boundary is where Hz public fields become rad/s matrices via `2*pi`
+  - Scalar coupling drift uses `Iz_i @ Iz_j`; do not use the product-operator label factor `2IzSz` when building `H_J`
+  - `place_operator()` does not reject out-of-range indices by itself, so SpinSystem builders should validate indices before placement
 ---

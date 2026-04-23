@@ -2,11 +2,18 @@
 
 from dataclasses import dataclass
 
+import numpy as np
+import numpy.typing as npt
+
+from optimalcontrol.operators import Ix, Iy, Iz, place_operator
+
 GAMMA_1H_RAD_S_T = 267.52218744e6
 """Approximate 1H gyromagnetic ratio in rad/s/T."""
 
 GAMMA_13C_RAD_S_T = 67.2828402e6
 """Approximate 13C gyromagnetic ratio in rad/s/T."""
+
+TWO_PI = 2.0 * np.pi
 
 
 @dataclass
@@ -112,3 +119,59 @@ def two_spin_system(
             kc_prime=kc_prime,
         ),
     )
+
+
+def _validate_spin_index(spin_index: int, n_spins: int) -> None:
+    """Raise ValueError if spin_index is outside the spin system."""
+    if spin_index < 0 or spin_index >= n_spins:
+        raise ValueError(f"spin_index {spin_index} is outside system with {n_spins} spins")
+
+
+def _zero_hamiltonian(n_spins: int) -> npt.NDArray[np.complex128]:
+    """Return a zero Hilbert-space operator for an n-spin-1/2 system."""
+    dim = 2**n_spins
+    return np.zeros((dim, dim), dtype=np.complex128)
+
+
+def drift_hamiltonian(sys: SpinSystem) -> npt.NDArray[np.complex128]:
+    """Build the scalar J-coupling drift Hamiltonian in rad/s.
+
+    Uses H_J = sum 2*pi*J_hz*Iz_i*Iz_j, where public J values are supplied in Hz.
+    """
+    n_spins = len(sys.spins)
+    H = _zero_hamiltonian(n_spins)
+    for coupling in sys.couplings:
+        _validate_spin_index(coupling.spin_i, n_spins)
+        _validate_spin_index(coupling.spin_j, n_spins)
+        if coupling.spin_i == coupling.spin_j:
+            raise ValueError("coupling spin indices must be distinct")
+        Iz_i = place_operator(Iz(), coupling.spin_i, n_spins)
+        Iz_j = place_operator(Iz(), coupling.spin_j, n_spins)
+        H += (TWO_PI * coupling.J_hz) * (Iz_i @ Iz_j)
+    return H
+
+
+def shift_hamiltonian(sys: SpinSystem) -> npt.NDArray[np.complex128]:
+    """Build the chemical-shift Hamiltonian in rad/s.
+
+    Uses H_CS = 2*pi*sum(delta_hz_i*Iz_i), where public shifts are supplied in Hz.
+    """
+    n_spins = len(sys.spins)
+    H = _zero_hamiltonian(n_spins)
+    for spin_index, delta_hz in sys.shifts_hz.items():
+        _validate_spin_index(spin_index, n_spins)
+        H += (TWO_PI * delta_hz) * place_operator(Iz(), spin_index, n_spins)
+    return H
+
+
+def control_operators(sys: SpinSystem) -> dict[str, npt.NDArray[np.complex128]]:
+    """Return two-spin RF control operators for I and S channels."""
+    n_spins = len(sys.spins)
+    if n_spins != 2:
+        raise ValueError("control_operators currently supports exactly two spins")
+    return {
+        "Ix": place_operator(Ix(), 0, n_spins),
+        "Iy": place_operator(Iy(), 0, n_spins),
+        "Sx": place_operator(Ix(), 1, n_spins),
+        "Sy": place_operator(Iy(), 1, n_spins),
+    }
