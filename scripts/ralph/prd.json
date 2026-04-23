@@ -986,8 +986,8 @@
         "Typecheck passes"
       ],
       "priority": 62,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Confirmed existing ruff and mypy configuration: ruff uses E/F/I in pyproject.toml, mypy strict=true, and both pass cleanly. Created benchmarks/bench_expm.py timing scipy.linalg.expm and dir_diff_expm for 4x4 and 16x16 deterministic Hermitian matrices. Created benchmarks/bench_ensemble.py timing ensemble_fidelity for 1, 4, 16, and 64 RF-power ensemble members. Created tests/test_validation.py with explicit error-message tests for invalid operator dimensions, invalid fidelity_mode, and negative J_hz. Quality checks passed: ruff check ., mypy optimalcontrol/, python3 -m pytest (153 passed)."
     },
     {
       "id": "US-063",

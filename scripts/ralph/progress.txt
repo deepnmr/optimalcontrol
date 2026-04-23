@@ -132,6 +132,7 @@
 - End-to-end two-spin `Iz -> 2IzSz` GRAPE tests can use dense matrix states with drift `-1j * 2*pi*J*Iz_i@Iz_s`, controls `-1j * [Ix, Iy, Sx, Sy]`, HS-normalised product-operator states, and one `pwr_levels` entry per control.
 - Waveform I/O lives in `optimalcontrol/io.py`; exported `Waveform.data` is shaped `(n_channels, n_steps)`, while GRAPE internals use `(n_steps, n_channels)`, so transpose only at I/O boundaries such as `waveform_from_result()` or `loaded.data.T`.
 - Spectrometer I/O in `optimalcontrol/io.py` is intentionally minimal: Bruker/JCAMP-DX helpers are documented stubs, heterodyne transforms rotate `x/y` channels by `exp(i*2*pi*carrier_hz*t)`, and FAPT import maps frequency/amplitude/phase/time rows to `Waveform` channels `frequency_hz`, `amplitude`, `phase_rad`.
+- Benchmark scripts live in `benchmarks/` as standalone `python benchmarks/*.py` entry points that print compact CSV-style timing tables using deterministic toy inputs.
 
 ## 2026-04-23 - US-050
 - Created optimalcontrol/plotting.py with five plotting helpers
@@ -784,4 +785,18 @@ Started: 2026-04-23
   - Ensemble docs must explain the overloaded `pwr_levels` convention: per-channel scaling when its length matches `len(operators)`, RF ensemble axis otherwise
   - Paper-figure docs should stay aligned with `examples/*.py` scripts because snapshot tests use the scripts' `run()` return values as the numerical contract
   - No docs/CLAUDE.md exists; reusable documentation patterns were added to the consolidated Codebase Patterns section instead
+---
+
+## 2026-04-23 20:59 KST - US-062
+- Confirmed existing lint/typecheck configuration: `pyproject.toml` uses Ruff `E`, `F`, and `I` rules plus strict mypy for `optimalcontrol/`
+- Created `benchmarks/bench_expm.py` timing `scipy.linalg.expm` and `dir_diff_expm()` for deterministic 4x4 and 16x16 Hermitian matrices
+- Created `benchmarks/bench_ensemble.py` timing `ensemble_fidelity()` for 1, 4, 16, and 64 RF-power ensemble members
+- Created `tests/test_validation.py` with explicit error-message coverage for invalid operator dimensions, invalid `fidelity_mode`, and negative `J_hz`
+- Verified benchmark scripts run and print CSV-style timing tables
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest` (153 passed)
+- Files changed: `benchmarks/bench_expm.py`, `benchmarks/bench_ensemble.py`, `tests/test_validation.py`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Standalone benchmarks should use deterministic small inputs and print compact tables so they can run without extra benchmark dependencies
+  - RF ensemble scaling benchmarks can use one control operator and vary `pwr_levels`; `len(pwr_levels) != len(operators)` triggers RF-power ensemble expansion
+  - Validation tests should assert concrete message substrings for common user mistakes, not only that `ValueError` was raised
 ---
