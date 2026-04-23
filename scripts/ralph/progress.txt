@@ -1,3 +1,14 @@
+## 2026-04-23 - US-005
+- Added kron_product, place_operator, two_spin_product to optimalcontrol/operators.py
+- kron_product: left-to-right Kronecker product of a list, raises ValueError on empty input
+- place_operator: builds identity list of n_spins, substitutes op at spin_index, calls kron_product
+- two_spin_product: matrix product of place_operator(op_i,0,n_spins) and place_operator(op_s,1,n_spins); equals np.kron(op_i,op_s) for n_spins=2 by mixed-product property
+- Files changed: optimalcontrol/operators.py, scripts/ralph/prd.json
+- **Learnings for future iterations:**
+  - `two_spin_product` via place_operator matrix product equals direct kron for the 2-spin case (mixed-product property: (A⊗B)(C⊗D) = AC⊗BD)
+  - list comprehension type annotation needs `list[npt.NDArray[np.complex128]]` explicit type; mypy infers correctly here
+---
+
 ## Codebase Patterns
 - Build backend: use setuptools (hatchling not available in this environment). Set `[tool.setuptools.packages.find]` with `include = ["optimalcontrol*"]` to avoid setuptools detecting refdoc/ as a top-level package.
 - Typecheck: run `mypy optimalcontrol/` from project root; requires at least one .py file in the directory.

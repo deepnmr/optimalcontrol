@@ -72,8 +72,8 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented kron_product, place_operator, two_spin_product in operators.py. two_spin_product uses place_operator at positions 0 and 1 and matrix-multiplies, which equals np.kron(op_i, op_s) for the 2-spin default. kron_product raises ValueError on empty list."
     },
     {
       "id": "US-006",
