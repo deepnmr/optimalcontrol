@@ -7,8 +7,8 @@ import numpy.typing as np_typing
 from optimalcontrol.operators import (
     Im,
     comm,
-    liouvillian_comm,
     lindblad_dissipator,
+    liouvillian_comm,
     unvec,
     vec,
 )

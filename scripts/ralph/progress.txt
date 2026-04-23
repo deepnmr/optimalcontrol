@@ -66,6 +66,7 @@
 - Numpy type annotations: mypy strict mode requires `npt.NDArray[np.complex128]` (from `numpy.typing`), NOT bare `ndarray` — bare `ndarray` triggers "Missing type parameters for generic type" errors.
 - Superoperator convention (column-major): L_op(A) = I⊗A = np.kron(I,A), R_op(A) = A^T⊗I = np.kron(A.T,I). PRD text uses row-major labels — ignore and use these formulas.
 - scipy.sparse: import csr_matrix at module level; mypy handles it via scipy's inline stubs. Use Union[npt.NDArray[np.complex128], csr_matrix] for functions returning either.
+- Spin-system convention: `two_spin_system()` uses spin index 0 as I/source and 1 as S/target, with zero `shifts_hz` for on-resonance paper models and relaxation rates stored in rad/s.
 
 # Ralph Progress Log
 Started: 2026-04-23
@@ -113,4 +114,16 @@ Started: 2026-04-23
   - hatchling is not installed; always use setuptools as build backend
   - refdoc/ directory at project root causes setuptools flat-layout detection to fail; must add packages.find include filter
   - mypy requires at least one .py file to run successfully on a directory
+---
+
+## 2026-04-23 13:32 KST - US-010
+- Created optimalcontrol/spin_system.py with Spin, Coupling, RelaxationRates, and SpinSystem dataclasses
+- Added two_spin_system() factory for the on-resonance I-S heteronuclear paper model with one J coupling, zero shifts_hz, and dense basis
+- Added kI and kS convenience properties on RelaxationRates for kDD + kCSA_I and kDD + kCSA_S
+- Applied Ruff's import ordering fix to tests/test_liouville.py so `ruff check .` passes
+- Files changed: optimalcontrol/spin_system.py, tests/test_liouville.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Spin-system indices are 0=I/source and 1=S/target for the two-spin factory and later Hamiltonian builders should preserve that mapping
+  - Public J couplings and shifts are in Hz; RelaxationRates fields and kI/kS derived rates are in rad/s
+  - `ruff check .` may catch import-order drift in existing tests; `ruff check . --fix` is sufficient for these mechanical import sorts
 ---

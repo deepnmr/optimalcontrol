@@ -156,8 +156,8 @@
         "Typecheck passes"
       ],
       "priority": 10,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/spin_system.py with Spin, Coupling, RelaxationRates, and SpinSystem dataclasses. RelaxationRates stores all fields in rad/s and exposes kI/kS convenience properties. two_spin_system() returns an on-resonance two-spin I-S heteronuclear model with spins 0=I/source and 1=S/target, a single J_hz coupling, zero shifts_hz, and default dense basis."
     },
     {
       "id": "US-011",
