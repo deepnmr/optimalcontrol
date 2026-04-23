@@ -48,6 +48,7 @@
 - Optimizer checkpoints in `optimalcontrol/optimizers.py` are JSON files that always store waveform and fidelity history, and optimizer-driven saves also persist `n_feval` plus L-BFGS memory so resumed runs can match uninterrupted trajectories; function-level `checkpoint_path` overrides `ControlProblem.checkpoint_path`.
 - Optimizer tests can monkeypatch `optimalcontrol.optimizers.grape_xy` and `grape_gradient` for deterministic toy objectives; monkeypatch `line_search_cubic` to a fixed positive step when checkpoint tests need non-converged partial runs.
 - Product-operator matrix-state GRAPE transfer tests should use `basis="dense"`; `basis="hilbert"` is reserved for pure-state vector GRAPE and rejects square matrix states.
+- Waveform I/O lives in `optimalcontrol/io.py`; exported `Waveform.data` is shaped `(n_channels, n_steps)`, while GRAPE internals use `(n_steps, n_channels)`, so transpose only at I/O boundaries such as `waveform_from_result()` or `loaded.data.T`.
 
 ## 2026-04-23 15:42 KST - US-034
 - Added finite-difference coverage for `grape_gradient()` on a one-spin Hilbert-space problem with 4 steps and 2 channels
@@ -571,4 +572,15 @@ Started: 2026-04-23
   - Matrix product-operator GRAPE tests need `basis="dense"`; `basis="hilbert"` is only for pure-state vectors
   - For deterministic optimizer resume tests, monkeypatching `line_search_cubic()` to a fixed positive step keeps partial runs from converging before the checkpoint boundary
   - L-BFGS quadratic tests can patch the optimizer module's imported `grape_xy()` and `grape_gradient()` directly without constructing a physical control problem
+---
+
+## 2026-04-23 17:43 KST - US-046
+- Implemented `optimalcontrol/io.py` with validated `Waveform` dataclass, stable control-problem hashing, `waveform_from_result()`, CSV export, JSON export, and JSON import
+- Added focused `tests/test_io.py` coverage for GRAPE result conversion, JSON round-trip, and CSV header/row output
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: optimalcontrol/io.py, tests/test_io.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Keep optimized GRAPE arrays as `(n_steps, n_channels)` internally, but export `Waveform.data` as `(n_channels, n_steps)` to match the PRD I/O contract
+  - `waveform_from_result()` is the boundary that transposes `OptimResult.wfm_final`; callers that import JSON and want to rerun `grape_xy()` should pass `loaded.data.T`
+  - `Waveform.units` is currently `"a.u."` because stored waveform samples are raw GRAPE multipliers, not `pwr_levels`-scaled physical amplitudes
 ---

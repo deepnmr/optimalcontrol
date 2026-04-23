@@ -732,8 +732,8 @@
         "Typecheck passes"
       ],
       "priority": 46,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/io.py with Waveform dataclass validation, waveform_from_result() bridge from internal GRAPE (n_steps, n_channels) layout to export (n_channels, n_steps), CSV export, JSON export/import, and stable problem hashing. Added focused tests/test_io.py coverage for result conversion, JSON round-trip, and CSV row/header output."
     },
     {
       "id": "US-047",
