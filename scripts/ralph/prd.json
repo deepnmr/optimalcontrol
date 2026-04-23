@@ -970,8 +970,8 @@
         "Typecheck passes"
       ],
       "priority": 61,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created docs/guide_rope_crop.md, docs/guide_grape.md, docs/guide_ensembles_penalties.md, and docs/guide_paper_figures.md. Guides cover analytical ROPE/CROP usage with sodium-formate parameters, finite-time and CROP waveform sampling, GRAPE ControlProblem construction/fidelity/gradient/run_grape optimizer selection, ensemble axes and penalties, and a script-to-output mapping for the paper reproduction examples. Quality checks passed: ruff check ., mypy optimalcontrol/, python3 -m pytest (150 passed)."
     },
     {
       "id": "US-062",

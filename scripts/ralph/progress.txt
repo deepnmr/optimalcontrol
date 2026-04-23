@@ -77,6 +77,7 @@
 
 ## Codebase Patterns
 - Documentation guides should use runnable Python snippets that import helpers from their defining modules; `optimalcontrol.__init__` intentionally exports only a curated public subset.
+- Paper-figure documentation can treat `examples/*.py` as the source of truth: each script exposes `run()`, uses `matplotlib.use("Agg")`, saves a PNG under `examples/output/`, and has a numerical snapshot under `examples/expected/`.
 - Build backend: use setuptools (hatchling not available in this environment). Set `[tool.setuptools.packages.find]` with `include = ["optimalcontrol*"]` to avoid setuptools detecting refdoc/ as a top-level package.
 - Typecheck: run `mypy optimalcontrol/` from project root; requires at least one .py file in the directory.
 - Install: `pip install -e ".[dev]"` installs runtime + dev dependencies in editable mode.
@@ -769,4 +770,18 @@ Started: 2026-04-23
   - Documentation snippets can be smoke-tested directly with `python3 - <<'PY'` blocks before committing
   - Keep docs/equations.md aligned with implementation conventions: spin-1/2 commutators use `[Ix,Iy]=i*Iz`, and column-major Liouville superoperators use `L(A)=I⊗A`, `R(A)=A^T⊗I`
   - There is no existing CLAUDE.md near docs/, so reusable documentation guidance belongs in the consolidated Codebase Patterns section unless a docs-specific CLAUDE.md is added later
+---
+
+## 2026-04-23 20:55 KST - US-061
+- Created docs/guide_rope_crop.md covering `rope_g()`, `rope_waveform()`, `crop_eta()`, `crop_waveform()`, and a sodium-formate worked example
+- Created docs/guide_grape.md covering `ControlProblem` construction, `grape_xy()`, `grape_gradient()`, `run_grape()`, L-BFGS/Newton selection, and checkpointing
+- Created docs/guide_ensembles_penalties.md covering Cartesian ensemble axes, correlated modes, and `PenaltySpec` configuration on `ControlProblem`
+- Created docs/guide_paper_figures.md mapping each ROPE/CROP example script to its output PNG and reproduced paper figure
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest` (150 passed)
+- Files changed: docs/guide_rope_crop.md, docs/guide_grape.md, docs/guide_ensembles_penalties.md, docs/guide_paper_figures.md, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - The GRAPE guide should explicitly call out internal waveform layout `(n_steps, n_channels)` versus exported `Waveform.data` layout `(n_channels, n_steps)`
+  - Ensemble docs must explain the overloaded `pwr_levels` convention: per-channel scaling when its length matches `len(operators)`, RF ensemble axis otherwise
+  - Paper-figure docs should stay aligned with `examples/*.py` scripts because snapshot tests use the scripts' `run()` return values as the numerical contract
+  - No docs/CLAUDE.md exists; reusable documentation patterns were added to the consolidated Codebase Patterns section instead
 ---
