@@ -105,8 +105,8 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented L_op, R_op, liouvillian_comm, double_comm, lindblad_dissipator, assert_square, assert_hermitian, dense_or_sparse in operators.py. Column-major convention: L_op(A)=I⊗A, R_op(A)=A^T⊗I (PRD text describes row-major formulas — corrected to match column-major vec() convention). All verified against direct computation."
     },
     {
       "id": "US-008",

@@ -1,3 +1,17 @@
+## 2026-04-23 - US-007
+- Added assert_square, assert_hermitian, L_op, R_op, liouvillian_comm, double_comm, lindblad_dissipator, dense_or_sparse to optimalcontrol/operators.py
+- Column-major vec convention: L_op(A)=I⊗A (np.kron(I,A)), R_op(A)=A^T⊗I (np.kron(A.T,I))
+- PRD text describing L_op=A⊗I and R_op=I⊗A^T is wrong for column-major — those are row-major formulas
+- liouvillian_comm(A) = -1j*(L_op(A)-R_op(A)) correctly produces -i[A,·] superoperator
+- lindblad_dissipator uses D = sum_{k,l} a_{kl}*(L_op(Fk)@R_op(Fl†) - 0.5*L_op(Fl†Fk) - 0.5*R_op(Fl†Fk))
+- dense_or_sparse returns scipy.sparse.csr_matrix when sparse=True; Union return type for mypy
+- Files changed: optimalcontrol/operators.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Column-major (Fortran order) convention: L_op=I⊗A, R_op=A^T⊗I — not the other way around
+  - scipy.sparse.csr_matrix is importable at module level and mypy handles it fine (scipy ships inline stubs)
+  - double_comm takes rho_vec (vectorised), not the matrix; unvecs internally
+---
+
 ## 2026-04-23 - US-006
 - Added comm(A, B), vec(rho), unvec(v, dim) to optimalcontrol/operators.py
 - comm: returns A @ B - B @ A
@@ -27,6 +41,8 @@
 - Install: `pip install -e ".[dev]"` installs runtime + dev dependencies in editable mode.
 - Tests: use `python3.10 -m pytest` (or `python3 -m pytest`), NOT bare `pytest` — the pytest script fails to pick up the editable install path in this environment. The `-m` flag ensures sys.path includes site-packages and the editable finder is registered.
 - Numpy type annotations: mypy strict mode requires `npt.NDArray[np.complex128]` (from `numpy.typing`), NOT bare `ndarray` — bare `ndarray` triggers "Missing type parameters for generic type" errors.
+- Superoperator convention (column-major): L_op(A) = I⊗A = np.kron(I,A), R_op(A) = A^T⊗I = np.kron(A.T,I). PRD text uses row-major labels — ignore and use these formulas.
+- scipy.sparse: import csr_matrix at module level; mypy handles it via scipy's inline stubs. Use Union[npt.NDArray[np.complex128], csr_matrix] for functions returning either.
 
 # Ralph Progress Log
 Started: 2026-04-23
