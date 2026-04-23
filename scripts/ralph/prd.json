@@ -186,8 +186,8 @@
         "Typecheck passes"
       ],
       "priority": 12,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented relaxation_liouvillian(), relaxation_liouvillian_crosscorr(), total_generator(), and validate_onresonance() in optimalcontrol/spin_system.py. Non-cross relaxation uses kI/kS pure-dephasing dissipators; cross-correlated relaxation uses effective ka/ka_prime baselines with kc/kc_prime couplings to the 2IzSz dephasing axis. total_generator assembles drift+shift Liouvillian, relaxation, and rad/s control amplitudes."
     },
     {
       "id": "US-013",

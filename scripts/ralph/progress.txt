@@ -1,3 +1,15 @@
+## Codebase Patterns
+- Build backend: use setuptools (hatchling not available in this environment). Set `[tool.setuptools.packages.find]` with `include = ["optimalcontrol*"]` to avoid setuptools detecting refdoc/ as a top-level package.
+- Typecheck: run `mypy optimalcontrol/` from project root; requires at least one .py file in the directory.
+- Install: `pip install -e ".[dev]"` installs runtime + dev dependencies in editable mode.
+- Tests: use `python3.10 -m pytest` (or `python3 -m pytest`), NOT bare `pytest` — the pytest script fails to pick up the editable install path in this environment. The `-m` flag ensures sys.path includes site-packages and the editable finder is registered.
+- Numpy type annotations: mypy strict mode requires `npt.NDArray[np.complex128]` (from `numpy.typing`), NOT bare `ndarray` — bare `ndarray` triggers "Missing type parameters for generic type" errors.
+- Superoperator convention (column-major): L_op(A) = I⊗A = np.kron(I,A), R_op(A) = A^T⊗I = np.kron(A.T,I). PRD text uses row-major labels — ignore and use these formulas.
+- scipy.sparse: import csr_matrix at module level; mypy handles it via scipy's inline stubs. Use Union[npt.NDArray[np.complex128], csr_matrix] for functions returning either.
+- Spin-system convention: `two_spin_system()` uses spin index 0 as I/source and 1 as S/target, with zero `shifts_hz` for on-resonance paper models and relaxation rates stored in rad/s.
+- Hamiltonian builders live in `optimalcontrol/spin_system.py`; convert public `J_hz` and `shifts_hz` values to rad/s with `2*pi`, and use `Iz_i @ Iz_j` for scalar J drift without an extra factor of 2.
+- Liouville generators in `spin_system.py` are assembled by converting Hilbert-space Hamiltonians and control operators with `liouvillian_comm()`; control amplitudes multiply dimensionless spin operators and are assumed to already be in rad/s.
+
 ## 2026-04-23 - US-009
 - Created tests/test_liouville.py with 4 tests covering vec/unvec round-trip, liouvillian_comm action, and Lindblad dissipator
 - Helper _random_hermitian(n, rng) generates random Hermitian matrices via (A + A†)/2 with np.random.Generator
@@ -57,17 +69,6 @@
   - `two_spin_product` via place_operator matrix product equals direct kron for the 2-spin case (mixed-product property: (A⊗B)(C⊗D) = AC⊗BD)
   - list comprehension type annotation needs `list[npt.NDArray[np.complex128]]` explicit type; mypy infers correctly here
 ---
-
-## Codebase Patterns
-- Build backend: use setuptools (hatchling not available in this environment). Set `[tool.setuptools.packages.find]` with `include = ["optimalcontrol*"]` to avoid setuptools detecting refdoc/ as a top-level package.
-- Typecheck: run `mypy optimalcontrol/` from project root; requires at least one .py file in the directory.
-- Install: `pip install -e ".[dev]"` installs runtime + dev dependencies in editable mode.
-- Tests: use `python3.10 -m pytest` (or `python3 -m pytest`), NOT bare `pytest` — the pytest script fails to pick up the editable install path in this environment. The `-m` flag ensures sys.path includes site-packages and the editable finder is registered.
-- Numpy type annotations: mypy strict mode requires `npt.NDArray[np.complex128]` (from `numpy.typing`), NOT bare `ndarray` — bare `ndarray` triggers "Missing type parameters for generic type" errors.
-- Superoperator convention (column-major): L_op(A) = I⊗A = np.kron(I,A), R_op(A) = A^T⊗I = np.kron(A.T,I). PRD text uses row-major labels — ignore and use these formulas.
-- scipy.sparse: import csr_matrix at module level; mypy handles it via scipy's inline stubs. Use Union[npt.NDArray[np.complex128], csr_matrix] for functions returning either.
-- Spin-system convention: `two_spin_system()` uses spin index 0 as I/source and 1 as S/target, with zero `shifts_hz` for on-resonance paper models and relaxation rates stored in rad/s.
-- Hamiltonian builders live in `optimalcontrol/spin_system.py`; convert public `J_hz` and `shifts_hz` values to rad/s with `2*pi`, and use `Iz_i @ Iz_j` for scalar J drift without an extra factor of 2.
 
 # Ralph Progress Log
 Started: 2026-04-23
@@ -140,4 +141,16 @@ Started: 2026-04-23
   - The Hamiltonian boundary is where Hz public fields become rad/s matrices via `2*pi`
   - Scalar coupling drift uses `Iz_i @ Iz_j`; do not use the product-operator label factor `2IzSz` when building `H_J`
   - `place_operator()` does not reject out-of-range indices by itself, so SpinSystem builders should validate indices before placement
+---
+
+## 2026-04-23 13:59 KST - US-012
+- Implemented relaxation_liouvillian(), relaxation_liouvillian_crosscorr(), total_generator(), and validate_onresonance() in optimalcontrol/spin_system.py
+- Non-cross relaxation uses kI/kS pure-dephasing Lindblad dissipators on Iz/Sz; cross-correlated relaxation uses ka/ka_prime effective rates with kc/kc_prime couplings to the 2IzSz dephasing axis
+- total_generator() assembles drift+shift Liouvillian, relaxation, and rad/s control amplitudes multiplied by Liouville commutator control generators
+- Quality checks passed: `ruff check .`, `mypy optimalcontrol/`, `python3 -m pytest`
+- Files changed: optimalcontrol/spin_system.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Total generator assembly should stay in Liouville space: convert Hilbert-space Hamiltonians and controls with `liouvillian_comm()` before adding relaxation dissipators
+  - Control amplitudes in `total_generator()` are assumed to already be rad/s; do not apply Hz-to-rad/s conversion to controls there
+  - Relaxation builders currently target the two-spin I/S convention and should validate or be extended before use on larger systems
 ---
