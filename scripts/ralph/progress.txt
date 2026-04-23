@@ -2,9 +2,20 @@
 - Build backend: use setuptools (hatchling not available in this environment). Set `[tool.setuptools.packages.find]` with `include = ["optimalcontrol*"]` to avoid setuptools detecting refdoc/ as a top-level package.
 - Typecheck: run `mypy optimalcontrol/` from project root; requires at least one .py file in the directory.
 - Install: `pip install -e ".[dev]"` installs runtime + dev dependencies in editable mode.
+- Tests: use `python3.10 -m pytest` (or `python3 -m pytest`), NOT bare `pytest` — the pytest script fails to pick up the editable install path in this environment. The `-m` flag ensures sys.path includes site-packages and the editable finder is registered.
 
 # Ralph Progress Log
 Started: 2026-04-23
+---
+
+## 2026-04-23 - US-003
+- Updated optimalcontrol/__init__.py with __version__ = '0.1.0' and commented-out public API placeholders (TODO stubs for US-004 through US-026)
+- Created README.md with project goal, JMR 2003/PNAS 2003 PDF references, Spinach wiki URL, and local dev commands (lint/typecheck/test)
+- Created tests/test_imports.py asserting optimalcontrol.__version__ == '0.1.0'
+- Files changed: optimalcontrol/__init__.py, README.md, tests/test_imports.py, scripts/ralph/prd.json
+- **Learnings for future iterations:**
+  - The bare `pytest` command fails in this environment due to editable install path issue (site-packages not in sys.path when pytest script invokes python3.10). Always use `python3.10 -m pytest` or `python3 -m pytest` instead.
+  - mypy strict mode is configured; type annotations are required in all new test files.
 ---
 
 ## 2026-04-23 - US-002

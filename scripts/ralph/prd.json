@@ -45,8 +45,8 @@
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Updated __init__.py with public API placeholder comments (TODO stubs). Created README.md with project goal, PDF references, Spinach wiki URL, and dev commands. Created tests/test_imports.py asserting __version__ == '0.1.0'. Note: bare `pytest` command fails due to editable install path issue in this env; use `python3.10 -m pytest` or `python3 -m pytest` instead."
     },
     {
       "id": "US-004",
