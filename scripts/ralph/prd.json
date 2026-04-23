@@ -652,8 +652,8 @@
         "Typecheck passes"
       ],
       "priority": 41,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/optimizers.py with OptimResult and line_search_cubic(). The line search treats f as a maximisation objective, internally minimises -f, uses strong Wolfe conditions with safeguarded cubic interpolation inside brackets, and returns the best finite step found or 0.0 for non-ascent directions."
     },
     {
       "id": "US-042",
