@@ -51,6 +51,17 @@
 - Waveform I/O lives in `optimalcontrol/io.py`; exported `Waveform.data` is shaped `(n_channels, n_steps)`, while GRAPE internals use `(n_steps, n_channels)`, so transpose only at I/O boundaries such as `waveform_from_result()` or `loaded.data.T`.
 - Spectrometer I/O in `optimalcontrol/io.py` is intentionally minimal: Bruker/JCAMP-DX helpers are documented stubs, heterodyne transforms rotate `x/y` channels by `exp(i*2*pi*carrier_hz*t)`, and FAPT import maps frequency/amplitude/phase/time rows to `Waveform` channels `frequency_hz`, `amplitude`, `phase_rad`.
 
+## 2026-04-23 - US-049
+- Added robustness_histogram() and spectrogram_data() to optimalcontrol/analysis.py
+- robustness_histogram() sweeps over a Cartesian product of ControlProblem field replacements using copy.copy+setattr (dataclasses.replace(**dict) rejected by mypy strict mode)
+- spectrogram_data() wraps scipy.signal.spectrogram on a complex envelope built from two waveform channels; returns (times, freqs, power) with return_onesided=False for complex signals
+- Files changed: optimalcontrol/analysis.py, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- **Learnings for future iterations:**
+  - Dynamic ControlProblem field updates must use copy.copy(cp) + setattr(cp_mod, key, val) because dataclasses.replace(**dict[str,object]) fails mypy strict mode with incompatible type errors
+  - spectrogram_data() uses nperseg=min(n_steps,32) so short waveforms don't cause a ValueError from scipy
+  - For complex-signal spectrograms, set return_onesided=False so negative-frequency content is preserved
+---
+
 ## 2026-04-23 - US-048
 - Created optimalcontrol/analysis.py with state_trajectory(), expectation_values(), coherence_order_populations(), and correlation_order_populations()
 - state_trajectory() reuses forward_propagators() and forward_states() from grape.py; returns [rho_0, ..., rho_N] for rho_init[0]
