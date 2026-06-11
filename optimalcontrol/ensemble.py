@@ -13,6 +13,7 @@ from optimalcontrol.grape import (
     _has_rf_power_ensemble,
     grape_gradient,
     grape_xy,
+    grape_xy_and_gradient,
 )
 
 Array = npt.NDArray[np.complex128]
@@ -331,3 +332,22 @@ def ensemble_gradient(cp: ControlProblem, wfm: RealArray) -> RealArray:
             )
         gradient += member_gradient
     return np.asarray(gradient / float(len(problems)), dtype=np.float64)
+
+
+def ensemble_xy_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[float, RealArray]:
+    """Return mean GRAPE fidelity and gradient over Cartesian ensemble members."""
+    waveform = np.asarray(wfm, dtype=np.float64)
+    problems = cartesian_product_ensemble(cp)
+    value_sum = 0.0
+    gradient = np.zeros_like(waveform, dtype=np.float64)
+    for problem in problems:
+        member_value, member_gradient = grape_xy_and_gradient(problem, waveform)
+        if member_gradient.shape != gradient.shape:
+            raise ValueError(
+                f"member gradient shape {member_gradient.shape} does not match "
+                f"waveform shape {gradient.shape}"
+            )
+        value_sum += member_value
+        gradient += member_gradient
+    member_count = float(len(problems))
+    return value_sum / member_count, np.asarray(gradient / member_count, dtype=np.float64)

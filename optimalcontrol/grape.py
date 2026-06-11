@@ -381,6 +381,148 @@ def _slice_generator(cp: ControlProblem, waveform_row: RealArray) -> Array:
     return generator
 
 
+def _control_direction_stack(cp: ControlProblem) -> Array:
+    """Return power-scaled control operators stacked as ``(n_channels, dim, dim)``."""
+    operators = np.stack(
+        [np.asarray(operator, dtype=np.complex128) for operator in cp.operators]
+    )
+    levels = np.asarray(cp.pwr_levels, dtype=np.complex128)
+    return np.asarray(levels[:, None, None] * operators, dtype=np.complex128)
+
+
+def _slice_generator_stack(cp: ControlProblem, effective_waveform: RealArray) -> Array:
+    """Return all slice generators stacked as ``(n_steps, dim, dim)``."""
+    drift = _single_drift(cp)
+    control_directions = _control_direction_stack(cp)
+    scaled = np.asarray(effective_waveform, dtype=np.complex128)
+    generators = drift[None, :, :] + np.tensordot(scaled, control_directions, axes=(1, 0))
+    return np.asarray(generators, dtype=np.complex128)
+
+
+def _has_hermitian_igenerators(cp: ControlProblem) -> bool:
+    """Return True when ``1j * generator`` is Hermitian for every waveform.
+
+    This holds exactly when ``1j * drift`` and every ``1j * operator`` are
+    Hermitian, i.e. coherent (unitary) dynamics without relaxation. Such
+    problems admit a much faster eigendecomposition propagator path.
+    """
+    candidates = [_single_drift(cp)] + [
+        np.asarray(operator, dtype=np.complex128) for operator in cp.operators
+    ]
+    for matrix in candidates:
+        hermitian_part = np.complex128(1j) * matrix
+        deviation = float(np.abs(hermitian_part - hermitian_part.conj().T).max())
+        if deviation > 1e-12:
+            return False
+    return True
+
+
+def _propagators_via_eigh(generators: Array, dt: float) -> tuple[Array, Array, Array]:
+    """Return ``(propagators, eigenvalues, eigenvectors)`` for Hermitian ``1j*G``.
+
+    ``expm(G * dt) = V exp(-1j * lambda * dt) V^dagger`` where
+    ``1j * G = V diag(lambda) V^dagger``.
+    """
+    hermitian = np.asarray(np.complex128(1j) * generators, dtype=np.complex128)
+    eigenvalues, eigenvectors = np.linalg.eigh(hermitian)
+    phases = np.exp(np.complex128(-1j * dt) * eigenvalues)
+    propagators = np.asarray(
+        (eigenvectors * phases[:, None, :]) @ eigenvectors.conj().transpose(0, 2, 1),
+        dtype=np.complex128,
+    )
+    return propagators, eigenvalues, eigenvectors
+
+
+def _derivative_propagators_via_eigh(
+    eigenvalues: RealArray,
+    eigenvectors: Array,
+    control_directions: Array,
+    dt: float,
+) -> Array:
+    """Return slice-propagator control derivatives from eigendecompositions.
+
+    Uses the Daleckii-Krein formula: in the eigenbasis of ``1j * G`` the
+    Frechet derivative of ``exp(-1j * X * dt)`` is the eigenvalue divided
+    difference of the exponential, applied entrywise.
+    """
+    phases = np.exp(np.complex128(-1j * dt) * eigenvalues)
+    lam_diff = eigenvalues[:, :, None] - eigenvalues[:, None, :]
+    phase_diff = phases[:, :, None] - phases[:, None, :]
+    scale = np.maximum(np.abs(eigenvalues).max(axis=(-1,)), 1.0)[:, None, None]
+    degenerate = np.abs(lam_diff) <= 1e-12 * scale
+    safe_diff = np.where(degenerate, 1.0, lam_diff)
+    divided = np.where(
+        degenerate,
+        np.complex128(-1j * dt) * np.exp(
+            np.complex128(-1j * dt) * 0.5 * (eigenvalues[:, :, None] + eigenvalues[:, None, :])
+        ),
+        phase_diff / safe_diff,
+    )
+
+    adjoint_vectors = eigenvectors.conj().transpose(0, 2, 1)
+    hermitian_directions = np.complex128(1j) * control_directions
+    rotated = (
+        adjoint_vectors[:, None, :, :]
+        @ hermitian_directions[None, :, :, :]
+        @ eigenvectors[:, None, :, :]
+    )
+    weighted = divided[:, None, :, :] * rotated
+    return np.asarray(
+        eigenvectors[:, None, :, :] @ weighted @ adjoint_vectors[:, None, :, :],
+        dtype=np.complex128,
+    )
+
+
+def _propagators_and_derivatives(
+    cp: ControlProblem,
+    generators: Array,
+    control_directions: Array,
+) -> tuple[Array, Array]:
+    """Return slice propagators and their control derivatives, fast path first."""
+    if _has_hermitian_igenerators(cp):
+        propagators, eigenvalues, eigenvectors = _propagators_via_eigh(
+            generators, cp.pulse_dt
+        )
+        d_propagators = _derivative_propagators_via_eigh(
+            eigenvalues, eigenvectors, control_directions, cp.pulse_dt
+        )
+        return propagators, d_propagators
+
+    propagators = np.asarray(expm(generators * cp.pulse_dt), dtype=np.complex128)
+    d_propagators = _batched_derivative_propagators(
+        generators, control_directions, cp.pulse_dt
+    )
+    return propagators, d_propagators
+
+
+def _batched_derivative_propagators(
+    generators: Array,
+    control_directions: Array,
+    dt: float,
+) -> Array:
+    """Return slice-propagator control derivatives as ``(n_steps, n_channels, dim, dim)``.
+
+    Each derivative is the upper-right block of the 2x2 block auxiliary matrix
+    exponential, evaluated for every (slice, channel) pair in one stacked call.
+    """
+    n_steps, dim = generators.shape[0], generators.shape[1]
+    n_channels = control_directions.shape[0]
+    A = np.complex128(dt) * generators
+    dA = np.complex128(dt) * control_directions
+    blocks = np.zeros((n_steps, n_channels, 2 * dim, 2 * dim), dtype=np.complex128)
+    blocks[:, :, :dim, :dim] = A[:, None, :, :]
+    blocks[:, :, dim:, dim:] = A[:, None, :, :]
+    blocks[:, :, :dim, dim:] = dA[None, :, :, :]
+    block_expm = np.asarray(
+        expm(blocks.reshape(n_steps * n_channels, 2 * dim, 2 * dim)),
+        dtype=np.complex128,
+    )
+    return np.asarray(
+        block_expm[:, :dim, dim:].reshape(n_steps, n_channels, dim, dim),
+        dtype=np.complex128,
+    )
+
+
 def dir_diff_expm(H: Array, dH: Array, dt: float) -> Array:
     """Return d/dε expm(-1j * (H + ε dH) * dt) at ε=0.
 
@@ -467,11 +609,12 @@ def forward_propagators(cp: ControlProblem, wfm: RealArray) -> list[Array]:
     validate_waveform(waveform, len(cp.operators), waveform.shape[0])
     effective_waveform = apply_freeze(waveform, cp.freeze)
 
-    propagators: list[Array] = []
-    for waveform_row in effective_waveform:
-        generator = _slice_generator(cp, waveform_row)
-        propagators.append(np.asarray(expm(generator * cp.pulse_dt), dtype=np.complex128))
-    return propagators
+    generators = _slice_generator_stack(cp, effective_waveform)
+    if _has_hermitian_igenerators(cp):
+        propagators_stack, _, _ = _propagators_via_eigh(generators, cp.pulse_dt)
+    else:
+        propagators_stack = np.asarray(expm(generators * cp.pulse_dt), dtype=np.complex128)
+    return [np.asarray(propagator, dtype=np.complex128) for propagator in propagators_stack]
 
 
 def _validate_square_propagator(propagator: Array) -> None:
@@ -718,26 +861,104 @@ def _fidelity_second_directional_derivative(
     raise ValueError(f"mode must be one of: {valid}")
 
 
-def grape_gradient(cp: ControlProblem, wfm: RealArray) -> RealArray:
-    """Return d(grape_xy)/d(wfm[k, c]) for all time slices and control channels.
+def _mode_value(overlap: np.complex128, mode: str) -> float:
+    """Return the scalar fidelity for one target-final overlap."""
+    if mode == "real":
+        return float(np.real(overlap))
+    if mode == "imag":
+        return float(np.imag(overlap))
+    if mode == "abs2":
+        return float(np.real(overlap.conjugate() * overlap))
+    valid = ", ".join(sorted(VALID_FIDELITY_MODES))
+    raise ValueError(f"mode must be one of: {valid}")
 
-    When ``cp`` has multiple drift generators or power levels, the gradient is
-    averaged over the Cartesian ensemble. When ``cp.penalties`` is set, the
-    penalty gradient is subtracted from the fidelity gradient before returning.
+
+def _mode_gradient(
+    overlap: np.complex128,
+    d_overlaps: Array,
+    mode: str,
+) -> RealArray:
+    """Return per-parameter fidelity derivatives from overlap derivatives."""
+    if mode == "real":
+        return np.asarray(np.real(d_overlaps), dtype=np.float64)
+    if mode == "imag":
+        return np.asarray(np.imag(d_overlaps), dtype=np.float64)
+    if mode == "abs2":
+        return np.asarray(
+            2.0 * np.real(np.conjugate(overlap) * d_overlaps), dtype=np.float64
+        )
+    valid = ", ".join(sorted(VALID_FIDELITY_MODES))
+    raise ValueError(f"mode must be one of: {valid}")
+
+
+def _vector_value_and_gradient(
+    rho_init: Array,
+    rho_targ: Array,
+    propagators: Array,
+    d_propagators: Array,
+    mode: str,
+) -> tuple[float, RealArray]:
+    """Return fidelity and gradient for one vector state pair via adjoint states."""
+    n_steps, dim = propagators.shape[0], propagators.shape[1]
+    fwd = np.empty((n_steps + 1, dim), dtype=np.complex128)
+    fwd[0] = rho_init
+    for step_index in range(n_steps):
+        fwd[step_index + 1] = propagators[step_index] @ fwd[step_index]
+
+    bwd = np.empty((n_steps + 1, dim), dtype=np.complex128)
+    bwd[n_steps] = rho_targ
+    for step_index in range(n_steps - 1, -1, -1):
+        bwd[step_index] = propagators[step_index].conj().T @ bwd[step_index + 1]
+
+    d_states = (d_propagators @ fwd[:-1, None, :, None])[..., 0]
+    d_overlaps = np.sum(bwd[1:, None, :].conj() * d_states, axis=-1)
+    overlap = np.complex128(np.vdot(rho_targ, fwd[-1]))
+    return _mode_value(overlap, mode), _mode_gradient(overlap, d_overlaps, mode)
+
+
+def _hilbert_matrix_value_and_gradient(
+    rho_init: Array,
+    rho_targ: Array,
+    propagators: Array,
+    d_propagators: Array,
+    mode: str,
+) -> tuple[float, RealArray]:
+    """Return fidelity and gradient for one density-matrix pair via adjoint states."""
+    n_steps, n_channels = propagators.shape[0], d_propagators.shape[1]
+    fwd = [rho_init]
+    for step_index in range(n_steps):
+        propagator = propagators[step_index]
+        fwd.append(propagator @ fwd[-1] @ propagator.conj().T)
+
+    bwd: list[Array] = [rho_targ] * (n_steps + 1)
+    for step_index in range(n_steps - 1, -1, -1):
+        propagator = propagators[step_index]
+        bwd[step_index] = propagator.conj().T @ bwd[step_index + 1] @ propagator
+
+    d_overlaps = np.empty((n_steps, n_channels), dtype=np.complex128)
+    for step_index in range(n_steps):
+        propagator = propagators[step_index]
+        d_propagator = d_propagators[step_index]
+        rho = fwd[step_index]
+        d_slice = np.einsum(
+            "cij,jl,ml->cim", d_propagator, rho, propagator.conj(), optimize=True
+        ) + np.einsum(
+            "ij,jl,cml->cim", propagator, rho, d_propagator.conj(), optimize=True
+        )
+        d_overlaps[step_index] = np.einsum(
+            "im,cim->c", bwd[step_index + 1].conj(), d_slice, optimize=True
+        )
+
+    overlap = np.complex128(np.vdot(rho_targ, fwd[-1]))
+    return _mode_value(overlap, mode), _mode_gradient(overlap, d_overlaps, mode)
+
+
+def _single_value_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[float, RealArray]:
+    """Return bare fidelity and gradient for a single-member control problem.
+
+    Penalties are not applied here; callers handle penalty terms so the same
+    core serves both ``grape_gradient`` and ``grape_xy_and_gradient``.
     """
-    if _has_ensemble_axes(cp):
-        from optimalcontrol.ensemble import ensemble_gradient
-
-        bare_cp = replace(cp, penalties=None)
-        ensemble_grad = np.asarray(ensemble_gradient(bare_cp, wfm), dtype=np.float64)
-        if cp.penalties is not None:
-            _, penalty_gradient = total_penalty(np.asarray(wfm, dtype=np.float64), cp.penalties)
-            ensemble_grad -= penalty_gradient
-        if cp.freeze is not None:
-            freeze_mask = np.asarray(cp.freeze, dtype=np.bool_)
-            ensemble_grad[freeze_mask] = 0.0
-        return ensemble_grad
-
     validate_control_problem(cp)
     waveform = np.asarray(wfm, dtype=np.float64)
     if waveform.ndim != 2:
@@ -746,53 +967,79 @@ def grape_gradient(cp: ControlProblem, wfm: RealArray) -> RealArray:
     effective_waveform = apply_freeze(waveform, cp.freeze)
     n_steps, n_channels = effective_waveform.shape
 
-    propagators: list[Array] = []
-    derivative_propagators: list[list[Array]] = []
-    control_directions = [
-        np.complex128(level) * np.asarray(operator, dtype=np.complex128)
-        for level, operator in zip(cp.pwr_levels, cp.operators)
-    ]
-    for waveform_row in effective_waveform:
-        generator = _slice_generator(cp, waveform_row)
-        propagators.append(np.asarray(expm(generator * cp.pulse_dt), dtype=np.complex128))
-        derivative_propagators.append(
-            [
-                _dir_diff_generator_expm(generator, control_direction, cp.pulse_dt)
-                for control_direction in control_directions
-            ]
-        )
+    generators = _slice_generator_stack(cp, effective_waveform)
+    dim = generators.shape[1]
+    control_directions = _control_direction_stack(cp)
+    propagators, d_propagators = _propagators_and_derivatives(
+        cp, generators, control_directions
+    )
 
     gradient: RealArray = np.zeros((n_steps, n_channels), dtype=np.float64)
+    values: list[float] = []
     for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ):
-        fwd = forward_states(rho_init, propagators)
-        rho_final = fwd[-1]
-        for step_index in range(n_steps):
-            for channel_index in range(n_channels):
-                d_state = _apply_derivative_propagator(
-                    fwd[step_index],
-                    propagators[step_index],
-                    derivative_propagators[step_index][channel_index],
-                )
-                for propagator in propagators[step_index + 1 :]:
-                    d_state = _apply_propagator(d_state, propagator)
-                gradient[step_index, channel_index] += _fidelity_directional_derivative(
-                    rho_final,
-                    rho_targ,
-                    d_state,
-                    cp.fidelity_mode,
-                )
+        init = np.asarray(rho_init, dtype=np.complex128)
+        targ = np.asarray(rho_targ, dtype=np.complex128)
+        if init.ndim == 1:
+            value, member_gradient = _vector_value_and_gradient(
+                init, targ, propagators, d_propagators, cp.fidelity_mode
+            )
+        elif init.ndim == 2 and init.shape[0] == init.shape[1] and init.size == dim:
+            value, member_gradient = _vector_value_and_gradient(
+                vec(init), vec(targ), propagators, d_propagators, cp.fidelity_mode
+            )
+        elif init.ndim == 2 and init.shape[0] == init.shape[1] and init.shape[0] == dim:
+            value, member_gradient = _hilbert_matrix_value_and_gradient(
+                init, targ, propagators, d_propagators, cp.fidelity_mode
+            )
+        else:
+            raise ValueError(
+                f"state shape {init.shape} is incompatible with generator dimension {dim}"
+            )
+        values.append(value)
+        gradient += member_gradient
 
+    fidelity = float(np.mean(np.asarray(values, dtype=np.float64)))
     gradient /= float(len(cp.rho_init))
     if cp.freeze is not None:
         freeze_mask = np.asarray(cp.freeze, dtype=np.bool_)
         gradient[freeze_mask] = 0.0
+    return fidelity, gradient
+
+
+def grape_xy_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[float, RealArray]:
+    """Return GRAPE fidelity and gradient from one propagation pass.
+
+    This evaluates the same quantities as ``grape_xy`` and ``grape_gradient``
+    but shares the slice propagators and adjoint states between both, which is
+    roughly twice as fast as calling them separately.
+    """
+    waveform = np.asarray(wfm, dtype=np.float64)
+    if _has_ensemble_axes(cp):
+        from optimalcontrol.ensemble import ensemble_xy_and_gradient
+
+        bare_cp = replace(cp, penalties=None)
+        fidelity, gradient = ensemble_xy_and_gradient(bare_cp, waveform)
+    else:
+        fidelity, gradient = _single_value_and_gradient(cp, waveform)
+
     if cp.penalties is not None:
-        _, penalty_gradient = total_penalty(waveform, cp.penalties)
-        gradient -= penalty_gradient
+        penalty_value, penalty_gradient = total_penalty(waveform, cp.penalties)
+        fidelity -= penalty_value
+        gradient = gradient - penalty_gradient
         if cp.freeze is not None:
             freeze_mask = np.asarray(cp.freeze, dtype=np.bool_)
             gradient[freeze_mask] = 0.0
-    return gradient
+    return fidelity, np.asarray(gradient, dtype=np.float64)
+
+
+def grape_gradient(cp: ControlProblem, wfm: RealArray) -> RealArray:
+    """Return d(grape_xy)/d(wfm[k, c]) for all time slices and control channels.
+
+    When ``cp`` has multiple drift generators or power levels, the gradient is
+    averaged over the Cartesian ensemble. When ``cp.penalties`` is set, the
+    penalty gradient is subtracted from the fidelity gradient before returning.
+    """
+    return grape_xy_and_gradient(cp, wfm)[1]
 
 
 def grape_hessian(cp: ControlProblem, wfm: RealArray) -> RealArray | None:
@@ -930,9 +1177,16 @@ def _grape_xy_core(cp: ControlProblem, wfm: RealArray) -> float:
     propagators = forward_propagators(cp, wfm)
     values: list[float] = []
     for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ):
-        fwd = forward_states(rho_init, propagators)
-        bwd = backward_states(rho_targ, propagators)
-        values.append(final_fidelity(fwd, bwd, cp.fidelity_mode))
+        current = np.asarray(rho_init, dtype=np.complex128)
+        for propagator in propagators:
+            current = _apply_propagator(current, propagator)
+        values.append(
+            _fidelity_by_mode(
+                current,
+                np.asarray(rho_targ, dtype=np.complex128),
+                cp.fidelity_mode,
+            )
+        )
     return float(np.mean(np.asarray(values, dtype=np.float64)))
 
 

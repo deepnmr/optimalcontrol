@@ -542,3 +542,76 @@ def test_grape_gradient_ensemble_multiple_power_levels() -> None:
     result_ensemble = ensemble_gradient(cp, waveform)
 
     np.testing.assert_allclose(result_direct, result_ensemble, rtol=1e-10)
+
+
+def test_hermitian_fast_path_matches_pade_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Eigendecomposition propagators must match the generic expm path."""
+    import optimalcontrol.grape as grape_module
+
+    cp = _one_spin_hilbert_gradient_problem()
+    waveform = np.array(
+        [[0.15, -0.05], [0.07, 0.11], [-0.12, 0.04], [0.09, -0.08]],
+        dtype=np.float64,
+    )
+    assert grape_module._has_hermitian_igenerators(cp)
+
+    fast_fidelity = grape_xy(cp, waveform)
+    fast_gradient = grape_gradient(cp, waveform)
+    fast_propagators = forward_propagators(cp, waveform)
+
+    monkeypatch.setattr(grape_module, "_has_hermitian_igenerators", lambda _cp: False)
+    slow_fidelity = grape_xy(cp, waveform)
+    slow_gradient = grape_gradient(cp, waveform)
+    slow_propagators = forward_propagators(cp, waveform)
+
+    np.testing.assert_allclose(fast_fidelity, slow_fidelity, atol=1e-12, rtol=0.0)
+    np.testing.assert_allclose(fast_gradient, slow_gradient, atol=1e-12, rtol=0.0)
+    np.testing.assert_allclose(
+        np.stack(fast_propagators), np.stack(slow_propagators), atol=1e-12, rtol=0.0
+    )
+
+
+def test_hermitian_fast_path_rejects_relaxation_generators() -> None:
+    """Non-Hermitian (dissipative) generators must use the expm fallback."""
+    import optimalcontrol.grape as grape_module
+
+    cp = _one_spin_hilbert_gradient_problem()
+    relaxed_drift = np.asarray(cp.drifts[0], dtype=np.complex128) - 0.05 * np.eye(
+        2, dtype=np.complex128
+    )
+    cp.drifts = [relaxed_drift]
+
+    assert not grape_module._has_hermitian_igenerators(cp)
+
+
+def test_hermitian_fast_path_handles_degenerate_eigenvalues() -> None:
+    """Zero drift gives fully degenerate eigenvalues at zero waveform rows."""
+    cp = _one_spin_hilbert_gradient_problem()
+    cp.drifts = [np.zeros((2, 2), dtype=np.complex128)]
+    waveform = np.array(
+        [[0.0, 0.0], [0.07, 0.11], [0.0, 0.0], [0.09, -0.08]],
+        dtype=np.float64,
+    )
+
+    analytical = grape_gradient(cp, waveform)
+    finite_difference = _finite_difference_gradient(cp, waveform)
+
+    assert _relative_l2_error(analytical, finite_difference) <= 1e-5
+
+
+def test_grape_xy_and_gradient_matches_separate_calls() -> None:
+    """Combined evaluation must agree with grape_xy and grape_gradient."""
+    from optimalcontrol.grape import grape_xy_and_gradient
+
+    cp = _one_spin_hilbert_gradient_problem()
+    waveform = np.array(
+        [[0.15, -0.05], [0.07, 0.11], [-0.12, 0.04], [0.09, -0.08]],
+        dtype=np.float64,
+    )
+
+    fidelity, gradient = grape_xy_and_gradient(cp, waveform)
+
+    np.testing.assert_allclose(fidelity, grape_xy(cp, waveform), atol=1e-12, rtol=0.0)
+    np.testing.assert_allclose(gradient, grape_gradient(cp, waveform), atol=1e-12, rtol=0.0)

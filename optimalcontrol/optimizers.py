@@ -13,9 +13,9 @@ import numpy.typing as npt
 from optimalcontrol.grape import (
     ControlProblem,
     apply_freeze,
-    grape_gradient,
     grape_hessian,
     grape_xy,
+    grape_xy_and_gradient,
     validate_waveform,
 )
 
@@ -610,34 +610,63 @@ def line_search_cubic(
     return best_alpha
 
 
-def _counted_grape_objective(
+def _cached_grape_evaluators(
     cp: ControlProblem,
     *,
     initial_count: int = 0,
-) -> tuple[Objective, Callable[[], int]]:
-    """Return a GRAPE objective closure and a function-evaluation counter."""
+) -> tuple[Objective, Gradient, Callable[[], int]]:
+    """Return memoised GRAPE objective and gradient closures plus a feval counter.
+
+    Both closures share one small waveform-keyed cache, so the repeated
+    evaluations at identical points made by the optimizers and the line search
+    (the alpha=0 point, the accepted step) cost nothing. A gradient evaluation
+    produces the fidelity as a by-product and seeds the objective cache.
+    """
     if initial_count < 0:
         raise ValueError("initial_count must be non-negative")
     n_feval = initial_count
+    max_entries = 32
+    value_cache: dict[bytes, float] = {}
+    grad_cache: dict[bytes, RealArray] = {}
+    insertion_order: list[bytes] = []
+
+    def _remember(key: bytes) -> None:
+        if key not in insertion_order:
+            insertion_order.append(key)
+        while len(insertion_order) > max_entries:
+            stale = insertion_order.pop(0)
+            value_cache.pop(stale, None)
+            grad_cache.pop(stale, None)
 
     def objective(wfm: RealArray) -> float:
         nonlocal n_feval
+        waveform = np.asarray(wfm, dtype=np.float64)
+        key = waveform.tobytes()
+        cached = value_cache.get(key)
+        if cached is not None:
+            return cached
         n_feval += 1
-        return float(grape_xy(cp, wfm))
+        value = float(grape_xy(cp, waveform))
+        value_cache[key] = value
+        _remember(key)
+        return value
+
+    def gradient(wfm: RealArray) -> RealArray:
+        waveform = np.asarray(wfm, dtype=np.float64)
+        key = waveform.tobytes()
+        cached = grad_cache.get(key)
+        if cached is not None:
+            return cached.copy()
+        value, grad = grape_xy_and_gradient(cp, waveform)
+        value_cache.setdefault(key, float(value))
+        grad_cache[key] = np.asarray(grad, dtype=np.float64)
+        _remember(key)
+        return grad_cache[key].copy()
 
     def count() -> int:
         return n_feval
 
-    return objective, count
-
-
-def _grape_gradient(cp: ControlProblem) -> Gradient:
-    """Return a GRAPE gradient closure with a stable optimizer signature."""
-
-    def gradient(wfm: RealArray) -> RealArray:
-        return np.asarray(grape_gradient(cp, wfm), dtype=np.float64)
-
-    return gradient
+    return objective, gradient, count
 
 
 def _grape_hessian(cp: ControlProblem) -> Callable[[RealArray], RealArray]:
@@ -735,8 +764,9 @@ def gradient_ascent(
     checkpoint_file = _effective_checkpoint_path(cp, checkpoint_path)
     checkpoint = _restore_checkpoint(cp, wfm0, checkpoint_file)
     waveform = checkpoint.wfm
-    objective, n_feval = _counted_grape_objective(cp, initial_count=checkpoint.n_feval)
-    gradient_fn = _grape_gradient(cp)
+    objective, gradient_fn, n_feval = _cached_grape_evaluators(
+        cp, initial_count=checkpoint.n_feval
+    )
 
     history = checkpoint.history.copy()
     fidelity = float(history[-1]) if history else objective(waveform)
@@ -930,8 +960,9 @@ def lbfgs_grape(
         _validate_lbfgs_checkpoint_state(state, waveform.shape)
     else:
         state = lbfgs_state(m)
-    objective, n_feval = _counted_grape_objective(cp, initial_count=checkpoint.n_feval)
-    gradient_fn = _grape_gradient(cp)
+    objective, gradient_fn, n_feval = _cached_grape_evaluators(
+        cp, initial_count=checkpoint.n_feval
+    )
 
     history = checkpoint.history.copy()
     fidelity = float(history[-1]) if history else objective(waveform)
@@ -1078,8 +1109,9 @@ def newton_raphson(
     checkpoint_file = _effective_checkpoint_path(cp, checkpoint_path)
     checkpoint = _restore_checkpoint(cp, wfm0, checkpoint_file)
     waveform = checkpoint.wfm
-    objective, n_feval = _counted_grape_objective(cp, initial_count=checkpoint.n_feval)
-    gradient_fn = _grape_gradient(cp)
+    objective, gradient_fn, n_feval = _cached_grape_evaluators(
+        cp, initial_count=checkpoint.n_feval
+    )
     hessian_fn = _grape_hessian(cp)
     freeze_mask = None if cp.freeze is None else np.asarray(cp.freeze, dtype=np.bool_)
 

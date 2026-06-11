@@ -78,7 +78,11 @@ def _patch_quadratic_objective(
         return hessian_matrix.copy()
 
     monkeypatch.setattr(optimizers, "grape_xy", grape_xy)
-    monkeypatch.setattr(optimizers, "grape_gradient", grape_gradient)
+    monkeypatch.setattr(
+        optimizers,
+        "grape_xy_and_gradient",
+        lambda cp, wfm: (grape_xy(cp, wfm), grape_gradient(cp, wfm)),
+    )
     monkeypatch.setattr(optimizers, "grape_hessian", grape_hessian)
 
 
@@ -103,7 +107,11 @@ def test_lbfgs_grape_converges_on_negative_norm_quadratic(
         return np.asarray((-2.0 * diff).reshape(wfm.shape), dtype=np.float64)
 
     monkeypatch.setattr(optimizers, "grape_xy", grape_xy_quadratic)
-    monkeypatch.setattr(optimizers, "grape_gradient", grape_gradient_quadratic)
+    monkeypatch.setattr(
+        optimizers,
+        "grape_xy_and_gradient",
+        lambda cp, wfm: (grape_xy_quadratic(cp, wfm), grape_gradient_quadratic(cp, wfm)),
+    )
     cp = _optimizer_control_problem(n_steps=2, n_channels=2)
     wfm0 = np.zeros_like(optimum)
 
@@ -227,7 +235,11 @@ def test_newton_raphson_rejects_missing_exact_hessian(
     wfm0 = np.zeros((51, 1), dtype=np.float64)
 
     monkeypatch.setattr(optimizers, "grape_xy", lambda _cp, _wfm: 0.0)
-    monkeypatch.setattr(optimizers, "grape_gradient", lambda _cp, _wfm: np.ones_like(_wfm))
+    monkeypatch.setattr(
+        optimizers,
+        "grape_xy_and_gradient",
+        lambda _cp, _wfm: (0.0, np.ones_like(_wfm)),
+    )
     monkeypatch.setattr(optimizers, "grape_hessian", lambda _cp, _wfm: None)
 
     with pytest.raises(ValueError, match="exact Hessian"):
