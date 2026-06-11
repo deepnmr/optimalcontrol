@@ -25,10 +25,14 @@ _EXAMPLE_NAMES = [
     "rope_finite_time_controls",
     "rope_sodium_formate",
     "rope_hard_pulse",
+    "jmr2005_fig5_rope",
     "crop_efficiency_vs_ka",
     "crop_truncated_waveform",
     "crop_lossless_limit",
     "crop_regression_params",
+    "grape_broadband_180",
+    "phase_only_iy_inversion_10khz",
+    "hmqc_oc_180_artifact",
 ]
 
 
