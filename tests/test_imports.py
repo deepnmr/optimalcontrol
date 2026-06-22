@@ -5,7 +5,7 @@ import optimalcontrol
 
 
 def test_version() -> None:
-    assert optimalcontrol.__version__ == "0.1.0"
+    assert optimalcontrol.__version__ == "0.2.0"
 
 
 def test_set_random_seed_controls_numpy_global_state() -> None:

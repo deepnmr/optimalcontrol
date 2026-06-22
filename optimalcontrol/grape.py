@@ -417,7 +417,7 @@ def _has_hermitian_igenerators(cp: ControlProblem) -> bool:
     return True
 
 
-def _propagators_via_eigh(generators: Array, dt: float) -> tuple[Array, Array, Array]:
+def _propagators_via_eigh(generators: Array, dt: float) -> tuple[Array, RealArray, Array]:
     """Return ``(propagators, eigenvalues, eigenvectors)`` for Hermitian ``1j*G``.
 
     ``expm(G * dt) = V exp(-1j * lambda * dt) V^dagger`` where
@@ -967,6 +967,16 @@ def _single_value_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[floa
     effective_waveform = apply_freeze(waveform, cp.freeze)
     n_steps, n_channels = effective_waveform.shape
 
+    from optimalcontrol._accelerator import vector_value_gradient
+
+    accelerated = vector_value_gradient([cp], effective_waveform)
+    if accelerated is not None:
+        fidelity, accelerated_gradient = accelerated
+        if cp.freeze is not None:
+            freeze_mask = np.asarray(cp.freeze, dtype=np.bool_)
+            accelerated_gradient[freeze_mask] = 0.0
+        return fidelity, accelerated_gradient
+
     generators = _slice_generator_stack(cp, effective_waveform)
     dim = generators.shape[1]
     control_directions = _control_direction_stack(cp)
@@ -1174,6 +1184,12 @@ def grape_hessian(cp: ControlProblem, wfm: RealArray) -> RealArray | None:
 
 def _grape_xy_core(cp: ControlProblem, wfm: RealArray) -> float:
     """Return scalar GRAPE fidelity without basis-specific state conversion."""
+    from optimalcontrol._accelerator import vector_fidelity
+
+    accelerated = vector_fidelity([cp], wfm)
+    if accelerated is not None:
+        return accelerated
+
     propagators = forward_propagators(cp, wfm)
     values: list[float] = []
     for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ):

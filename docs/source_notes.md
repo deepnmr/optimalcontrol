@@ -41,6 +41,50 @@
 
 ---
 
+## JMR 2005 — GRAPE
+
+**Reference:** Khaneja et al., "Optimal control of coupled spin dynamics: design
+of NMR pulse sequences by gradient ascent algorithms", *Journal of Magnetic
+Resonance* 172 (2005) 296–305.
+
+### What this paper contributes
+
+- **GRAPE formulation:** Forward/backward Liouville propagation gives analytical
+  slice gradients for coherence-transfer and propagator-synthesis objectives.
+- **Fig. 5 reproduction target:** `Iz -> 2IzSz` in a two-spin heteronuclear
+  system, spin-diffusion-limit dipole-dipole relaxation, `J = 194 Hz`,
+  `k/J = 1`, `T = 2.11 ms = 0.408/J`, and `N = 75` pulse slices.
+- **Implementation note:** The paper's pulse in Fig. 5 is one numerical GRAPE
+  optimum and depends on the random initial sequence. The example
+  `examples/jmr2005_fig5_rope.py` uses the deterministic finite-time ROPE
+  waveform plus sampled boundary pulses, then propagates the same Liouville
+  model to plot the non-vanishing density-operator terms. Use
+  `python examples/jmr2005_fig5_rope.py --optimize` to rerun GRAPE from this
+  deterministic initial guess.
+
+---
+
+## Sci. Adv. 2023 — Low-Power 1.2-GHz OC Pulses
+
+**Reference:** Joseph and Griesinger, "Optimal control pulses for the 1.2-GHz
+(28.2-T) NMR spectrometers", *Science Advances* 9 (2023) eadj1133.
+**File:** `refdoc/sciadv.adj1133.pdf`
+
+### What this paper contributes
+
+- **Fig. 1 pulse target:** A low-power phase-modulated UR-180 pulse with
+  duration `540 us`, RF amplitude `7.5 kHz`, bandwidth `±6.3 kHz`, and B1
+  compensation of `±15%`.
+- **Implementation note:** `examples/sciadv2023_fig1_ur180.py` optimizes the
+  Fig. 1B transfer target `-Iy -> Iy` using phase-only GRAPE with fixed RF
+  amplitude. The default run uses a cached GRAPE phase for speed; use
+  `python examples/sciadv2023_fig1_ur180.py --optimize` to regenerate it.
+- **Export:** The example writes a Bruker-style constant-amplitude shape file
+  with amplitude `100%` and phase in degrees. Calibrate `100%` to `7.5 kHz` and
+  set the pulse length to `540 us`.
+
+---
+
 ## PNAS 2003 — CROP (Cross-Relaxation Optimised Pulses)
 
 **Reference:** Khaneja, Luy, Glaser, "Boundary of quantum evolution under decoherence",

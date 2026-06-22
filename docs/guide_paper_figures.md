@@ -29,6 +29,13 @@ done
 | `examples/rope_finite_time_controls.py` | `examples/output/rope_finite_time_controls.png` | Three-phase finite-time ROPE controls `u1`, `u2`, and RF amplitude |
 | `examples/rope_sodium_formate.py` | `examples/output/rope_sodium_formate.png` | Sodium-formate `13C-1H` worked example with `J = 193 Hz` and `T2 = 1.4 ms` |
 | `examples/rope_hard_pulse.py` | `examples/output/rope_hard_pulse.png` | Hard-pulse approximation of the finite-time ROPE boundary arcs and flip-angle calculation |
+| `examples/jmr2005_fig5_rope.py` | `examples/output/jmr2005_fig5_rope.png` | JMR 2005 GRAPE paper Fig. 5 conditions: `Iz -> 2IzSz`, `J = 194 Hz`, `k/J = 1`, `T = 0.408/J`, `N = 75` |
+
+## Broadband GRAPE Pulse Examples
+
+| Script | Output | What it reproduces |
+|---|---|---|
+| `examples/sciadv2023_fig1_ur180.py` | `examples/output/sciadv2023_fig1_ur180.png`, `examples/output/sciadv2023_fig1_ur180.shape` | Sci. Adv. 2023 Fig. 1-style low-power phase-modulated UR-180 pulse: `540 us`, `7.5 kHz`, `±6.3 kHz`, `±15% B1` |
 
 ## CROP Examples
 

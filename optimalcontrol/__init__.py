@@ -1,7 +1,8 @@
 import numpy
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
+from optimalcontrol.bloch import propagate_bloch_ensemble
 from optimalcontrol.crop import CROPPulse, crop_eta, crop_waveform
 from optimalcontrol.operators import Ix, Iy, Iz, comm, liouvillian_comm
 from optimalcontrol.optimizers import run_grape
@@ -33,4 +34,5 @@ __all__ = [
     "crop_waveform",
     "CROPPulse",
     "run_grape",
+    "propagate_bloch_ensemble",
 ]

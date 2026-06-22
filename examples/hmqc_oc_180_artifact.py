@@ -1,4 +1,4 @@
-"""Optimal-control 180-degree refocusing pulse that suppresses HMQC artifacts.
+"""Band-selective optimal-control 180 that suppresses methyl-HMQC artifacts.
 
 Reproduces the message of Kay, J. Biomol. NMR 73, 423-427 (2019),
 "Artifacts can emerge in spectra recorded with even the simplest of pulse
@@ -17,25 +17,44 @@ of the affected cross-peak have relative intensities
 
 A perfect refocusing pulse has theta = 180 degrees (S = 1, C = 0), so every
 sideband vanishes and only the central line survives; at theta = 170 degrees
-the inner satellites already reach ~1.5 % of the central line. The paper
-removes the artifacts with a *composite* 180 pulse. Here we instead design a
-broadband 180 (inversion) pulse with GRAPE optimal control: it drives the 1H
-populations through a full inversion across a wide offset band and a +-10 % B1
-window, so the residual non-inverted amplitude C = |<alpha|U|alpha>| -- the
-quantity that seeds the artifacts -- is pushed to ~0 everywhere.
+the inner satellites already reach ~1.5 % of the central line.
 
-The script compares three refocusing pulses over a 1H offset profile:
+This script targets a concrete modern experiment: methyl detection on a
+1.2 GHz (1H) spectrometer. The methyl region spans -1 ppm to 3 ppm, the
+spectrum is recorded with the carrier on the water line at 4.7 ppm, and water
+is suppressed with a 3-9-19 WATERGATE read element. At 1.2 GHz one ppm is
+1200 Hz, so relative to the water carrier the methyl band sits at
+
+    -1 ppm -> -6840 Hz   ...   3 ppm -> -2040 Hz
+
+We design the central refocusing pulse with GRAPE optimal control under two
+simultaneous goals (a *band-selective* inversion):
+
+  * over the methyl band it drives a full 1H refocusing of transverse
+    magnetization (-Iy -> Iy), so the residual non-inverted amplitude
+    C = |<alpha|U|alpha>| -- the quantity that seeds the artifacts -- is
+    pushed to ~0; and
+  * at the water carrier (offset 0) it acts as the identity (Iz -> Iz, so
+    C ~ 1, no inversion), leaving the water magnetization untouched so the
+    3-9-19 WATERGATE can suppress it cleanly.
+
+Both goals are enforced over a +-10 % B1 window. The whole pulse is short,
+~500 microseconds, so it fits inside the t1 evolution of a real HMQC.
+
+The script compares three central 180 pulses over a 1H offset/ppm profile:
 
   * hard      : a single rectangular 180_x pulse,
   * composite : the Levitt-Freeman 90_x 180_y 90_x composite pulse,
-  * oc        : the GRAPE optimal-control broadband 180 pulse.
+  * oc        : the band-selective GRAPE optimal-control pulse.
 
 For each it extracts the effective C(offset) from the actual single-spin
 propagator and evaluates the inner-sideband artifact intensity relative to the
-central line, the quantity the paper measures.
+central line in the methyl band, the quantity the paper measures. The hard and
+composite pulses invert broadband and therefore also invert water (bad for the
+following WATERGATE); the OC pulse inverts only the methyl band.
 
 The default path uses the cached optimal-control waveform. Pass --optimize to
-regenerate it with L-BFGS GRAPE.
+regenerate it with the combined L-BFGS GRAPE driver below.
 
 run() returns the stacked offset profile used by the regression snapshot.
 
@@ -50,6 +69,7 @@ matplotlib.use("Agg")
 
 import argparse
 import math
+from collections.abc import Callable
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -57,9 +77,14 @@ import numpy as np
 import numpy.typing as npt
 from scipy.linalg import expm
 
-from optimalcontrol.grape import ControlProblem
+from optimalcontrol.grape import ControlProblem, grape_xy, grape_xy_and_gradient
 from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm, vec
-from optimalcontrol.optimizers import lbfgs_grape
+from optimalcontrol.optimizers import (
+    lbfgs_direction,
+    lbfgs_state,
+    lbfgs_update,
+    line_search_cubic,
+)
 from optimalcontrol.penalties import PenaltySpec
 from optimalcontrol.states import normalise_hs
 
@@ -67,89 +92,121 @@ RealArray = npt.NDArray[np.float64]
 ComplexArray = npt.NDArray[np.complex128]
 
 PULSE_NAME = "hmqc_oc_180_artifact"
-N_STEPS = 60
-RF_MAX_HZ = 10_000.0
-DURATION_S = 3.0e-3
+
+# 1.2 GHz spectrometer: 1H Larmor frequency is 1200 MHz, so 1 ppm = 1200 Hz.
+SPECTROMETER_1H_MHZ = 1200.0
+HZ_PER_PPM = SPECTROMETER_1H_MHZ
+WATER_PPM = 4.7  # carrier sits on the water line -> offset 0
+METHYL_PPM_LO = -1.0
+METHYL_PPM_HI = 3.0
+
+
+def _ppm_to_offset_hz(ppm: float) -> float:
+    """Return the rotating-frame offset (Hz) of a shift, carrier on water."""
+    return (ppm - WATER_PPM) * HZ_PER_PPM
+
+
+# Methyl band edges relative to the water carrier (Hz). LO < HI < 0.
+METHYL_OFFSET_LO = _ppm_to_offset_hz(METHYL_PPM_LO)  # -6840 Hz
+METHYL_OFFSET_HI = _ppm_to_offset_hz(METHYL_PPM_HI)  # -2040 Hz
+METHYL_OFFSET_CENTRE = 0.5 * (METHYL_OFFSET_LO + METHYL_OFFSET_HI)  # -4440 Hz
+
+N_STEPS = 50
+DURATION_S = 5.0e-4  # ~500 microseconds, short enough to live inside t1
 DT = DURATION_S / N_STEPS
-BANDWIDTH_HZ = 5_000.0
+RF_MAX_HZ = 10_000.0
 B1_DEVIATION_FRACTION = 0.10
 SNSA_WEIGHT = 0.02
 TWO_PI = 2.0 * math.pi
-N_OFFSETS = 121
-N_OPT_OFFSETS = 25
 
-# Cached GRAPE solution for a broadband 180 (Iz -> -Iz) inversion pulse over
-# offsets +-5 kHz and B1 scaling [0.9, 1.0, 1.1] at RF_MAX_HZ. Shape (60, 2):
-# columns are [u_x, u_y] as fractions of RF_MAX_HZ. Regenerate with --optimize.
+# Optimization sampling.
+N_OPT_METHYL = 13  # offsets across the methyl band
+WATER_OPT_OFFSETS = (-50.0, 0.0, 50.0)  # narrow water line, robustness window
+WATER_WEIGHT = 1.0  # weight of the water-identity goal vs. methyl inversion
+
+# Analysis/plot sampling: span the methyl band through water.
+PLOT_PPM_LO = -1.5
+PLOT_PPM_HI = 6.0
+N_OFFSETS = 151
+
+# Cached band-selective GRAPE solution. Inverts the methyl band (-6840..-2040
+# Hz off the water carrier) while leaving the water line (offset 0) untouched,
+# over B1 scaling [0.9, 1.0, 1.1] at RF_MAX_HZ. Shape (N_STEPS, 2): columns are
+# [u_x, u_y] as fractions of RF_MAX_HZ. Regenerate with --optimize.
 OPTIMIZED_WFM_XY: RealArray = np.array(
     [
-        [8.265613815410e-01, -3.500890818823e-01],
-        [8.459073855628e-01, -1.702836612349e-01],
-        [9.524718623397e-01, -6.953072434278e-02],
-        [1.648184028920e-01, -8.177174826754e-02],
-        [4.322203896238e-01, -4.079331767208e-02],
-        [9.722576609683e-01, 1.936265365689e-02],
-        [8.519827403134e-01, -4.744684983900e-02],
-        [-5.509130460776e-01, -2.506451777073e-01],
-        [3.018294569468e-01, -9.868101721365e-02],
-        [8.428689967697e-01, 2.417132200260e-01],
-        [6.199886674208e-01, -4.538353026846e-01],
-        [-6.749690034871e-01, -4.643382893927e-01],
-        [-3.940972487802e-01, 4.399887824816e-01],
-        [4.046828547171e-01, -4.236705123115e-01],
-        [4.940964625442e-01, 2.379621620646e-01],
-        [4.873237436131e-01, 2.208261139582e-01],
-        [3.966326165233e-01, -4.357031967185e-01],
-        [1.117971200732e-01, -1.780789845621e-01],
-        [-3.678023135918e-01, 3.559310199159e-01],
-        [1.578346145098e-02, 3.013321595205e-01],
-        [2.965076473515e-01, -6.425600697704e-02],
-        [4.984189435271e-01, 7.908622960828e-01],
-        [-5.154031133820e-01, 7.712730593619e-01],
-        [-7.659361201802e-02, -2.705532488423e-01],
-        [-1.998090394921e-01, 3.022830565590e-01],
-        [-9.844213949065e-01, -3.838403150767e-01],
-        [-3.489387434811e-01, -9.454881863480e-01],
-        [-2.402437353802e-01, -8.928102746198e-01],
-        [2.308898525854e-01, -1.810713807804e-01],
-        [-6.003308302608e-02, 1.777160970999e-01],
-        [-2.675872710700e-01, -4.399241167687e-01],
-        [5.149997625609e-01, -4.855641230295e-01],
-        [-8.933189294392e-02, -3.862645126561e-01],
-        [-3.150276335327e-01, 5.774153190826e-02],
-        [-1.342445054495e-01, 2.659295274851e-01],
-        [8.038404902209e-02, -3.355795650766e-02],
-        [4.708416272034e-01, 2.176966917831e-01],
-        [1.415140781998e-01, 7.983716274014e-01],
-        [-7.376168816605e-02, 4.922556029074e-01],
-        [1.364610648217e-01, 1.030925140053e+00],
-        [-6.131036608711e-03, 4.121763664037e-01],
-        [1.970103256959e-03, -6.546792348049e-01],
-        [7.027570290673e-01, 3.391840917527e-01],
-        [1.383041798607e-01, -6.080503262233e-01],
-        [-3.328948567705e-01, -3.481964527737e-01],
-        [-3.160813614135e-01, -2.115805039281e-01],
-        [4.703417345778e-01, -4.783345164271e-01],
-        [5.007224757522e-01, -1.239910593701e-02],
-        [-1.956610938347e-01, 2.375640136002e-01],
-        [8.671328947226e-01, 5.495675164121e-01],
-        [7.387211594530e-01, 3.148136452269e-02],
-        [2.228334781825e-02, -7.142653028885e-02],
-        [1.002836732404e+00, -1.595869125350e-02],
-        [7.550946401437e-01, 6.936161656262e-02],
-        [5.652776988943e-01, -1.085625939466e-01],
-        [-4.296491274440e-01, 4.164688022078e-02],
-        [-1.166924098736e-01, 4.564924631871e-02],
-        [7.474125806049e-01, -4.798842255656e-04],
-        [4.513413975576e-01, 3.312546684549e-02],
-        [8.538570338575e-01, -2.718145450203e-01],
+        [1.021316614245e+00, 8.606019735756e-02],
+        [8.714426140707e-01, 5.052614481200e-01],
+        [-5.396299447705e-01, -1.980066658417e-01],
+        [-5.877404191445e-01, 5.333795621396e-01],
+        [-9.840313142268e-01, 5.905312292814e-02],
+        [-6.028464052117e-01, 3.086040038319e-01],
+        [-2.709201041228e-01, 2.145832440758e-01],
+        [1.874422702629e-02, 2.326390247057e-01],
+        [2.464032481988e-02, 1.970843144572e-01],
+        [2.132165109215e-01, 1.104188851755e-01],
+        [2.099403075822e-01, 1.458020486254e-01],
+        [4.475438083302e-02, 2.324218636434e-01],
+        [-2.395248564960e-01, 1.042614804708e-01],
+        [-3.234509571905e-01, -1.727606494094e-01],
+        [-1.684855539940e-01, -1.910399819751e-01],
+        [-7.427324952434e-02, 5.956497701227e-02],
+        [-2.733619544813e-01, 1.836540296789e-01],
+        [-2.289580656135e-01, 1.283386013301e-01],
+        [1.372848366174e-01, 6.494349311275e-02],
+        [5.350213557502e-01, 6.709711376262e-01],
+        [-2.696619009094e-01, 9.611547622611e-01],
+        [-9.859845427008e-01, 1.674219277529e-01],
+        [2.922070477945e-01, -8.336914361550e-01],
+        [1.002246488172e+00, 2.643007453535e-02],
+        [7.190448310853e-01, 7.016114653047e-01],
+        [4.784368053346e-01, 8.336483217653e-01],
+        [9.590001577390e-01, 2.885900347616e-01],
+        [9.898781117757e-01, -1.656530580429e-01],
+        [8.067261172795e-01, -6.085581103182e-01],
+        [3.860254606416e-01, -7.517327122896e-01],
+        [-9.868904177819e-01, -1.805444365595e-01],
+        [-5.213965780659e-01, -8.672324064200e-01],
+        [6.444390794201e-01, -7.687385925900e-01],
+        [9.007361512116e-01, 4.500809584163e-01],
+        [6.326322516131e-01, 7.871295958177e-01],
+        [5.160297075008e-01, 8.688235030351e-01],
+        [-6.890364183861e-02, 1.010250438534e+00],
+        [-7.561837898271e-01, 6.760953170670e-01],
+        [-1.010320145818e+00, 1.493270935800e-01],
+        [-9.713816183453e-01, -3.168242114494e-01],
+        [-7.612542977933e-01, -6.677024322360e-01],
+        [-2.863645590549e-01, -8.903107299434e-01],
+        [4.499461160780e-02, 1.183825884695e-01],
+        [-7.105046192455e-03, 2.075552344792e-01],
+        [1.801180847419e-02, 1.185046341230e-01],
+        [3.015229430689e-02, -6.174487811732e-03],
+        [-9.913141691062e-02, 2.465808326372e-03],
+        [-2.855905366280e-01, -3.757091233454e-01],
+        [-1.291684496225e-01, -9.984090232701e-01],
+        [7.537030675039e-01, -6.834333738096e-01],
     ],
     dtype=np.float64,
 )
 
 
-def _control_problem() -> ControlProblem:
-    """Build the single-spin Liouville broadband 180 (Iz -> -Iz) GRAPE problem.
+def _b1_scales() -> list[float]:
+    """Return the +-B1_DEVIATION_FRACTION RF robustness window."""
+    return [
+        1.0 - B1_DEVIATION_FRACTION,
+        1.0,
+        1.0 + B1_DEVIATION_FRACTION,
+    ]
+
+
+def _liouville_problem(
+    offsets: list[float],
+    rho_init: ComplexArray,
+    rho_targ: ComplexArray,
+    *,
+    with_penalty: bool,
+) -> ControlProblem:
+    """Build a single-spin Liouville GRAPE problem over an offset ensemble.
 
     Liouville generators already carry the -i factor (``liouvillian_comm``), so
     operators are 2*pi*RF*L without an extra phase. The RF power axis encodes
@@ -158,50 +215,214 @@ def _control_problem() -> ControlProblem:
     l_x = liouvillian_comm(Ix())
     l_y = liouvillian_comm(Iy())
     l_z = liouvillian_comm(Iz())
-    offsets = np.linspace(-BANDWIDTH_HZ, BANDWIDTH_HZ, N_OPT_OFFSETS, dtype=np.float64)
-    b1_scales = [
-        1.0 - B1_DEVIATION_FRACTION,
-        1.0,
-        1.0 + B1_DEVIATION_FRACTION,
-    ]
+    penalties = (
+        [PenaltySpec(kind="SNSA", weight=SNSA_WEIGHT, limit=1.0)] if with_penalty else None
+    )
     return ControlProblem(
         drifts=[np.zeros((4, 4), dtype=np.complex128)],
         operators=[TWO_PI * RF_MAX_HZ * l_x, TWO_PI * RF_MAX_HZ * l_y],
-        rho_init=[vec(normalise_hs(Iz()))],
-        rho_targ=[vec(-normalise_hs(Iz()))],
+        rho_init=[vec(rho_init)],
+        rho_targ=[vec(rho_targ)],
         pulse_dt=DT,
-        pwr_levels=b1_scales,
+        pwr_levels=_b1_scales(),
         freeze=None,
         fidelity_mode="real",
         basis="liouville",
         offsets=[float(o) for o in offsets],
         offset_operators=[TWO_PI * l_z],
-        penalties=[PenaltySpec(kind="SNSA", weight=SNSA_WEIGHT, limit=1.0)],
+        penalties=penalties,
     )
 
 
-def _nominal_180_seed() -> RealArray:
-    """Return a constant-amplitude 180_x seed waveform.
+def _methyl_offsets() -> list[float]:
+    return [
+        float(o)
+        for o in np.linspace(
+            METHYL_OFFSET_LO, METHYL_OFFSET_HI, N_OPT_METHYL, dtype=np.float64
+        )
+    ]
 
-    A weak constant x field that integrates to a pi rotation on resonance keeps
-    the optimiser in the broadband-inversion basin instead of a random local
-    maximum.
+
+def _methyl_problem_y() -> ControlProblem:
+    """Methyl-band transverse refocusing (-Iy -> Iy); carries the SNSA penalty.
+
+    A single state transfer is rank-deficient for a 180 rotation, so this is
+    paired with ``_methyl_problem_z`` (Iz -> -Iz). The two transfers together
+    pin the methyl propagator to a true 180_x = Rx(pi), which both satisfies
+    the requested -Iy -> Iy *and* inverts the populations (Iz -> -Iz) so the
+    artifact-seeding amplitude C = |<alpha|U|alpha>| collapses to ~0.
+    """
+    return _liouville_problem(
+        _methyl_offsets(),
+        -normalise_hs(Iy()),
+        normalise_hs(Iy()),
+        with_penalty=True,
+    )
+
+
+def _methyl_problem_z() -> ControlProblem:
+    """Methyl-band population inversion (Iz -> -Iz); pairs with the y transfer."""
+    return _liouville_problem(
+        _methyl_offsets(),
+        normalise_hs(Iz()),
+        -normalise_hs(Iz()),
+        with_penalty=False,
+    )
+
+
+def _water_problem() -> ControlProblem:
+    """Return the water-line identity (Iz -> Iz) problem at offset ~0."""
+    return _liouville_problem(
+        list(WATER_OPT_OFFSETS),
+        normalise_hs(Iz()),
+        normalise_hs(Iz()),
+        with_penalty=False,
+    )
+
+
+def _combined_evaluators() -> tuple[
+    Callable[[RealArray], float], Callable[[RealArray], RealArray]
+]:
+    """Return (objective, gradient) for the full band-selective 180_x goal.
+
+    fidelity = (F_my + F_mz + WATER_WEIGHT * F_water) / (2 + WATER_WEIGHT). The
+    methyl band must satisfy *both* the transverse refocusing -Iy -> Iy (F_my,
+    carrying the SNSA penalty) and the population inversion Iz -> -Iz (F_mz);
+    together they pin a true 180_x. F_water rewards leaving the water untouched.
+    """
+    cp_my = _methyl_problem_y()
+    cp_mz = _methyl_problem_z()
+    cp_water = _water_problem()
+    norm = 2.0 + WATER_WEIGHT
+
+    def objective(wfm: RealArray) -> float:
+        f_my = grape_xy(cp_my, wfm)
+        f_mz = grape_xy(cp_mz, wfm)
+        f_water = grape_xy(cp_water, wfm)
+        return float((f_my + f_mz + WATER_WEIGHT * f_water) / norm)
+
+    def gradient(wfm: RealArray) -> RealArray:
+        _, g_my = grape_xy_and_gradient(cp_my, wfm)
+        _, g_mz = grape_xy_and_gradient(cp_mz, wfm)
+        _, g_water = grape_xy_and_gradient(cp_water, wfm)
+        return np.asarray(
+            (g_my + g_mz + WATER_WEIGHT * g_water) / norm, dtype=np.float64
+        )
+
+    return objective, gradient
+
+
+def _inversion_evaluators() -> tuple[
+    Callable[[RealArray], float], Callable[[RealArray], RealArray]
+]:
+    """Return (objective, gradient) for stage 1: inversion only (Iz -> -Iz).
+
+    Targeting -Iy -> Iy alone is rank-deficient: the optimiser happily lands on
+    a trivial Rz(pi) (flips x, y; leaves z) that does *not* invert populations,
+    so the artifacts survive. The axis-free inversion goal Iz -> -Iz instead
+    reliably finds a real 180 (an Ry-like solution) plus the water null. Stage 2
+    then rotates that solution into the requested 180_x.
+    """
+    cp_mz = _methyl_problem_z()
+    cp_water = _water_problem()
+    norm = 1.0 + WATER_WEIGHT
+
+    def objective(wfm: RealArray) -> float:
+        return float(
+            (grape_xy(cp_mz, wfm) + WATER_WEIGHT * grape_xy(cp_water, wfm)) / norm
+        )
+
+    def gradient(wfm: RealArray) -> RealArray:
+        _, g_mz = grape_xy_and_gradient(cp_mz, wfm)
+        _, g_water = grape_xy_and_gradient(cp_water, wfm)
+        return np.asarray((g_mz + WATER_WEIGHT * g_water) / norm, dtype=np.float64)
+
+    return objective, gradient
+
+
+def _phase_rotate(wfm_xy: RealArray, phase_rad: float) -> RealArray:
+    """Rotate every (u_x, u_y) sample by a constant RF phase.
+
+    A global phase rotation rotates the effective rotation axis about z, turning
+    an Ry(pi) inversion into Rx(pi) without disturbing the population inversion
+    (Iz -> -Iz is axis-independent in the xy-plane) or the water identity.
+    """
+    c, s = math.cos(phase_rad), math.sin(phase_rad)
+    rot = np.array([[c, -s], [s, c]], dtype=np.float64)
+    return np.asarray(wfm_xy @ rot.T, dtype=np.float64)
+
+
+def _band_selective_seed() -> RealArray:
+    """Return a phase-ramped seed centred on the methyl band.
+
+    A weak constant-amplitude field whose carrier is offset to the methyl-band
+    centre integrates to roughly a pi rotation there, keeping the optimiser in
+    the band-selective-inversion basin instead of inverting on resonance
+    (the water line) where a constant-x seed would point.
     """
     fraction = 1.0 / (2.0 * RF_MAX_HZ * DURATION_S)
+    times = (np.arange(N_STEPS, dtype=np.float64) + 0.5) * DT
+    phase = TWO_PI * METHYL_OFFSET_CENTRE * times
     seed = np.zeros((N_STEPS, 2), dtype=np.float64)
-    seed[:, 0] = fraction
+    seed[:, 0] = fraction * np.cos(phase)
+    seed[:, 1] = fraction * np.sin(phase)
     return seed
 
 
+def _run_lbfgs(
+    objective: Callable[[RealArray], float],
+    gradient: Callable[[RealArray], RealArray],
+    seed: RealArray,
+    max_iter: int,
+) -> RealArray:
+    """Maximise ``objective`` from ``seed`` via the shared L-BFGS helpers."""
+    waveform = np.asarray(seed, dtype=np.float64)
+    state = lbfgs_state(m=10)
+    grad = gradient(waveform)
+    for _ in range(max_iter):
+        direction = lbfgs_direction(state, grad)
+        alpha = line_search_cubic(objective, gradient, waveform, direction)
+        if alpha <= 0.0 and not np.array_equal(direction, grad):
+            direction = grad.copy()
+            alpha = line_search_cubic(objective, gradient, waveform, direction)
+        if alpha <= 0.0:
+            break
+        step = np.asarray(alpha * direction, dtype=np.float64)
+        new_waveform = np.asarray(waveform + step, dtype=np.float64)
+        new_grad = gradient(new_waveform)
+        state = lbfgs_update(state, new_waveform - waveform, grad - new_grad)
+        waveform, grad = new_waveform, new_grad
+        if float(np.linalg.norm(grad)) <= 1e-6:
+            break
+    return np.asarray(waveform, dtype=np.float64)
+
+
 def _optimise_wfm(max_iter: int) -> RealArray:
-    """Run L-BFGS GRAPE and return the optimised (N_STEPS, 2) waveform."""
-    cp = _control_problem()
-    result = lbfgs_grape(cp, _nominal_180_seed(), max_iter=max_iter)
+    """Run the two-stage band-selective 180_x GRAPE and return the waveform.
+
+    Stage 1 finds a robust axis-free band-selective inversion (Iz -> -Iz) plus
+    the water null. Stage 2 rotates that Ry-like solution by 90 deg (Ry -> Rx)
+    and refines against the full goal so the methyl band also satisfies the
+    requested transverse refocusing -Iy -> Iy. The warm start is what lets the
+    refinement reach a true 180_x instead of stalling in the trivial Rz basin.
+    """
+    inv_obj, inv_grad = _inversion_evaluators()
+    inverted = _run_lbfgs(inv_obj, inv_grad, _band_selective_seed(), max_iter)
+
+    full_obj, full_grad = _combined_evaluators()
+    warm = _phase_rotate(inverted, math.pi / 2.0)
+    waveform = _run_lbfgs(full_obj, full_grad, warm, max_iter)
+
+    cp_my = _methyl_problem_y()
+    cp_mz = _methyl_problem_z()
+    cp_water = _water_problem()
     print(
-        f"OC broadband 180 GRAPE: fidelity = {result.fidelity_final:.6f}, "
-        f"iterations = {result.n_iter}, reason = {result.reason}"
+        f"band-selective GRAPE: F_methyl(-Iy->Iy) = {grape_xy(cp_my, waveform):.6f}, "
+        f"F_methyl(Iz->-Iz) = {grape_xy(cp_mz, waveform):.6f}, "
+        f"F_water = {grape_xy(cp_water, waveform):.6f}, "
+        f"combined = {full_obj(waveform):.6f}"
     )
-    return np.asarray(result.wfm_final, dtype=np.float64)
+    return waveform
 
 
 def _single_spin_hamiltonian(bx_hz: float, by_hz: float, offset_hz: float) -> ComplexArray:
@@ -253,7 +474,8 @@ def _effective_cs(propagator: ComplexArray) -> tuple[float, float]:
 
     |U[0, 0]| is the residual non-inverting amplitude that plays the role of
     C = cos(theta/2) in the paper; |U[1, 0]| plays the role of S = sin(theta/2).
-    A perfect 180 pulse gives C = 0, S = 1 and hence zero artifacts.
+    A perfect 180 pulse gives C = 0, S = 1 and hence zero artifacts; an identity
+    (no inversion, as wanted at water) gives C = 1, S = 0.
     """
     return float(abs(propagator[0, 0])), float(abs(propagator[1, 0]))
 
@@ -278,9 +500,15 @@ def _relative_inner_artifact(propagator: ComplexArray) -> float:
     return 100.0 * abs(inner) / abs(centre)
 
 
+def _plot_offsets_hz() -> RealArray:
+    """Return the analysis offset axis (Hz) spanning the methyl band and water."""
+    ppm = np.linspace(PLOT_PPM_LO, PLOT_PPM_HI, N_OFFSETS, dtype=np.float64)
+    return np.asarray((ppm - WATER_PPM) * HZ_PER_PPM, dtype=np.float64)
+
+
 def _offset_profile(wfm_xy: RealArray) -> dict[str, RealArray]:
     """Return offset profiles of effective C and relative inner artifact."""
-    offsets = np.linspace(-BANDWIDTH_HZ, BANDWIDTH_HZ, N_OFFSETS, dtype=np.float64)
+    offsets = _plot_offsets_hz()
     profile: dict[str, RealArray] = {"offsets": offsets}
     builders = {
         "hard": lambda o: _hard_180_propagator(o, 1.0),
@@ -325,9 +553,12 @@ def _export_bruker_shape(wfm_xy: RealArray, output_dir: Path) -> Path:
         f"##$OPTIMALCONTROL_TOTAL_DURATION_S= {DURATION_S:.12e}",
         f"##$OPTIMALCONTROL_STEP_DURATION_S= {DT:.12e}",
         f"##$OPTIMALCONTROL_RF_HZ= {RF_MAX_HZ:.12e}",
-        f"##$OPTIMALCONTROL_BANDWIDTH_HZ= {BANDWIDTH_HZ:.12e}",
+        f"##$OPTIMALCONTROL_SPECTROMETER_1H_MHZ= {SPECTROMETER_1H_MHZ:.12e}",
+        f"##$OPTIMALCONTROL_WATER_PPM= {WATER_PPM:.12e}",
+        f"##$OPTIMALCONTROL_METHYL_PPM_LO= {METHYL_PPM_LO:.12e}",
+        f"##$OPTIMALCONTROL_METHYL_PPM_HI= {METHYL_PPM_HI:.12e}",
         f"##$OPTIMALCONTROL_B1_DEVIATION_PERCENT= {100.0 * B1_DEVIATION_FRACTION:.12e}",
-        "##$OPTIMALCONTROL_NOTE= Broadband 180 refocusing/inversion pulse.",
+        "##$OPTIMALCONTROL_NOTE= Band-selective methyl 180; identity at water.",
         f"##NPOINTS= {N_STEPS}",
         "##XYPOINTS= (XY..XY)",
     ]
@@ -341,7 +572,7 @@ def _export_bruker_shape(wfm_xy: RealArray, output_dir: Path) -> Path:
 def _plot_figure(wfm_xy: RealArray, profile: dict[str, RealArray], output_dir: Path) -> Path:
     """Create the pulse + artifact-suppression comparison figure."""
     figure_path = output_dir / f"{PULSE_NAME}.png"
-    offsets_khz = profile["offsets"] / 1000.0
+    offsets_ppm = WATER_PPM + profile["offsets"] / HZ_PER_PPM
     time_us = np.arange(N_STEPS, dtype=np.float64) * DT * 1.0e6
     amplitude_percent = 100.0 * np.hypot(wfm_xy[:, 0], wfm_xy[:, 1])
     phase_display = np.degrees(np.arctan2(wfm_xy[:, 1], wfm_xy[:, 0]))
@@ -358,34 +589,43 @@ def _plot_figure(wfm_xy: RealArray, profile: dict[str, RealArray], output_dir: P
     ax_amp.set_xlabel("Time (us)")
     ax_amp.set_ylabel("Amplitude (% of RF max)", color="tab:blue")
     ax_phase.set_ylabel("Phase (deg)", color="tab:red")
-    ax_amp.set_title(f"OC broadband 180 pulse ({DURATION_S * 1e3:.2f} ms, RF {RF_MAX_HZ / 1e3:.0f} kHz)")
+    ax_amp.set_title(
+        f"Band-selective OC 180 ({DURATION_S * 1e6:.0f} us, RF {RF_MAX_HZ / 1e3:.0f} kHz, "
+        f"{SPECTROMETER_1H_MHZ / 1e3:.1f} GHz)"
+    )
 
     styles = {
         "hard": ("tab:gray", "hard 180"),
         "composite": ("tab:orange", "composite 90x180y90x"),
-        "oc": ("tab:green", "OC broadband 180"),
+        "oc": ("tab:green", "OC band-selective 180"),
     }
 
+    def _mark_regions(ax: "plt.Axes") -> None:
+        ax.axvspan(METHYL_PPM_LO, METHYL_PPM_HI, color="tab:green", alpha=0.08)
+        ax.axvline(WATER_PPM, color="tab:blue", linestyle="--", linewidth=0.8)
+
     ax_c = axes[1]
+    _mark_regions(ax_c)
     for name, (color, label) in styles.items():
-        ax_c.plot(offsets_khz, profile[f"{name}_c"], color=color, label=label, linewidth=1.6)
-    ax_c.set_xlabel("1H offset (kHz)")
+        ax_c.plot(offsets_ppm, profile[f"{name}_c"], color=color, label=label, linewidth=1.6)
+    ax_c.set_xlabel("1H shift (ppm)")
     ax_c.set_ylabel("Residual C = |<a|U|a>|")
-    ax_c.set_title("Refocusing imperfection (C = 0 is ideal)")
-    ax_c.set_ylim(-0.02, 1.02)
-    ax_c.legend(fontsize=8, loc="upper center")
+    ax_c.set_title("C = 0 (inverted, methyl) and C = 1 (kept, water) are ideal")
+    ax_c.set_ylim(-0.02, 1.05)
+    ax_c.legend(fontsize=8, loc="center right")
 
     ax_art = axes[2]
+    methyl_mask = (offsets_ppm >= METHYL_PPM_LO) & (offsets_ppm <= METHYL_PPM_HI)
     for name, (color, label) in styles.items():
         ax_art.semilogy(
-            offsets_khz,
-            np.maximum(profile[f"{name}_artifact"], 1e-6),
+            offsets_ppm[methyl_mask],
+            np.maximum(profile[f"{name}_artifact"][methyl_mask], 1e-6),
             color=color,
             label=label,
             linewidth=1.6,
         )
     ax_art.axhline(1.5, color="black", linestyle=":", linewidth=0.8, label="1.5 % (theta=170 deg)")
-    ax_art.set_xlabel("1H offset (kHz)")
+    ax_art.set_xlabel("1H shift (ppm)")
     ax_art.set_ylabel("Inner artifact / centre (%)")
     ax_art.set_title("HMQC methyl artifact intensity (Eq. 6)")
     ax_art.legend(fontsize=8, loc="upper center")
@@ -398,9 +638,9 @@ def _plot_figure(wfm_xy: RealArray, profile: dict[str, RealArray], output_dir: P
 def run(wfm_xy: RealArray | None = None) -> RealArray:
     """Return the stacked offset profile for the cached or supplied OC pulse.
 
-    The returned array has shape (7, N_OFFSETS): offsets (Hz) followed by the
-    effective-C and relative-inner-artifact (%) profiles for the hard,
-    composite, and OC pulses.
+    The returned array has shape (7, N_OFFSETS): offsets (Hz, relative to the
+    water carrier) followed by the effective-C and relative-inner-artifact (%)
+    profiles for the hard, composite, and OC pulses.
     """
     if wfm_xy is None:
         wfm_xy = OPTIMIZED_WFM_XY
@@ -419,13 +659,13 @@ def run(wfm_xy: RealArray | None = None) -> RealArray:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Optimal-control HMQC 180 artifact suppression")
+    parser = argparse.ArgumentParser(description="Band-selective OC HMQC 180 artifact suppression")
     parser.add_argument(
         "--optimize",
         action="store_true",
-        help="regenerate the OC waveform with L-BFGS GRAPE instead of using the cache",
+        help="regenerate the OC waveform with the combined L-BFGS GRAPE driver",
     )
-    parser.add_argument("--max-iter", type=int, default=600, help="L-BFGS iterations")
+    parser.add_argument("--max-iter", type=int, default=800, help="L-BFGS iterations")
     args = parser.parse_args()
 
     output_dir = Path(__file__).resolve().parent / "output"
@@ -437,11 +677,17 @@ def main() -> None:
     shape_path = _export_bruker_shape(np.asarray(wfm_xy, dtype=np.float64), output_dir)
     figure_path = _plot_figure(np.asarray(wfm_xy, dtype=np.float64), profile, output_dir)
 
-    band = np.abs(profile["offsets"]) <= BANDWIDTH_HZ
+    offsets_ppm = WATER_PPM + profile["offsets"] / HZ_PER_PPM
+    methyl_mask = (offsets_ppm >= METHYL_PPM_LO) & (offsets_ppm <= METHYL_PPM_HI)
+    water_index = int(np.argmin(np.abs(profile["offsets"])))
     for name in ("hard", "composite", "oc"):
-        worst = float(np.max(profile[f"{name}_artifact"][band]))
-        mean_c = float(np.mean(profile[f"{name}_c"][band]))
-        print(f"{name:>9}: mean C = {mean_c:.4f}, worst inner artifact = {worst:8.3f} %")
+        worst = float(np.max(profile[f"{name}_artifact"][methyl_mask]))
+        mean_c = float(np.mean(profile[f"{name}_c"][methyl_mask]))
+        water_c = float(profile[f"{name}_c"][water_index])
+        print(
+            f"{name:>9}: methyl mean C = {mean_c:.4f}, worst inner artifact = "
+            f"{worst:8.3f} %, water C = {water_c:.4f}"
+        )
     print(f"Saved Bruker shape {shape_path}")
     print(f"Saved figure {figure_path}")
 

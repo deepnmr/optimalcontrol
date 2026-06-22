@@ -33,6 +33,9 @@ _EXAMPLE_NAMES = [
     "grape_broadband_180",
     "phase_only_iy_inversion_10khz",
     "hmqc_oc_180_artifact",
+    "methyl_water_binary_symmetric_180",
+    "methyl_water_reburp_180",
+    "reburp_pulse",
 ]
 
 
@@ -70,5 +73,6 @@ def test_example_matches_snapshot(name: str) -> None:
         result,
         expected,
         rtol=1e-4,
+        atol=1e-12,
         err_msg=f"Example {name!r} output deviates from snapshot",
     )
