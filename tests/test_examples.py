@@ -35,6 +35,8 @@ _EXAMPLE_NAMES = [
     "hmqc_oc_180_artifact",
     "methyl_water_binary_symmetric_180",
     "methyl_water_reburp_180",
+    "methyl_water_reburp_minpower_180",
+    "methyl_water_reburp_minlength_180",
     "reburp_pulse",
 ]
 

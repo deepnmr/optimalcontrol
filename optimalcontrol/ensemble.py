@@ -310,9 +310,12 @@ def correlated_rho_drift(cp: ControlProblem) -> list[ControlProblem]:
 
 def ensemble_fidelity(cp: ControlProblem, wfm: RealArray) -> float:
     """Return mean GRAPE fidelity over Cartesian ensemble members."""
-    from optimalcontrol._accelerator import vector_fidelity
+    from optimalcontrol._accelerator import problem_vector_fidelity, vector_fidelity
 
     waveform = np.asarray(wfm, dtype=np.float64)
+    direct = problem_vector_fidelity(cp, waveform)
+    if direct is not None:
+        return direct
     problems = cartesian_product_ensemble(cp)
     accelerated = vector_fidelity(problems, waveform)
     if accelerated is not None:
@@ -339,9 +342,18 @@ def ensemble_gradient(cp: ControlProblem, wfm: RealArray) -> RealArray:
 
 def ensemble_xy_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[float, RealArray]:
     """Return mean GRAPE fidelity and gradient over Cartesian ensemble members."""
-    from optimalcontrol._accelerator import vector_value_gradient
+    from optimalcontrol._accelerator import (
+        problem_vector_value_gradient,
+        vector_value_gradient,
+    )
 
     waveform = np.asarray(wfm, dtype=np.float64)
+    accelerated = problem_vector_value_gradient(cp, waveform)
+    if accelerated is not None:
+        value, gradient = accelerated
+        if cp.freeze is not None:
+            gradient[np.asarray(cp.freeze, dtype=np.bool_)] = 0.0
+        return value, gradient
     problems = cartesian_product_ensemble(cp)
     accelerated = vector_value_gradient(problems, waveform)
     if accelerated is not None:

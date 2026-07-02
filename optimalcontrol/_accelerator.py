@@ -107,6 +107,153 @@ def _vector_inputs(
     )
 
 
+def _problem_inputs(
+    problem: Any, wfm: RealArray
+) -> (
+    tuple[
+        npt.NDArray[np.complex128],
+        npt.NDArray[np.complex128],
+        RealArray,
+        npt.NDArray[np.complex128],
+        npt.NDArray[np.complex128],
+        float,
+        str,
+    ]
+    | None
+):
+    """Build native vector-kernel inputs directly from an unexpanded problem.
+
+    This mirrors ``cartesian_product_ensemble`` followed by ``_vector_inputs``
+    but assembles the stacked member arrays with numpy broadcasting instead of
+    materialising one ``ControlProblem`` per ensemble member. Member order is
+    (drift, power, offset); the kernel's mean reduction is order-invariant.
+    Returns ``None`` for any problem the native kernels do not support, so the
+    caller falls back to the expansion path (which also raises the proper
+    validation errors for malformed problems).
+    """
+    if not _enabled():
+        return None
+    if problem.phase_cycle is not None:
+        return None
+    if not problem.drifts or not problem.operators or not problem.pwr_levels:
+        return None
+    if not problem.rho_init or len(problem.rho_init) != len(problem.rho_targ):
+        return None
+    dt = float(problem.pulse_dt)
+    if not np.isfinite(dt) or dt <= 0.0:
+        return None
+
+    waveform = np.asarray(wfm, dtype=np.float64)
+    if waveform.ndim != 2:
+        return None
+    if not waveform.flags.c_contiguous:
+        waveform = np.ascontiguousarray(waveform)
+
+    try:
+        rho_init = np.stack([np.asarray(state, dtype=np.complex128) for state in problem.rho_init])
+        rho_targ = np.stack([np.asarray(state, dtype=np.complex128) for state in problem.rho_targ])
+        drifts = np.stack([np.asarray(drift, dtype=np.complex128) for drift in problem.drifts])
+        operators = np.stack(
+            [np.asarray(operator, dtype=np.complex128) for operator in problem.operators]
+        )
+    except (TypeError, ValueError):
+        return None
+    if rho_init.ndim != 2 or rho_targ.shape != rho_init.shape:
+        return None
+    dim = int(drifts.shape[-1])
+    if drifts.ndim != 3 or drifts.shape[-2] != dim:
+        return None
+    if operators.ndim != 3 or operators.shape[-2:] != (dim, dim):
+        return None
+    if operators.shape[0] != waveform.shape[1] or rho_init.shape[1] != dim:
+        return None
+
+    try:
+        levels = np.asarray([float(level) for level in problem.pwr_levels], dtype=np.float64)
+    except (TypeError, ValueError):
+        return None
+    if not np.all(np.isfinite(levels)):
+        return None
+    power_ensemble = levels.size > 1 and levels.size != operators.shape[0]
+    if power_ensemble:
+        if np.any(levels < 0.0):
+            return None
+        scaled_operators = levels[:, None, None, None] * operators[None, :, :, :]
+    else:
+        if levels.size != operators.shape[0]:
+            return None
+        scaled_operators = (levels[:, None, None] * operators)[None, :, :, :]
+    n_power = int(scaled_operators.shape[0])
+
+    if (problem.offsets is None) != (problem.offset_operators is None):
+        return None
+    if problem.offsets is not None:
+        try:
+            offsets = np.asarray([float(offset) for offset in problem.offsets], dtype=np.float64)
+        except (TypeError, ValueError):
+            return None
+        if offsets.size == 0 or not np.all(np.isfinite(offsets)):
+            return None
+        if not problem.offset_operators:
+            return None
+        offset_generator = np.zeros((dim, dim), dtype=np.complex128)
+        for operator in problem.offset_operators:
+            operator_array = np.asarray(operator, dtype=np.complex128)
+            if operator_array.shape != (dim, dim):
+                return None
+            offset_generator += operator_array
+    else:
+        offsets = None
+        offset_generator = None
+
+    n_drift = int(drifts.shape[0])
+    drift_members = np.repeat(drifts, n_power, axis=0)
+    if offsets is not None and offset_generator is not None:
+        drift_members = (
+            drift_members[:, None, :, :]
+            + offsets[None, :, None, None] * offset_generator[None, None, :, :]
+        ).reshape(-1, dim, dim)
+        n_offsets = int(offsets.size)
+    else:
+        n_offsets = 1
+    operator_members = np.repeat(np.tile(scaled_operators, (n_drift, 1, 1, 1)), n_offsets, axis=0)
+
+    return (
+        np.ascontiguousarray(drift_members, dtype=np.complex128),
+        np.ascontiguousarray(operator_members, dtype=np.complex128),
+        waveform,
+        np.ascontiguousarray(rho_init, dtype=np.complex128),
+        np.ascontiguousarray(rho_targ, dtype=np.complex128),
+        dt,
+        str(problem.fidelity_mode),
+    )
+
+
+def problem_vector_fidelity(problem: Any, wfm: RealArray) -> float | None:
+    """Return Rust fidelity computed straight from an unexpanded problem."""
+    inputs = _problem_inputs(problem, wfm)
+    if inputs is None:
+        return None
+    assert _rust is not None
+    try:
+        return float(_rust.grape_fidelity_vectors(*inputs))
+    except ValueError:
+        return None
+
+
+def problem_vector_value_gradient(problem: Any, wfm: RealArray) -> tuple[float, RealArray] | None:
+    """Return Rust fidelity/gradient computed straight from an unexpanded problem."""
+    inputs = _problem_inputs(problem, wfm)
+    if inputs is None:
+        return None
+    assert _rust is not None
+    try:
+        value, gradient = _rust.grape_value_gradient_vectors(*inputs)
+    except ValueError:
+        return None
+    return float(value), np.asarray(gradient, dtype=np.float64)
+
+
 def vector_fidelity(problems: Sequence[Any], wfm: RealArray) -> float | None:
     """Return Rust-accelerated fidelity, or ``None`` for an unsupported problem."""
     inputs = _vector_inputs(problems, wfm)

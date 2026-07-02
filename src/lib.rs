@@ -1,4 +1,8 @@
-use nalgebra::{DMatrix, DVector, SymmetricEigen};
+use nalgebra::allocator::Allocator;
+use nalgebra::{
+    Const, DMatrix, DVector, DefaultAllocator, Dim, DimDiff, DimSub, Dyn, OMatrix, OVector,
+    SymmetricEigen, U1,
+};
 use num_complex::Complex64;
 use numpy::{
     PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3, PyReadonlyArray4, PyUntypedArrayMethods,
@@ -10,7 +14,12 @@ use rayon::prelude::*;
 type GradientRows = Vec<Vec<f64>>;
 type PairGradients = Vec<GradientRows>;
 type MemberGradients = Vec<PairGradients>;
-type MemberResult = (Vec<f64>, PairGradients);
+type CMatrix<D> = OMatrix<Complex64, D, D>;
+type CVector<D> = OVector<Complex64, D>;
+/// Per-slice data: (propagator adjoint, propagator, per-channel derivatives).
+type SliceData<D> = (CMatrix<D>, CMatrix<D>, Vec<CMatrix<D>>);
+/// Per-member results: (per-pair fidelities, per-pair flat gradients).
+type MemberPairResults = (Vec<f64>, Vec<Vec<f64>>);
 
 #[derive(Clone, Copy)]
 enum FidelityMode {
@@ -48,22 +57,16 @@ impl FidelityMode {
     }
 }
 
-fn matrix_from_slice(values: &[Complex64], rows: usize, cols: usize) -> DMatrix<Complex64> {
-    DMatrix::from_row_slice(rows, cols, values)
-}
-
-fn vector_from_slice(values: &[Complex64]) -> DVector<Complex64> {
-    DVector::from_column_slice(values)
-}
-
-fn is_anti_hermitian(matrix: &DMatrix<Complex64>) -> bool {
-    let scale = matrix
+/// Anti-Hermiticity check on a row-major dim x dim slice.
+fn is_anti_hermitian_slice(values: &[Complex64], dim: usize) -> bool {
+    let scale = values
         .iter()
         .map(|value| value.norm())
         .fold(1.0_f64, f64::max);
-    for row in 0..matrix.nrows() {
-        for col in 0..matrix.ncols() {
-            if (matrix[(row, col)] + matrix[(col, row)].conj()).norm() > 1.0e-12 * scale {
+    for row in 0..dim {
+        for col in 0..dim {
+            if (values[row * dim + col] + values[col * dim + row].conj()).norm() > 1.0e-12 * scale
+            {
                 return false;
             }
         }
@@ -71,55 +74,367 @@ fn is_anti_hermitian(matrix: &DMatrix<Complex64>) -> bool {
     true
 }
 
-fn coherent_propagator_and_derivatives(
-    generator: &DMatrix<Complex64>,
-    controls: &[DMatrix<Complex64>],
-    dt: f64,
-) -> PyResult<(DMatrix<Complex64>, Vec<DMatrix<Complex64>>)> {
-    if !is_anti_hermitian(generator) || controls.iter().any(|matrix| !is_anti_hermitian(matrix)) {
-        return Err(PyValueError::new_err(
-            "Rust gradient acceleration requires anti-Hermitian generators",
-        ));
+/// Anti-Hermiticity of a member's drift and all its control operators.
+///
+/// The step generators are drift + sum(w_k * control_k) with real waveform
+/// weights, so checking the drift and controls once covers every time slice.
+fn member_is_anti_hermitian(
+    drift: &[Complex64],
+    operators: &[Complex64],
+    dim: usize,
+    channels: usize,
+) -> bool {
+    let matrix_len = dim * dim;
+    if !is_anti_hermitian_slice(drift, dim) {
+        return false;
     }
-    let i = Complex64::new(0.0, 1.0);
-    let minus_i_dt = Complex64::new(0.0, -dt);
-    let hermitian = generator * i;
-    let decomposition = SymmetricEigen::new(hermitian);
-    let vectors = decomposition.eigenvectors;
-    let adjoint = vectors.adjoint();
-    let eigenvalues = decomposition.eigenvalues;
-    let dim = generator.nrows();
-    let phases = DVector::from_iterator(
-        dim,
-        eigenvalues.iter().map(|value| (minus_i_dt * value).exp()),
-    );
-    let propagator = &vectors * DMatrix::from_diagonal(&phases) * &adjoint;
+    (0..channels).all(|channel| {
+        is_anti_hermitian_slice(
+            &operators[channel * matrix_len..(channel + 1) * matrix_len],
+            dim,
+        )
+    })
+}
 
-    let derivatives = controls
-        .iter()
-        .map(|control| {
-            let rotated = &adjoint * (control * i) * &vectors;
-            let mut weighted = DMatrix::zeros(dim, dim);
-            let scale = eigenvalues
-                .iter()
-                .map(|value| value.abs())
-                .fold(1.0_f64, f64::max);
-            for row in 0..dim {
-                for col in 0..dim {
-                    let difference = eigenvalues[row] - eigenvalues[col];
-                    let divided = if difference.abs() <= 1.0e-12 * scale {
-                        minus_i_dt
-                            * (minus_i_dt * (0.5 * (eigenvalues[row] + eigenvalues[col]))).exp()
-                    } else {
-                        (phases[row] - phases[col]) / difference
-                    };
-                    weighted[(row, col)] = divided * rotated[(row, col)];
-                }
-            }
-            &vectors * weighted * &adjoint
+/// Statically dispatch a generic kernel on the common small dimensions.
+macro_rules! dispatch_dim {
+    ($dim:expr, $func:ident, $($args:expr),* $(,)?) => {
+        match $dim {
+            2 => $func(Const::<2>, $($args),*),
+            3 => $func(Const::<3>, $($args),*),
+            4 => $func(Const::<4>, $($args),*),
+            8 => $func(Const::<8>, $($args),*),
+            16 => $func(Const::<16>, $($args),*),
+            n => $func(Dyn(n), $($args),*),
+        }
+    };
+}
+
+/// Build i * matrix (Hermitian counterpart of an anti-Hermitian generator).
+fn hermitian_from_slice<D: Dim>(dim: D, values: &[Complex64]) -> CMatrix<D>
+where
+    DefaultAllocator: Allocator<D, D>,
+{
+    let i = Complex64::new(0.0, 1.0);
+    OMatrix::from_row_slice_generic(dim, dim, values) * i
+}
+
+/// Accumulate h += w * control without allocating a temporary.
+fn add_scaled<D: Dim>(h: &mut CMatrix<D>, control: &CMatrix<D>, weight: f64)
+where
+    DefaultAllocator: Allocator<D, D>,
+{
+    for (target, source) in h.iter_mut().zip(control.iter()) {
+        *target += source * weight;
+    }
+}
+
+/// Per-pair fidelities and flat (steps * channels) gradients for one member.
+///
+/// `drift` and `operators` are row-major slices for this member only and must
+/// already be verified anti-Hermitian by the caller.
+#[allow(clippy::too_many_arguments)]
+fn member_pair_values_gradients<D>(
+    dim: D,
+    drift: &[Complex64],
+    operators: &[Complex64],
+    waveform: &[f64],
+    rho_init: &[Complex64],
+    rho_targ: &[Complex64],
+    dt: f64,
+    mode: FidelityMode,
+    channels: usize,
+    steps: usize,
+    pairs: usize,
+    parallel_steps: bool,
+) -> MemberPairResults
+where
+    D: DimSub<U1>,
+    DefaultAllocator: Allocator<D, D> + Allocator<D> + Allocator<DimDiff<D, U1>>,
+    CMatrix<D>: Send + Sync,
+{
+    let n = dim.value();
+    let matrix_len = n * n;
+    let minus_i_dt = Complex64::new(0.0, -dt);
+
+    let drift_h = hermitian_from_slice(dim, drift);
+    let controls_h: Vec<CMatrix<D>> = (0..channels)
+        .map(|channel| {
+            hermitian_from_slice(
+                dim,
+                &operators[channel * matrix_len..(channel + 1) * matrix_len],
+            )
         })
         .collect();
-    Ok((propagator, derivatives))
+
+    let step_slice = |step: usize| -> SliceData<D> {
+        let mut hermitian = drift_h.clone();
+        for channel in 0..channels {
+            add_scaled(
+                &mut hermitian,
+                &controls_h[channel],
+                waveform[step * channels + channel],
+            );
+        }
+        let decomposition = SymmetricEigen::new(hermitian);
+        let vectors = decomposition.eigenvectors;
+        let eigenvalues = decomposition.eigenvalues;
+        let adjoint = vectors.adjoint();
+        let phases: Vec<Complex64> = eigenvalues
+            .iter()
+            .map(|value| (minus_i_dt * value).exp())
+            .collect();
+        let scale = eigenvalues
+            .iter()
+            .map(|value| value.abs())
+            .fold(1.0_f64, f64::max);
+
+        let mut scaled = vectors.clone();
+        for (mut column, phase) in scaled.column_iter_mut().zip(phases.iter()) {
+            column *= *phase;
+        }
+        let propagator = &scaled * &adjoint;
+
+        let step_derivatives: Vec<CMatrix<D>> = controls_h
+            .iter()
+            .map(|control_h| {
+                let mut weighted = &adjoint * control_h * &vectors;
+                for row in 0..n {
+                    for col in 0..n {
+                        let difference = eigenvalues[row] - eigenvalues[col];
+                        let divided = if difference.abs() <= 1.0e-12 * scale {
+                            minus_i_dt
+                                * (minus_i_dt * (0.5 * (eigenvalues[row] + eigenvalues[col])))
+                                    .exp()
+                        } else {
+                            (phases[row] - phases[col]) / difference
+                        };
+                        weighted[(row, col)] *= divided;
+                    }
+                }
+                &vectors * weighted * &adjoint
+            })
+            .collect();
+
+        (propagator.adjoint(), propagator, step_derivatives)
+    };
+
+    let slice_data: Vec<SliceData<D>> = if parallel_steps {
+        // Chunk the slice work: one eigendecomposition is ~1 us, far below
+        // rayon's per-task overhead.
+        (0..steps)
+            .into_par_iter()
+            .with_min_len(16)
+            .map(step_slice)
+            .collect()
+    } else {
+        (0..steps).map(step_slice).collect()
+    };
+    let mut propagators: Vec<CMatrix<D>> = Vec::with_capacity(steps);
+    let mut adjoints: Vec<CMatrix<D>> = Vec::with_capacity(steps);
+    let mut derivatives: Vec<Vec<CMatrix<D>>> = Vec::with_capacity(steps);
+    for (adjoint, propagator, step_derivatives) in slice_data {
+        adjoints.push(adjoint);
+        propagators.push(propagator);
+        derivatives.push(step_derivatives);
+    }
+
+    let mut pair_values = Vec::with_capacity(pairs);
+    let mut pair_gradients = Vec::with_capacity(pairs);
+    for pair in 0..pairs {
+        let state_start = pair * n;
+        let initial: CVector<D> = OVector::from_column_slice_generic(
+            dim,
+            Const::<1>,
+            &rho_init[state_start..state_start + n],
+        );
+        let target: CVector<D> = OVector::from_column_slice_generic(
+            dim,
+            Const::<1>,
+            &rho_targ[state_start..state_start + n],
+        );
+        let mut forward: Vec<CVector<D>> = Vec::with_capacity(steps + 1);
+        forward.push(initial);
+        for propagator in &propagators {
+            forward.push(propagator * forward.last().unwrap());
+        }
+        let mut backward: Vec<CVector<D>> = Vec::with_capacity(steps + 1);
+        backward.push(target.clone());
+        for step in (0..steps).rev() {
+            let next = backward.last().unwrap();
+            backward.push(&adjoints[step] * next);
+        }
+        backward.reverse();
+
+        let overlap = target.dotc(&forward[steps]);
+        pair_values.push(mode.value(overlap));
+        let mut gradient = vec![0.0; steps * channels];
+        for step in 0..steps {
+            for channel in 0..channels {
+                let derivative_state = &derivatives[step][channel] * &forward[step];
+                let derivative_overlap = backward[step + 1].dotc(&derivative_state);
+                gradient[step * channels + channel] = mode.gradient(overlap, derivative_overlap);
+            }
+        }
+        pair_gradients.push(gradient);
+    }
+    (pair_values, pair_gradients)
+}
+
+/// Mean fidelity over all state pairs of one member via the eigen propagators.
+#[allow(clippy::too_many_arguments)]
+fn member_fidelity_eigen<D>(
+    dim: D,
+    drift: &[Complex64],
+    operators: &[Complex64],
+    waveform: &[f64],
+    rho_init: &[Complex64],
+    rho_targ: &[Complex64],
+    dt: f64,
+    mode: FidelityMode,
+    channels: usize,
+    steps: usize,
+    pairs: usize,
+    parallel_steps: bool,
+) -> f64
+where
+    D: DimSub<U1>,
+    DefaultAllocator: Allocator<D, D> + Allocator<D> + Allocator<DimDiff<D, U1>>,
+    CMatrix<D>: Send + Sync,
+{
+    let n = dim.value();
+    let matrix_len = n * n;
+    let minus_i_dt = Complex64::new(0.0, -dt);
+
+    let drift_h = hermitian_from_slice(dim, drift);
+    let controls_h: Vec<CMatrix<D>> = (0..channels)
+        .map(|channel| {
+            hermitian_from_slice(
+                dim,
+                &operators[channel * matrix_len..(channel + 1) * matrix_len],
+            )
+        })
+        .collect();
+
+    let mut states: Vec<CVector<D>> = (0..pairs)
+        .map(|pair| {
+            OVector::from_column_slice_generic(
+                dim,
+                Const::<1>,
+                &rho_init[pair * n..pair * n + n],
+            )
+        })
+        .collect();
+
+    let step_propagator = |step: usize| -> CMatrix<D> {
+        let mut hermitian = drift_h.clone();
+        for channel in 0..channels {
+            add_scaled(
+                &mut hermitian,
+                &controls_h[channel],
+                waveform[step * channels + channel],
+            );
+        }
+        let decomposition = SymmetricEigen::new(hermitian);
+        let adjoint = decomposition.eigenvectors.adjoint();
+        let mut scaled = decomposition.eigenvectors;
+        for (mut column, value) in scaled
+            .column_iter_mut()
+            .zip(decomposition.eigenvalues.iter())
+        {
+            column *= (minus_i_dt * value).exp();
+        }
+        scaled * adjoint
+    };
+
+    if parallel_steps {
+        let propagators: Vec<CMatrix<D>> = (0..steps)
+            .into_par_iter()
+            .with_min_len(16)
+            .map(step_propagator)
+            .collect();
+        for propagator in &propagators {
+            for state in &mut states {
+                *state = propagator * &*state;
+            }
+        }
+    } else {
+        for step in 0..steps {
+            let propagator = step_propagator(step);
+            for state in &mut states {
+                *state = &propagator * &*state;
+            }
+        }
+    }
+
+    let pair_sum: f64 = states
+        .iter()
+        .enumerate()
+        .map(|(pair, state)| {
+            let target: CVector<D> = OVector::from_column_slice_generic(
+                dim,
+                Const::<1>,
+                &rho_targ[pair * n..pair * n + n],
+            );
+            mode.value(target.dotc(state))
+        })
+        .sum();
+    pair_sum / pairs as f64
+}
+
+/// General (possibly dissipative) fallback via dense matrix exponentials.
+#[allow(clippy::too_many_arguments)]
+fn member_fidelity_expm(
+    drift: &[Complex64],
+    operators: &[Complex64],
+    waveform: &[f64],
+    rho_init: &[Complex64],
+    rho_targ: &[Complex64],
+    dt: f64,
+    mode: FidelityMode,
+    dim: usize,
+    channels: usize,
+    steps: usize,
+    pairs: usize,
+) -> f64 {
+    let matrix_len = dim * dim;
+    let drift = DMatrix::from_row_slice(dim, dim, drift);
+    let controls: Vec<DMatrix<Complex64>> = (0..channels)
+        .map(|channel| {
+            DMatrix::from_row_slice(
+                dim,
+                dim,
+                &operators[channel * matrix_len..(channel + 1) * matrix_len],
+            )
+        })
+        .collect();
+
+    let mut states: Vec<DVector<Complex64>> = (0..pairs)
+        .map(|pair| DVector::from_column_slice(&rho_init[pair * dim..pair * dim + dim]))
+        .collect();
+    for step in 0..steps {
+        let mut generator = drift.clone();
+        for channel in 0..channels {
+            add_scaled(
+                &mut generator,
+                &controls[channel],
+                waveform[step * channels + channel],
+            );
+        }
+        let propagator = (generator * Complex64::new(dt, 0.0)).exp();
+        for state in &mut states {
+            *state = &propagator * &*state;
+        }
+    }
+    let pair_sum: f64 = states
+        .iter()
+        .enumerate()
+        .map(|(pair, state)| {
+            let target = DVector::from_column_slice(&rho_targ[pair * dim..pair * dim + dim]);
+            mode.value(target.dotc(state))
+        })
+        .sum();
+    pair_sum / pairs as f64
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -220,47 +535,100 @@ fn grape_fidelity_vectors(
     )?;
     let pairs = init_shape[0];
     let matrix_len = dim * dim;
+    let parallel_steps = members < rayon::current_num_threads() && members * steps >= 256;
 
     let sum: f64 = (0..members)
         .into_par_iter()
         .map(|member| {
-            let drift_start = member * matrix_len;
-            let drift = matrix_from_slice(&drifts[drift_start..drift_start + matrix_len], dim, dim);
-            let member_operator_start = member * channels * matrix_len;
-            let control_matrices: Vec<DMatrix<Complex64>> = (0..channels)
-                .map(|channel| {
-                    let start = member_operator_start + channel * matrix_len;
-                    matrix_from_slice(&operators[start..start + matrix_len], dim, dim)
-                })
-                .collect();
-
-            let propagators: Vec<DMatrix<Complex64>> = (0..steps)
-                .map(|step| {
-                    let mut generator = drift.clone();
-                    for channel in 0..channels {
-                        generator += &control_matrices[channel]
-                            * Complex64::new(waveform[step * channels + channel], 0.0);
-                    }
-                    (generator * Complex64::new(dt, 0.0)).exp()
-                })
-                .collect();
-
-            let pair_sum: f64 = (0..pairs)
-                .map(|pair| {
-                    let state_start = pair * dim;
-                    let mut state = vector_from_slice(&rho_init[state_start..state_start + dim]);
-                    for propagator in &propagators {
-                        state = propagator * state;
-                    }
-                    let target = vector_from_slice(&rho_targ[state_start..state_start + dim]);
-                    fidelity_mode.value(target.dotc(&state))
-                })
-                .sum();
-            pair_sum / pairs as f64
+            let drift = &drifts[member * matrix_len..(member + 1) * matrix_len];
+            let member_operators = &operators
+                [member * channels * matrix_len..(member + 1) * channels * matrix_len];
+            if member_is_anti_hermitian(drift, member_operators, dim, channels) {
+                dispatch_dim!(
+                    dim,
+                    member_fidelity_eigen,
+                    drift,
+                    member_operators,
+                    waveform,
+                    rho_init,
+                    rho_targ,
+                    dt,
+                    fidelity_mode,
+                    channels,
+                    steps,
+                    pairs,
+                    parallel_steps,
+                )
+            } else {
+                member_fidelity_expm(
+                    drift,
+                    member_operators,
+                    waveform,
+                    rho_init,
+                    rho_targ,
+                    dt,
+                    fidelity_mode,
+                    dim,
+                    channels,
+                    steps,
+                    pairs,
+                )
+            }
         })
         .sum();
 
     Ok(sum / members as f64)
+}
+
+/// Shared parallel driver returning per-pair values and gradients per member.
+#[allow(clippy::too_many_arguments)]
+fn all_member_pair_results(
+    drifts: &[Complex64],
+    operators: &[Complex64],
+    waveform: &[f64],
+    rho_init: &[Complex64],
+    rho_targ: &[Complex64],
+    dt: f64,
+    mode: FidelityMode,
+    members: usize,
+    channels: usize,
+    steps: usize,
+    dim: usize,
+    pairs: usize,
+) -> PyResult<Vec<MemberPairResults>> {
+    let matrix_len = dim * dim;
+    // With fewer members than worker threads, recover parallelism by
+    // decomposing the time slices of each member concurrently instead. Tiny
+    // problems stay serial: the fork/join overhead outweighs ~1 us slices.
+    let parallel_steps = members < rayon::current_num_threads() && members * steps >= 256;
+    (0..members)
+        .into_par_iter()
+        .map(|member| {
+            let drift = &drifts[member * matrix_len..(member + 1) * matrix_len];
+            let member_operators = &operators
+                [member * channels * matrix_len..(member + 1) * channels * matrix_len];
+            if !member_is_anti_hermitian(drift, member_operators, dim, channels) {
+                return Err(PyValueError::new_err(
+                    "Rust gradient acceleration requires anti-Hermitian generators",
+                ));
+            }
+            Ok(dispatch_dim!(
+                dim,
+                member_pair_values_gradients,
+                drift,
+                member_operators,
+                waveform,
+                rho_init,
+                rho_targ,
+                dt,
+                mode,
+                channels,
+                steps,
+                pairs,
+                parallel_steps,
+            ))
+        })
+        .collect()
 }
 
 /// Mean fidelity and exact GRAPE gradient for coherent vector-state ensembles.
@@ -301,80 +669,36 @@ fn grape_value_gradient_vectors(
         &target_shape,
     )?;
     let pairs = init_shape[0];
-    let matrix_len = dim * dim;
 
-    let member_results: PyResult<Vec<(f64, Vec<f64>)>> = (0..members)
-        .into_par_iter()
-        .map(|member| {
-            let drift_start = member * matrix_len;
-            let drift = matrix_from_slice(&drifts[drift_start..drift_start + matrix_len], dim, dim);
-            let member_operator_start = member * channels * matrix_len;
-            let controls: Vec<DMatrix<Complex64>> = (0..channels)
-                .map(|channel| {
-                    let start = member_operator_start + channel * matrix_len;
-                    matrix_from_slice(&operators[start..start + matrix_len], dim, dim)
-                })
-                .collect();
-            let slice_data: PyResult<Vec<_>> = (0..steps)
-                .map(|step| {
-                    let mut generator = drift.clone();
-                    for channel in 0..channels {
-                        generator += &controls[channel]
-                            * Complex64::new(waveform[step * channels + channel], 0.0);
-                    }
-                    coherent_propagator_and_derivatives(&generator, &controls, dt)
-                })
-                .collect();
-            let slice_data = slice_data?;
+    let member_results = all_member_pair_results(
+        drifts,
+        operators,
+        waveform,
+        rho_init,
+        rho_targ,
+        dt,
+        fidelity_mode,
+        members,
+        channels,
+        steps,
+        dim,
+        pairs,
+    )?;
 
-            let mut value_sum = 0.0;
-            let mut gradient = vec![0.0; steps * channels];
-            for pair in 0..pairs {
-                let state_start = pair * dim;
-                let initial = vector_from_slice(&rho_init[state_start..state_start + dim]);
-                let target = vector_from_slice(&rho_targ[state_start..state_start + dim]);
-                let mut forward = Vec::with_capacity(steps + 1);
-                forward.push(initial);
-                for (propagator, _) in &slice_data {
-                    forward.push(propagator * forward.last().unwrap());
-                }
-                let mut backward = vec![DVector::zeros(dim); steps + 1];
-                backward[steps] = target.clone();
-                for step in (0..steps).rev() {
-                    backward[step] = slice_data[step].0.adjoint() * &backward[step + 1];
-                }
-
-                let overlap = target.dotc(&forward[steps]);
-                value_sum += fidelity_mode.value(overlap);
-                for step in 0..steps {
-                    for channel in 0..channels {
-                        let derivative_state = &slice_data[step].1[channel] * &forward[step];
-                        let derivative_overlap = backward[step + 1].dotc(&derivative_state);
-                        gradient[step * channels + channel] +=
-                            fidelity_mode.gradient(overlap, derivative_overlap);
-                    }
-                }
-            }
-            let pair_scale = 1.0 / pairs as f64;
-            for value in &mut gradient {
-                *value *= pair_scale;
-            }
-            Ok((value_sum * pair_scale, gradient))
-        })
-        .collect();
-    let member_results = member_results?;
     let mut value = 0.0;
     let mut gradient = vec![0.0; steps * channels];
-    for (member_value, member_gradient) in member_results {
-        value += member_value;
-        for (total, contribution) in gradient.iter_mut().zip(member_gradient) {
-            *total += contribution;
+    for (pair_values, pair_gradients) in &member_results {
+        value += pair_values.iter().sum::<f64>();
+        for pair_gradient in pair_gradients {
+            for (total, contribution) in gradient.iter_mut().zip(pair_gradient) {
+                *total += contribution;
+            }
         }
     }
-    let member_scale = 1.0 / members as f64;
-    value *= member_scale;
+    let scale = 1.0 / (members as f64 * pairs as f64);
+    value *= scale;
     for item in &mut gradient {
-        *item *= member_scale;
+        *item *= scale;
     }
     let rows = gradient.chunks(channels).map(|row| row.to_vec()).collect();
     Ok((value, rows))
@@ -422,67 +746,33 @@ fn grape_member_value_gradients_vectors(
         &target_shape,
     )?;
     let pairs = init_shape[0];
-    let matrix_len = dim * dim;
 
-    let member_results: PyResult<Vec<MemberResult>> = (0..members)
-        .into_par_iter()
-        .map(|member| {
-            let drift_start = member * matrix_len;
-            let drift = matrix_from_slice(&drifts[drift_start..drift_start + matrix_len], dim, dim);
-            let member_operator_start = member * channels * matrix_len;
-            let controls: Vec<DMatrix<Complex64>> = (0..channels)
-                .map(|channel| {
-                    let start = member_operator_start + channel * matrix_len;
-                    matrix_from_slice(&operators[start..start + matrix_len], dim, dim)
-                })
-                .collect();
-            let slice_data: PyResult<Vec<_>> = (0..steps)
-                .map(|step| {
-                    let mut generator = drift.clone();
-                    for channel in 0..channels {
-                        generator += &controls[channel]
-                            * Complex64::new(waveform[step * channels + channel], 0.0);
-                    }
-                    coherent_propagator_and_derivatives(&generator, &controls, dt)
-                })
-                .collect();
-            let slice_data = slice_data?;
+    let member_results = all_member_pair_results(
+        drifts,
+        operators,
+        waveform,
+        rho_init,
+        rho_targ,
+        dt,
+        fidelity_mode,
+        members,
+        channels,
+        steps,
+        dim,
+        pairs,
+    )?;
 
-            let mut pair_values = Vec::with_capacity(pairs);
-            let mut pair_gradients = Vec::with_capacity(pairs);
-            for pair in 0..pairs {
-                let state_start = pair * dim;
-                let initial = vector_from_slice(&rho_init[state_start..state_start + dim]);
-                let target = vector_from_slice(&rho_targ[state_start..state_start + dim]);
-                let mut forward = Vec::with_capacity(steps + 1);
-                forward.push(initial);
-                for (propagator, _) in &slice_data {
-                    forward.push(propagator * forward.last().unwrap());
-                }
-                let mut backward = vec![DVector::zeros(dim); steps + 1];
-                backward[steps] = target.clone();
-                for step in (0..steps).rev() {
-                    backward[step] = slice_data[step].0.adjoint() * &backward[step + 1];
-                }
-
-                let overlap = target.dotc(&forward[steps]);
-                pair_values.push(fidelity_mode.value(overlap));
-                let mut gradient = vec![0.0; steps * channels];
-                for step in 0..steps {
-                    for channel in 0..channels {
-                        let derivative_state = &slice_data[step].1[channel] * &forward[step];
-                        let derivative_overlap = backward[step + 1].dotc(&derivative_state);
-                        gradient[step * channels + channel] =
-                            fidelity_mode.gradient(overlap, derivative_overlap);
-                    }
-                }
-                pair_gradients.push(gradient.chunks(channels).map(|row| row.to_vec()).collect());
-            }
-            Ok((pair_values, pair_gradients))
-        })
-        .collect();
-    let member_results = member_results?;
-    let (values, gradients) = member_results.into_iter().unzip();
+    let mut values: Vec<Vec<f64>> = Vec::with_capacity(members);
+    let mut gradients: MemberGradients = Vec::with_capacity(members);
+    for (pair_values, pair_gradients) in member_results {
+        values.push(pair_values);
+        gradients.push(
+            pair_gradients
+                .into_iter()
+                .map(|flat| flat.chunks(channels).map(|row| row.to_vec()).collect())
+                .collect(),
+        );
+    }
     Ok((values, gradients))
 }
 
