@@ -1,3 +1,6 @@
+import tomllib
+from pathlib import Path
+
 import numpy as np
 import numpy.testing as npt
 
@@ -5,7 +8,10 @@ import optimalcontrol
 
 
 def test_version() -> None:
-    assert optimalcontrol.__version__ == "0.2.0"
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    with pyproject.open("rb") as f:
+        expected = tomllib.load(f)["project"]["version"]
+    assert optimalcontrol.__version__ == expected
 
 
 def test_set_random_seed_controls_numpy_global_state() -> None:
