@@ -14,6 +14,13 @@ pip install optimalcontrol
 Python 3.10 or newer is required. Environments without a compatible prebuilt wheel also
 need a stable Rust toolchain so `pip` can compile the native extension from the sdist.
 
+## Getting started
+
+New to the package? Follow the step-by-step beginner manual in
+[`docs/user_manual.md`](docs/user_manual.md): install, build your first GRAPE pulse,
+read the result, and export it to Bruker in a few minutes. The topic-specific
+`docs/guide_*.md` files cover each subsystem in depth.
+
 ## Source references
 
 - **JMR 2003 (ROPE)**: Unterbeck & Glaser, *Journal of Magnetic Resonance* 160 (2003) 88–101 — analytical optimal control for heteronuclear transfer under relaxation.
