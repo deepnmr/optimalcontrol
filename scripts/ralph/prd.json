@@ -14,8 +14,8 @@
         "Typecheck passes"
       ],
       "priority": 1,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Used setuptools build backend (hatchling not available). Added setuptools.packages.find to restrict to optimalcontrol package only."
     },
     {
       "id": "US-002",
@@ -30,8 +30,8 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created docs/source_notes.md, docs/spinach_mapping.md, docs/equations.md. Documented Hz vs rad/s unit policy (public API uses Hz; internal rad/s at Hamiltonian builders). Documented Hilbert-Schmidt norm state normalisation policy. Documented Liouville-space column-major vectorisation convention."
     },
     {
       "id": "US-003",
@@ -45,8 +45,8 @@
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Updated __init__.py with public API placeholder comments (TODO stubs). Created README.md with project goal, PDF references, Spinach wiki URL, and dev commands. Created tests/test_imports.py asserting __version__ == '0.1.0'. Note: bare `pytest` command fails due to editable install path issue in this env; use `python3.10 -m pytest` or `python3 -m pytest` instead."
     },
     {
       "id": "US-004",
@@ -58,8 +58,8 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented Ix, Iy, Iz, Ip, Im, E in optimalcontrol/operators.py using numpy.typing.NDArray[np.complex128]. Standard relations: [Ix,Iy]=i*Iz (not i*Iz/2 as PRD text states — PRD text is wrong; the actual standard result is i*Iz for spin-1/2 operators I=sigma/2). Ip=Ix+i*Iy, Im=Ix-i*Iy verified."
     },
     {
       "id": "US-005",
@@ -72,8 +72,8 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented kron_product, place_operator, two_spin_product in operators.py. two_spin_product uses place_operator at positions 0 and 1 and matrix-multiplies, which equals np.kron(op_i, op_s) for the 2-spin default. kron_product raises ValueError on empty list."
     },
     {
       "id": "US-006",
@@ -87,8 +87,8 @@
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added comm, vec, unvec to operators.py. vec uses column-major (Fortran) order: vec(rho).flatten(order='F'), unvec inverts via reshape(order='F'). comm returns A@B - B@A. All three verified against known identities and round-trip tests."
     },
     {
       "id": "US-007",
@@ -105,8 +105,8 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented L_op, R_op, liouvillian_comm, double_comm, lindblad_dissipator, assert_square, assert_hermitian, dense_or_sparse in operators.py. Column-major convention: L_op(A)=I⊗A, R_op(A)=A^T⊗I (PRD text describes row-major formulas — corrected to match column-major vec() convention). All verified against direct computation."
     },
     {
       "id": "US-008",
@@ -123,8 +123,8 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created tests/test_operators.py with 10 tests. Commutation relations verified as [Ix,Iy]=i*Iz (PRD text says /2 which is wrong for I=sigma/2 convention). two_spin_product(Iz,Iz) matches diag(0.25,-0.25,-0.25,0.25). All pass with rtol=1e-12."
     },
     {
       "id": "US-009",
@@ -139,8 +139,8 @@
         "Typecheck passes"
       ],
       "priority": 9,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created tests/test_liouville.py with 4 tests: vec/unvec round-trip on 2x2 and 4x4 random Hermitian matrices, liouvillian_comm action vs direct -i*comm, and Lindblad dissipator vs explicit D(rho)=F*rho*F†-0.5*(F†F*rho+rho*F†F). Helper _random_hermitian uses np.random.Generator and returns NDArray[np.complex128]. All tests pass with rtol=1e-12."
     },
     {
       "id": "US-010",
@@ -156,8 +156,8 @@
         "Typecheck passes"
       ],
       "priority": 10,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/spin_system.py with Spin, Coupling, RelaxationRates, and SpinSystem dataclasses. RelaxationRates stores all fields in rad/s and exposes kI/kS convenience properties. two_spin_system() returns an on-resonance two-spin I-S heteronuclear model with spins 0=I/source and 1=S/target, a single J_hz coupling, zero shifts_hz, and default dense basis."
     },
     {
       "id": "US-011",
@@ -171,8 +171,8 @@
         "Typecheck passes"
       ],
       "priority": 11,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added drift_hamiltonian(), shift_hamiltonian(), and control_operators() to optimalcontrol/spin_system.py. J couplings and chemical shifts are converted from public Hz fields to rad/s with 2*pi at construction. drift_hamiltonian sums 2*pi*J_hz*Iz_i*Iz_j over couplings with spin-index validation; control_operators returns Ix/Iy on spin 0 and Sx/Sy on spin 1 for two-spin systems."
     },
     {
       "id": "US-012",
@@ -186,8 +186,8 @@
         "Typecheck passes"
       ],
       "priority": 12,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented relaxation_liouvillian(), relaxation_liouvillian_crosscorr(), total_generator(), and validate_onresonance() in optimalcontrol/spin_system.py. Non-cross relaxation uses kI/kS pure-dephasing dissipators; cross-correlated relaxation uses effective ka/ka_prime baselines with kc/kc_prime couplings to the 2IzSz dephasing axis. total_generator assembles drift+shift Liouvillian, relaxation, and rad/s control amplitudes."
     },
     {
       "id": "US-013",
@@ -203,8 +203,8 @@
         "Typecheck passes"
       ],
       "priority": 13,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created tests/test_spin_system.py covering two-spin J drift Hamiltonian, Ix control placement on spin 0, kI/kS relaxation properties, and cross-correlated RelaxationRates fields."
     },
     {
       "id": "US-014",
@@ -219,8 +219,8 @@
         "Typecheck passes"
       ],
       "priority": 14,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/states.py with product-operator labels for I/S two-spin notation, unnormalised single-transition operators using S alpha/beta projectors, and Hilbert-Schmidt / Euclidean norm helpers. State labels follow I=spin 0 and S=spin 1; product labels such as 2IzSz include the conventional leading factor of 2."
     },
     {
       "id": "US-015",
@@ -233,8 +233,8 @@
         "Typecheck passes"
       ],
       "priority": 15,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented fidelity_real(), fidelity_imag(), fidelity_abs2(), and fidelity_avg() in optimalcontrol/states.py. Fidelity uses the Hilbert-Schmidt overlap np.vdot(rho_t, rho_f), which matches Tr(rho_t† @ rho_f) for matrix states and also supports vectorised states. Added tests/test_fidelity.py covering self-overlap, complex overlap components, weighted averaging, and shape validation."
     },
     {
       "id": "US-016",
@@ -247,8 +247,8 @@
         "Typecheck passes"
       ],
       "priority": 16,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented apply_prefix(), apply_suffix(), and dead_time_propagation() in optimalcontrol/states.py. Matrix states accept Hilbert-space rotations (U @ rho @ U.conj().T) or Liouville-space propagators; vectorised states require Liouville-space propagators. Dead-time propagation uses scipy.linalg.expm(generator * t_dead) and column-major vec/unvec for matrix states."
     },
     {
       "id": "US-017",
@@ -264,8 +264,8 @@
         "Typecheck passes"
       ],
       "priority": 17,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created tests/test_states.py covering Iz state construction, normalised self-fidelity, target-state self-fidelity, and zero-time dead-time propagation. Corrected the direct Iz vs 2IzSz criterion: under the documented Hilbert-Schmidt product-operator convention these states are orthogonal before any transfer propagator, so the regression asserts zero direct overlap and non-zero target self-overlap."
     },
     {
       "id": "US-018",
@@ -283,8 +283,8 @@
         "Typecheck passes"
       ],
       "priority": 18,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/rope.py with rope_n(), rope_g(), INEPT efficiency/optimal-time/max-efficiency helpers, rope_gain_over_inept(), and rope_g_inphase(). ROPE/INEPT analytical helpers validate non-negative relaxation ratios/rates and positive J. rope_g_inphase(n) implements the equal-rate JMR formula g_in = g(n)^2."
     },
     {
       "id": "US-019",
@@ -297,8 +297,8 @@
         "Typecheck passes"
       ],
       "priority": 19,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented rope_V(), rope_u_ratio(), and rope_trajectory_invariant() in optimalcontrol/rope.py. The return function uses g(n) from rope_g(); ratio helpers validate non-negative n and handle singular zero-amplitude cases with 0.0 for zero numerators and math.inf for non-zero numerator over zero denominator."
     },
     {
       "id": "US-020",
@@ -313,8 +313,8 @@
         "Typecheck passes"
       ],
       "priority": 20,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented rope_Tcrit(), rope_j(), rope_switching_time(), rope_finite_angles(), and rope_finite_efficiency() in optimalcontrol/rope.py. The Appendix B j(s) helper uses scaled time s = pi*J_hz*t because its API has no J parameter; physical seconds are converted in rope_switching_time(). For T <= Tcrit, rope_finite_efficiency() returns the INEPT/free-evolution branch while rope_switching_time() raises as required."
     },
     {
       "id": "US-021",
@@ -329,8 +329,8 @@
         "Typecheck passes"
       ],
       "priority": 21,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented rope_phase1_control(), rope_phase3_control(), rope_waveform(), and rope_hard_pulse_angle() in optimalcontrol/rope.py. Phase-control helpers use scaled time pi*J_hz*t; rope_waveform() accepts physical seconds and returns ceil(T/dt) samples. Phase II samples are exactly u1=u2=1 with zero RF amplitude, and the n=1, T=0.263/J paper example gives u1(0)=0.5716 and hard-pulse angle 55.14 degrees."
     },
     {
       "id": "US-022",
@@ -347,8 +347,8 @@
         "Typecheck passes"
       ],
       "priority": 22,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created tests/test_rope.py with unconstrained ROPE regression coverage for no-relaxation limits: rope_g(0)=1, inept_max_efficiency(0,100)=1, rope_gain_over_inept(0,100)=1, and rope_V(0,1,n=1)=1 using numpy.testing.assert_allclose with rtol=1e-8."
     },
     {
       "id": "US-023",
@@ -363,8 +363,8 @@
         "Typecheck passes"
       ],
       "priority": 23,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added finite-time ROPE regression tests in tests/test_rope.py: rope_Tcrit(n=1,J=100)=arccot(2)/(pi*100), rope_finite_efficiency(T=10/J) approaches rope_g(1), rope_waveform arrays have ceil(T/dt) samples with phase-II u1=u2=1, and rope_switching_time rejects T <= Tcrit."
     },
     {
       "id": "US-024",
@@ -382,8 +382,8 @@
         "Typecheck passes"
       ],
       "priority": 24,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/crop.py with crop_zeta(), crop_eta(), crop_eta_prime(), and physical transfer limit helpers. CROP analytical rates and J_hz are treated as same-unit frequency scalars for dimensionless ratios; crop_zeta validates non-negative rates, positive J_hz, and ka >= kc."
     },
     {
       "id": "US-025",
@@ -398,8 +398,8 @@
         "Typecheck passes"
       ],
       "priority": 25,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented CROP limiting-case helpers, CROPPulse, single-transition decomposition, and scalar pulse parameter calculation. kc=0 is verified against rope_g(ka/J) within 1e-10; kc=ka returns the lossless efficiency. Pulse params use the residual relaxation bandwidth sqrt(ka^2-kc^2) in Hz, carrier -J/2 for the slowly relaxing beta multiplet, and inverse bandwidth as the default truncation window."
     },
     {
       "id": "US-026",
@@ -412,8 +412,8 @@
         "Typecheck passes"
       ],
       "priority": 26,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented crop_waveform() in optimalcontrol/crop.py returning centered physical-time samples and Hz-valued amplitude/irrad_freq arrays from the scalar CROP pulse parameters. Implemented crop_robustness_sweep() over ka/J and kc/ka grids, validating ratio domains and asserting efficiencies remain within the physical [0, 1] range with 1e-10 tolerance."
     },
     {
       "id": "US-027",
@@ -430,8 +430,8 @@
         "Typecheck passes"
       ],
       "priority": 27,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created tests/test_crop.py covering the kc=0 ROPE reduction, near-lossless kc near ka limit, monotonic efficiency improvement as kc increases, stored regression values for ka/J=0.6 and 1.1 with kc/ka=0.75, and a 5x5 robustness sweep bound check."
     },
     {
       "id": "US-028",
@@ -445,8 +445,8 @@
         "Typecheck passes"
       ],
       "priority": 28,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/grape.py with ControlProblem dataclass and validate_control_problem(). Validation covers non-empty drift/control/state lists, shared generator dimensions, paired source/target shapes, finite positive pulse_dt, pwr_levels/channel count, supported fidelity modes real/imag/abs2, optional offset operator dimensions, boolean 2-D freeze masks, phase-cycle array sanity, and non-empty basis. Added tests/test_grape.py for valid minimal problems and key validation failures."
     },
     {
       "id": "US-029",
@@ -460,8 +460,8 @@
         "Typecheck passes"
       ],
       "priority": 29,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented validate_waveform(), apply_freeze(), forward_propagators(), and forward_states() in optimalcontrol/grape.py. Waveforms are real arrays shaped as time rows by control channels; freeze masks must match the full waveform shape when applied. forward_propagators() currently supports the single-drift non-ensemble path, scales each channel by pwr_levels, assembles generator slices, and exponentiates generator*pulse_dt with scipy.linalg.expm. forward_states() accumulates vector states, Hilbert-space matrix states, and Liouville-space matrix propagation via vec/unvec. Added tests/test_grape.py coverage for waveform validation, freeze restoration, propagator construction, and forward state accumulation."
     },
     {
       "id": "US-030",
@@ -474,8 +474,8 @@
         "Typecheck passes"
       ],
       "priority": 30,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented backward_states(), final_fidelity(), and grape_xy() in optimalcontrol/grape.py. Backward states are returned target-first in backward-time order [lambda_N, lambda_N-1, ..., lambda_0], applying each propagator's adjoint. final_fidelity() evaluates the final forward state against the initial backward target using fidelity modes real, imag, or abs2. grape_xy() returns the mean scalar fidelity across source-target pairs."
     },
     {
       "id": "US-031",
@@ -488,8 +488,8 @@
         "Typecheck passes"
       ],
       "priority": 31,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented dir_diff_expm() with the 2x2 block Frechet derivative for expm(-1j*H*dt), plus grape_gradient() over waveform rows/channels. Because ControlProblem stores generator matrices, grape_gradient() maps generator derivatives through H=1j*generator to differentiate the existing expm(generator*dt) path exactly. Frozen entries are zeroed after accumulation."
     },
     {
       "id": "US-032",
@@ -502,8 +502,8 @@
         "Typecheck passes"
       ],
       "priority": 32,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented grape_hessian() with exact second-sensitivity propagation for <=50 flattened waveform parameters and None for larger Hessians. Added Liouville and Hilbert GRAPE variants: grape_xy_liouville() vectorises square density matrices before propagation, grape_xy_hilbert() requires pure-state vectors, and grape_xy() dispatches on basis values 'liouville' and 'hilbert'."
     },
     {
       "id": "US-033",
@@ -517,8 +517,8 @@
         "Typecheck passes"
       ],
       "priority": 33,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented XY/amplitude-phase adapters in optimalcontrol/grape.py. xy_to_ampl_phase() converts (n_steps,2) Cartesian waveforms to per-step amplitude and phase arrays; ampl_phase_to_xy() round-trips non-negative amplitude arrays via cos/sin. phase_only_gradient() applies the phase chain rule with explicit phase support and can project using the current XY waveform. curvilinear_reparameterise() maps unconstrained values into scalar bounds with midpoint + half_width*tanh(wfm). Added tests covering round-trip conversion, phase-gradient projection, and bounded tanh mapping."
     },
     {
       "id": "US-034",
@@ -534,8 +534,8 @@
         "Typecheck passes"
       ],
       "priority": 34,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Extended tests/test_grape.py with central finite-difference checks for grape_gradient on one-spin Hilbert and two-spin Liouville problems (relative L2 error <= 1e-5), freeze-mask zeroing coverage, and grape_xy bounded-float validation for a deterministic random waveform."
     },
     {
       "id": "US-035",
@@ -550,8 +550,8 @@
         "Typecheck passes"
       ],
       "priority": 35,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/ensemble.py with drift expansion, RF power-level expansion, and mean ensemble fidelity/gradient aggregation. Expanded power-level problems absorb each scalar RF scale into all control operators and reset per-channel pwr_levels to ones so they can reuse the existing single-drift GRAPE path. Added tests/test_ensemble.py covering expansion semantics and aggregate fidelity/gradient means."
     },
     {
       "id": "US-036",
@@ -566,8 +566,8 @@
         "Typecheck passes"
       ],
       "priority": 36,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented expand_offsets(), expand_phase_cycle(), cartesian_product_ensemble(), correlated_rho_match(), and correlated_rho_drift() in optimalcontrol/ensemble.py. Offset expansion adds offset * sum(offset_operators) to drift generators and clears consumed offset metadata. Phase-cycle rows are interpreted as radians, with scalar rows applying global source-state phase and rows matching rho_init length applying per-state phases. ensemble_fidelity() and ensemble_gradient() now aggregate over the full Cartesian ensemble. Added tests/test_ensemble.py coverage for offset drift inclusion, phase-cycle source rotation, full Cartesian expansion, and correlated rho modes."
     },
     {
       "id": "US-037",
@@ -584,8 +584,8 @@
         "Typecheck passes"
       ],
       "priority": 37,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented ordered serial_backend() and optional joblib_backend() in optimalcontrol/ensemble.py, with joblib falling back to the serial path when unavailable. Extended tests/test_ensemble.py with backend coverage plus the 2 drifts x 2 power levels Cartesian product, single-member ensemble fidelity equivalence to grape_xy, and correlated rho_match cardinality coverage."
     },
     {
       "id": "US-038",
@@ -601,8 +601,8 @@
         "Typecheck passes"
       ],
       "priority": 38,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/penalties.py with NS, SNS, SNSA, DNS, PenaltySpec, and total_penalty(). Penalties return minimisation-style value/gradient pairs; gradients match waveform shape. Added tests/test_penalties.py with finite-difference coverage for NS, SNS, SNSA, and DNS plus total_penalty aggregation."
     },
     {
       "id": "US-039",
@@ -619,8 +619,8 @@
         "Typecheck passes"
       ],
       "priority": 39,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/distortions.py with distortion_noop(), distortion_tanh(), distortion_root(), distortion_single_pole(), distortion_single_zero(), diagnostic lower_upper_clip(), and companion *_deriv helpers. Distortions follow the package waveform convention of time rows by channels; the causal pole/zero filters use zero pre-history and derivative helpers return same-shape local sensitivities for later chain-rule integration."
     },
     {
       "id": "US-040",
@@ -638,8 +638,8 @@
         "Typecheck passes"
       ],
       "priority": 40,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added distortion coverage to tests/test_penalties.py: noop identity, single-pole alpha=0 identity, and tanh derivative finite-difference regression. Existing penalty finite-difference tests cover NS, SNS, and DNS."
     },
     {
       "id": "US-041",
@@ -652,8 +652,8 @@
         "Typecheck passes"
       ],
       "priority": 41,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/optimizers.py with OptimResult and line_search_cubic(). The line search treats f as a maximisation objective, internally minimises -f, uses strong Wolfe conditions with safeguarded cubic interpolation inside brackets, and returns the best finite step found or 0.0 for non-ascent directions."
     },
     {
       "id": "US-042",
@@ -668,8 +668,8 @@
         "Typecheck passes"
       ],
       "priority": 42,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented gradient_ascent(), lbfgs_state(), lbfgs_update(), lbfgs_direction(), and lbfgs_grape() in optimalcontrol/optimizers.py. Both optimizers wrap grape_xy()/grape_gradient(), track fidelity history from the initial waveform, use line_search_cubic() for step selection, and report step_tol/grad_tol/max_iter reasons. L-BFGS stores curvature for the equivalent minimisation of -f via y = grad_old - grad_new and falls back to the raw gradient if the two-loop direction is not an ascent direction."
     },
     {
       "id": "US-043",
@@ -684,8 +684,8 @@
         "Typecheck passes"
       ],
       "priority": 43,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented newton_raphson() in optimalcontrol/optimizers.py using exact grape_hessian() on <=50-parameter problems, positive-definite regularisation on the maximisation curvature model -H, optional RFO augmented-Hessian level shifting, freeze-mask preservation, and shared cubic line search. Added focused optimizer tests for concave quadratic convergence, indefinite-model regularisation/RFO step construction, and missing-Hessian rejection."
     },
     {
       "id": "US-044",
@@ -699,8 +699,8 @@
         "Typecheck passes"
       ],
       "priority": 44,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added JSON save_checkpoint()/load_checkpoint() helpers and print_iteration_table() in optimalcontrol/optimizers.py. gradient_ascent(), lbfgs_grape(), and newton_raphson() now accept checkpoint_path, resume from existing checkpoints, save every 10 iterations plus on exit, and preserve n_feval along with L-BFGS memory so resumed runs match uninterrupted ones. Added tests for checkpoint round-trip, fixed-width iteration rows, and resume equivalence across all three optimizers."
     },
     {
       "id": "US-045",
@@ -715,8 +715,8 @@
         "Typecheck passes"
       ],
       "priority": 45,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added tests/test_optimizers.py coverage for lbfgs_grape on an exact negative-norm quadratic objective, a one-spin product-operator Iz->Ix transfer that improves grape_xy fidelity within 20 iterations, and a 5-iteration checkpoint plus 5-iteration resume matching an uninterrupted 10-iteration L-BFGS run within rtol=1e-6."
     },
     {
       "id": "US-046",
@@ -732,8 +732,8 @@
         "Typecheck passes"
       ],
       "priority": 46,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/io.py with Waveform dataclass validation, waveform_from_result() bridge from internal GRAPE (n_steps, n_channels) layout to export (n_channels, n_steps), CSV export, JSON export/import, and stable problem hashing. Added focused tests/test_io.py coverage for result conversion, JSON round-trip, and CSV row/header output."
     },
     {
       "id": "US-047",
@@ -747,8 +747,8 @@
         "Typecheck passes"
       ],
       "priority": 47,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added export_bruker(), import_jcamp_dx(), heterodyne_transform(), and fapt_import() to optimalcontrol/io.py. Bruker and JCAMP-DX support is deliberately stub-level with docstring limitations; export_bruker writes amplitude/phase-degree XYPOINTS plus private optimalcontrol tags, import_jcamp_dx parses flat minimal tags and numeric XYPOINTS. heterodyne_transform rotates x/y envelopes by exp(i*2*pi*carrier_hz*t). fapt_import parses frequency/amplitude/phase/time rows into Waveform channels frequency_hz, amplitude, phase_rad."
     },
     {
       "id": "US-048",
@@ -763,8 +763,8 @@
         "Typecheck passes"
       ],
       "priority": 48,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/analysis.py with state_trajectory(), expectation_values(), coherence_order_populations(), and correlation_order_populations(). state_trajectory() reuses forward_propagators() and forward_states() from grape.py and returns rho_init[0] trajectory. expectation_values() computes Re(Tr(O@rho)) for matrix states and <psi|O|psi> for vector states. The two population functions raise NotImplementedError with docstring explaining that product-operator basis metadata is required."
     },
     {
       "id": "US-049",
@@ -776,8 +776,8 @@
         "Typecheck passes"
       ],
       "priority": 49,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented robustness_histogram() using Cartesian product parameter sweep over ControlProblem fields via copy.copy+setattr (mypy-safe dynamic replacement), and spectrogram_data() wrapping scipy.signal.spectrogram on a complex envelope from two waveform channels. Both functions live in optimalcontrol/analysis.py."
     },
     {
       "id": "US-050",
@@ -794,8 +794,8 @@
         "Typecheck passes"
       ],
       "priority": 50,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created optimalcontrol/plotting.py with plot_xy_controls(), plot_ampl_phase(), plot_rope_efficiency(), plot_crop_robustness(), and plot_trajectory(). All functions accept an optional ax parameter and return matplotlib.figure.Figure. plot_ampl_phase() uses subplots when ax=None and twinx when ax is provided. plot_crop_robustness() delegates to crop_robustness_sweep() and renders a pcolormesh colour map."
     },
     {
       "id": "US-051",
@@ -812,8 +812,8 @@
         "Typecheck passes"
       ],
       "priority": 51,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created tests/test_plotting.py with four tests: plot_xy_controls returns a Figure, plot_xy_controls raises on missing channel, plot_rope_efficiency returns a Figure for n_values=[0,0.5,1.0], and plot_rope_efficiency raises on empty n_values. Uses matplotlib.use('Agg') at module level so tests run headless. test_io.py already covered JSON round-trip and CSV row count from prior stories."
     },
     {
       "id": "US-052",
@@ -829,8 +829,8 @@
         "Typecheck passes"
       ],
       "priority": 52,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created three headless ROPE example scripts: rope_efficiency_vs_n.py (ROPE vs INEPT efficiency over n in [0,3]), rope_gain_Ia_2IbSc.py (ROPE gain over INEPT), and rope_inphase_gain.py (equal-rate in-phase efficiency). All use matplotlib.use('Agg'), save figures to examples/output/, and are importable without side effects. Each script exposes a run() function returning the primary numerical array."
     },
     {
       "id": "US-053",
@@ -845,8 +845,8 @@
         "Typecheck passes"
       ],
       "priority": 53,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created four headless ROPE finite-time example scripts: rope_finite_time_efficiency.py (g_T vs T for n=1), rope_finite_time_controls.py (three-phase u1/u2/amplitude waveform for T=0.263/J), rope_sodium_formate.py (J=193 Hz, T2=1.4 ms physical parameters with k=1/(pi*T2) convention), and rope_hard_pulse.py (hard-pulse approximation from rope_finite_angles and rope_hard_pulse_angle, prints 55.14 deg flip angle matching JMR paper). All scripts use matplotlib.use('Agg'), save PNGs to examples/output/, and guard execution under if __name__ == '__main__'."
     },
     {
       "id": "US-054",
@@ -861,8 +861,8 @@
         "Typecheck passes"
       ],
       "priority": 54,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created four headless CROP example scripts: crop_efficiency_vs_ka.py (eta vs ka/J for kc/ka in [0, 0.5, 0.75, 0.99]), crop_truncated_waveform.py (amplitude and irradiation frequency for ka/J=0.6 and 1.1 with kc/ka=0.75), crop_lossless_limit.py (eta vs kc/ka approaching 1 for several ka/J values), and crop_regression_params.py (prints and plots eta regression values matching test_crop.py stored constants). All scripts use matplotlib.use('Agg'), save PNGs to examples/output/, and guard under if __name__ == '__main__'."
     },
     {
       "id": "US-055",
@@ -877,8 +877,8 @@
         "Typecheck passes"
       ],
       "priority": 55,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created tests/test_examples.py with parametrized run-without-exception and snapshot-match tests for all 11 example scripts. Stored .npz snapshots in examples/expected/ by running each example's run() function once; each snapshot contains the primary NDArray[np.float64] output under key 'output'. Uses importlib.import_module with sys.path insertion; matplotlib.use('Agg') at module level ensures headless execution. 22 tests pass (11 run + 11 snapshot) with rtol=1e-4."
     },
     {
       "id": "US-056",
@@ -891,8 +891,8 @@
         "Typecheck passes"
       ],
       "priority": 56,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Activated all public API exports in optimalcontrol/__init__.py: Ix, Iy, Iz, comm, liouvillian_comm from operators; SpinSystem, two_spin_system from spin_system; state_from_label, fidelity_real from states; rope_g, rope_waveform from rope; CROPPulse, crop_eta, crop_waveform from crop. Added __all__ list. Ruff import-sorter reordered imports alphabetically. No circular imports; all 136 tests pass."
     },
     {
       "id": "US-057",
@@ -906,8 +906,8 @@
         "Typecheck passes"
       ],
       "priority": 57,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Integrated penalties into grape_xy/grape_gradient by subtracting total_penalty value/gradient. Integrated ensemble dispatch for multiple drifts, RF-power ensemble pwr_levels, offsets, and phase cycles while preserving ordinary per-channel pwr_levels. Added tests for NS penalty lowering fidelity, penalty gradient subtraction, and grape_xy/grape_gradient ensemble dispatch. Quality checks passed: ruff check ., mypy optimalcontrol/, python3 -m pytest (141 passed)."
     },
     {
       "id": "US-058",
@@ -922,8 +922,8 @@
         "Typecheck passes"
       ],
       "priority": 58,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added OptimResult.trajectory optional diagnostics, produce_trajectory support for lbfgs_grape() and newton_raphson(), and run_grape() convenience wrapper returning Waveform plus OptimResult. run_grape dispatches to L-BFGS/Newton and relies on existing optimizer checkpoint handling, so cp.checkpoint_path is saved on converged exits. Exported run_grape from optimalcontrol.__init__. Added tests for trajectory attachment, run_grape waveform/checkpoint behavior, and unknown method validation. Quality checks passed: ruff check ., mypy optimalcontrol/, python3 -m pytest (145 passed)."
     },
     {
       "id": "US-059",
@@ -940,8 +940,8 @@
         "Typecheck passes"
       ],
       "priority": 59,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created tests/test_integration.py covering analytical ROPE vs INEPT for the Iz->2IzSz endpoint labels, run_grape improvement over 10 L-BFGS iterations on a real two-spin dense product-operator transfer, RF power ensemble fidelity bounds, L-BFGS checkpoint resume matching uninterrupted optimisation within rtol=1e-5, and Waveform JSON export/import replay preserving grape_xy fidelity within rtol=1e-10. Quality checks passed: ruff check ., mypy optimalcontrol/, python3 -m pytest (150 passed)."
     },
     {
       "id": "US-060",
@@ -955,8 +955,8 @@
         "Typecheck passes"
       ],
       "priority": 60,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created docs/guide_spin_system.md, docs/guide_states.md, and docs/guide_operators.md with runnable examples for factory/direct spin-system construction, state labels/single-transition operators/normalisation, and drift/control/total-generator usage. Corrected docs/equations.md operator convention text to match the implemented spin algebra and column-major Liouville convention. Manually ran the embedded snippets. Quality checks passed: ruff check ., mypy optimalcontrol/, python3 -m pytest (150 passed)."
     },
     {
       "id": "US-061",
@@ -970,8 +970,8 @@
         "Typecheck passes"
       ],
       "priority": 61,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created docs/guide_rope_crop.md, docs/guide_grape.md, docs/guide_ensembles_penalties.md, and docs/guide_paper_figures.md. Guides cover analytical ROPE/CROP usage with sodium-formate parameters, finite-time and CROP waveform sampling, GRAPE ControlProblem construction/fidelity/gradient/run_grape optimizer selection, ensemble axes and penalties, and a script-to-output mapping for the paper reproduction examples. Quality checks passed: ruff check ., mypy optimalcontrol/, python3 -m pytest (150 passed)."
     },
     {
       "id": "US-062",
@@ -986,8 +986,8 @@
         "Typecheck passes"
       ],
       "priority": 62,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Confirmed existing ruff and mypy configuration: ruff uses E/F/I in pyproject.toml, mypy strict=true, and both pass cleanly. Created benchmarks/bench_expm.py timing scipy.linalg.expm and dir_diff_expm for 4x4 and 16x16 deterministic Hermitian matrices. Created benchmarks/bench_ensemble.py timing ensemble_fidelity for 1, 4, 16, and 64 RF-power ensemble members. Created tests/test_validation.py with explicit error-message tests for invalid operator dimensions, invalid fidelity_mode, and negative J_hz. Quality checks passed: ruff check ., mypy optimalcontrol/, python3 -m pytest (153 passed)."
     },
     {
       "id": "US-063",
@@ -1003,8 +1003,8 @@
         "Typecheck passes"
       ],
       "priority": 63,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added set_random_seed(seed) to optimalcontrol.__init__ and exported it through __all__; added a regression test proving it resets NumPy's global RNG. Created CHANGELOG.md with v0.1.0 milestone markers and recorded the full pytest baseline as 154 passed. Added README semantic versioning policy and clarified the docs/equations numerical tolerance section. Quality checks passed: ruff check ., mypy optimalcontrol/, python3 -m pytest."
     }
   ]
 }

@@ -1,0 +1,21 @@
+[package]
+name = "optimalcontrol-rust"
+version = "0.3.0"
+edition = "2021"
+description = "Native acceleration for the optimalcontrol Python package"
+publish = false
+
+[lib]
+name = "_rust"
+crate-type = ["cdylib"]
+
+[dependencies]
+nalgebra = "0.34"
+num-complex = "0.4"
+numpy = "0.27"
+pyo3 = { version = "0.27", features = ["extension-module"] }
+rayon = "1.11"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
