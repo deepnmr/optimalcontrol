@@ -37,13 +37,11 @@ module-name = "optimalcontrol._rust"
 python-source = "."
 features = ["pyo3/extension-module"]
 exclude = [
+    { path = "dev/**/*", format = "sdist" },
     { path = "examples/output/**/*", format = "sdist" },
-    { path = "implement*.md", format = "sdist" },
     { path = "optimalcontrol.egg-info/**/*", format = "sdist" },
-    { path = "plan.md", format = "sdist" },
     { path = "refdoc/**/*", format = "sdist" },
     { path = "scripts/**/*", format = "sdist" },
-    { path = "tasks/**/*", format = "sdist" },
     { path = "tmp/**/*", format = "sdist" },
 ]
 
