@@ -3,11 +3,9 @@
 import math
 
 import numpy as np
-import numpy.typing as npt
 
 from optimalcontrol._accelerator import _enabled, _rust
-
-RealArray = npt.NDArray[np.float64]
+from optimalcontrol._types import RealArray
 
 
 def _rotate(state: RealArray, field: RealArray, dt: float) -> RealArray:

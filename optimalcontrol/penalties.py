@@ -5,9 +5,9 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import numpy as np
-import numpy.typing as npt
 
-RealArray = npt.NDArray[np.float64]
+from optimalcontrol._types import RealArray
+from optimalcontrol._validation import as_finite_waveform as _as_waveform
 
 
 @dataclass(frozen=True)
@@ -21,16 +21,6 @@ class PenaltySpec:
 
 PenaltyFunction = Callable[[RealArray], tuple[float, RealArray]]
 PenaltyInput = PenaltySpec | PenaltyFunction
-
-
-def _as_waveform(wfm: RealArray) -> RealArray:
-    """Return a finite float64 waveform array."""
-    waveform = np.asarray(wfm, dtype=np.float64)
-    if waveform.ndim != 2:
-        raise ValueError(f"waveform must be two-dimensional, got shape {waveform.shape}")
-    if not np.all(np.isfinite(waveform)):
-        raise ValueError("waveform entries must be finite")
-    return waveform
 
 
 def _validate_weight(weight: float) -> float:

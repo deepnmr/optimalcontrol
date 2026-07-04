@@ -7,6 +7,8 @@ from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
 
+from optimalcontrol._validation import validate_nonnegative as _validate_nonnegative
+from optimalcontrol._validation import validate_positive as _validate_positive
 from optimalcontrol.rope import rope_g, rope_n
 from optimalcontrol.spin_system import SpinSystem
 
@@ -21,18 +23,6 @@ class CROPPulse:
     amplitude: float
     irradiation_freq_hz: float
     truncation_window: float
-
-
-def _validate_nonnegative(name: str, value: float) -> None:
-    """Raise ValueError if a scalar parameter is outside its physical domain."""
-    if value < 0.0:
-        raise ValueError(f"{name} must be non-negative")
-
-
-def _validate_positive(name: str, value: float) -> None:
-    """Raise ValueError if a scalar parameter is not strictly positive."""
-    if value <= 0.0:
-        raise ValueError(f"{name} must be positive")
 
 
 def _validate_finite_positive(name: str, value: float) -> None:

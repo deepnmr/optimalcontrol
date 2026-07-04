@@ -1,23 +1,24 @@
 """Ensemble expansion helpers for GRAPE control problems."""
 
-import math
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from typing import TypeVar
 
 import numpy as np
-import numpy.typing as npt
 
+from optimalcontrol._types import Array, RealArray
+from optimalcontrol._validation import validate_finite_floats as _validate_float_values
+from optimalcontrol._validation import validate_nonempty as _validate_nonempty
+from optimalcontrol._validation import validate_square_matrix as _validate_square_matrix
 from optimalcontrol.grape import (
     ControlProblem,
     _has_rf_power_ensemble,
+    _zero_frozen,
     grape_gradient,
     grape_xy,
     grape_xy_and_gradient,
 )
 
-Array = npt.NDArray[np.complex128]
-RealArray = npt.NDArray[np.float64]
 ProblemT = TypeVar("ProblemT")
 ResultT = TypeVar("ResultT")
 
@@ -52,20 +53,6 @@ def _copy_complex_states(states: Sequence[Array]) -> list[Array]:
     return [np.asarray(state, dtype=np.complex128).copy() for state in states]
 
 
-def _validate_nonempty(name: str, values: Sequence[object]) -> None:
-    """Raise ValueError if an ensemble axis is empty."""
-    if not values:
-        raise ValueError(f"{name} must be non-empty")
-
-
-def _validate_square_matrix(name: str, matrix: Array) -> int:
-    """Validate a square 2-D complex array and return its dimension."""
-    array = np.asarray(matrix, dtype=np.complex128)
-    if array.ndim != 2 or array.shape[0] != array.shape[1]:
-        raise ValueError(f"{name} must be a square matrix, got shape {array.shape}")
-    return int(array.shape[0])
-
-
 def _validate_same_drift_dimensions(drifts: Sequence[Array]) -> int:
     """Validate drift generators and return their shared dimension."""
     _validate_nonempty("drifts", drifts)
@@ -75,13 +62,6 @@ def _validate_same_drift_dimensions(drifts: Sequence[Array]) -> int:
         if dim != generator_dim:
             raise ValueError(f"drifts[{index}] dimension {dim} does not match {generator_dim}")
     return generator_dim
-
-
-def _validate_float_values(name: str, values: Sequence[float]) -> None:
-    """Raise ValueError if a sequence contains non-finite floats."""
-    for index, value in enumerate(values):
-        if not math.isfinite(value):
-            raise ValueError(f"{name}[{index}] must be finite")
 
 
 def _validate_power_levels(pwr_levels: list[float]) -> None:
@@ -351,15 +331,13 @@ def ensemble_xy_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[float,
     accelerated = problem_vector_value_gradient(cp, waveform)
     if accelerated is not None:
         value, gradient = accelerated
-        if cp.freeze is not None:
-            gradient[np.asarray(cp.freeze, dtype=np.bool_)] = 0.0
+        _zero_frozen(gradient, cp.freeze)
         return value, gradient
     problems = cartesian_product_ensemble(cp)
     accelerated = vector_value_gradient(problems, waveform)
     if accelerated is not None:
         value, gradient = accelerated
-        if cp.freeze is not None:
-            gradient[np.asarray(cp.freeze, dtype=np.bool_)] = 0.0
+        _zero_frozen(gradient, cp.freeze)
         return value, gradient
     value_sum = 0.0
     gradient = np.zeros_like(waveform, dtype=np.float64)

@@ -9,12 +9,10 @@ from pathlib import Path
 from typing import Protocol, cast
 
 import numpy as np
-import numpy.typing as npt
 
+from optimalcontrol._types import RealArray
 from optimalcontrol.grape import ControlProblem, validate_control_problem, validate_waveform
 from optimalcontrol.optimizers import OptimResult
-
-RealArray = npt.NDArray[np.float64]
 
 
 class _Hasher(Protocol):
@@ -533,28 +531,18 @@ def _parse_jcamp(text: str) -> tuple[dict[str, str], list[str]]:
     return tags, xy_lines
 
 
-def import_jcamp_dx(path: str | Path) -> Waveform:
-    """Parse a minimal JCAMP-DX waveform file.
+def _resolve_jcamp_layout(
+    tags: dict[str, str], table: RealArray, n_points: int
+) -> tuple[list[str], RealArray, RealArray]:
+    """Return (channels, times, data) resolved from JCAMP tags and the table.
 
-    This is a deliberately small import stub, not a full JCAMP-DX reader. It
-    recognises flat ``##KEY= value`` tags, a numeric ``##XYPOINTS`` table, and
-    optional ``##CHANNELS`` plus ``##$OPTIMALCONTROL_TIMES`` metadata. It does
-    not support compressed JCAMP encodings, multi-block files, vendor-specific
-    Bruker shape semantics, or spectrometer validation.
+    Layout precedence: a private ``$OPTIMALCONTROL_TIMES`` tag wins and every
+    table column is a channel; otherwise a declared ``CHANNELS`` list with one
+    extra column treats column 0 as the time axis; otherwise the declared
+    channels take all columns with synthesised times; otherwise a bare 2-column
+    table is time plus one ``signal`` channel; otherwise every column is a
+    default channel on synthesised times.
     """
-    input_file = _input_path(path)
-    payload = input_file.read_bytes()
-    tags, xy_lines = _parse_jcamp(payload.decode("utf-8"))
-    table = _numeric_table(xy_lines, "JCAMP-DX XYPOINTS")
-
-    n_points = int(table.shape[0])
-    expected_points_raw = tags.get("NPOINTS")
-    if expected_points_raw is not None and int(float(expected_points_raw)) != n_points:
-        raise ValueError(
-            f"JCAMP-DX NPOINTS={expected_points_raw} does not match "
-            f"{n_points} parsed rows"
-        )
-
     channels_raw = tags.get("CHANNELS")
     channels = _split_label_list(channels_raw) if channels_raw is not None else []
     times_raw = tags.get("$OPTIMALCONTROL_TIMES")
@@ -592,6 +580,32 @@ def import_jcamp_dx(path: str | Path) -> Waveform:
         channels = _default_channels(int(table.shape[1]))
         times = _jcamp_default_times(tags, n_points)
         data = np.asarray(table.T, dtype=np.float64)
+    return channels, times, data
+
+
+def import_jcamp_dx(path: str | Path) -> Waveform:
+    """Parse a minimal JCAMP-DX waveform file.
+
+    This is a deliberately small import stub, not a full JCAMP-DX reader. It
+    recognises flat ``##KEY= value`` tags, a numeric ``##XYPOINTS`` table, and
+    optional ``##CHANNELS`` plus ``##$OPTIMALCONTROL_TIMES`` metadata. It does
+    not support compressed JCAMP encodings, multi-block files, vendor-specific
+    Bruker shape semantics, or spectrometer validation.
+    """
+    input_file = _input_path(path)
+    payload = input_file.read_bytes()
+    tags, xy_lines = _parse_jcamp(payload.decode("utf-8"))
+    table = _numeric_table(xy_lines, "JCAMP-DX XYPOINTS")
+
+    n_points = int(table.shape[0])
+    expected_points_raw = tags.get("NPOINTS")
+    if expected_points_raw is not None and int(float(expected_points_raw)) != n_points:
+        raise ValueError(
+            f"JCAMP-DX NPOINTS={expected_points_raw} does not match "
+            f"{n_points} parsed rows"
+        )
+
+    channels, times, data = _resolve_jcamp_layout(tags, table, n_points)
 
     problem_hash = (
         tags.get("$OPTIMALCONTROL_PROBLEM_HASH")

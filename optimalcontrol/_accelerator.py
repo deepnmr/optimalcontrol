@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-RealArray = npt.NDArray[np.float64]
+from optimalcontrol._types import RealArray
 
 try:
     _rust: Any = import_module("optimalcontrol._rust")

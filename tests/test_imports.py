@@ -1,8 +1,8 @@
-import tomllib
 from pathlib import Path
 
 import numpy as np
 import numpy.testing as npt
+import tomllib
 
 import optimalcontrol
 

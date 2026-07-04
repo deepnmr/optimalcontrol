@@ -1,22 +1,28 @@
 """GRAPE control-problem containers and validation helpers."""
 
 import math
-from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from typing import NoReturn
 
 import numpy as np
 import numpy.typing as npt
 from scipy.linalg import expm
 
+from optimalcontrol._types import Array, BoolArray, RealArray
+from optimalcontrol._validation import validate_finite_floats as _validate_float_list
+from optimalcontrol._validation import validate_nonempty as _validate_nonempty
+from optimalcontrol._validation import validate_square_matrix as _validate_square_matrix
 from optimalcontrol.operators import unvec, vec
 from optimalcontrol.penalties import PenaltyInput, total_penalty
 from optimalcontrol.states import fidelity_abs2, fidelity_imag, fidelity_real
 
-Array = npt.NDArray[np.complex128]
-RealArray = npt.NDArray[np.float64]
-BoolArray = npt.NDArray[np.bool_]
-
 VALID_FIDELITY_MODES = {"real", "imag", "abs2"}
+
+
+def _raise_invalid_mode(label: str) -> NoReturn:
+    """Raise a ValueError naming the accepted fidelity modes for ``label``."""
+    valid = ", ".join(sorted(VALID_FIDELITY_MODES))
+    raise ValueError(f"{label} must be one of: {valid}")
 
 
 @dataclass
@@ -61,20 +67,6 @@ def _has_ensemble_axes(cp: ControlProblem) -> bool:
     )
 
 
-def _validate_nonempty(name: str, values: Sequence[object]) -> None:
-    """Raise ValueError if a required list field is empty."""
-    if not values:
-        raise ValueError(f"{name} must be non-empty")
-
-
-def _validate_square_matrix(name: str, matrix: Array) -> int:
-    """Validate a square 2-D complex array and return its dimension."""
-    array = np.asarray(matrix, dtype=np.complex128)
-    if array.ndim != 2 or array.shape[0] != array.shape[1]:
-        raise ValueError(f"{name} must be a square matrix, got shape {array.shape}")
-    return int(array.shape[0])
-
-
 def _validate_state_shape(name: str, state: Array, generator_dim: int) -> None:
     """Raise ValueError if a state cannot be acted on by the generators."""
     array = np.asarray(state, dtype=np.complex128)
@@ -97,13 +89,6 @@ def _validate_state_shape(name: str, state: Array, generator_dim: int) -> None:
         )
 
     raise ValueError(f"{name} must be a vector or square matrix, got shape {array.shape}")
-
-
-def _validate_float_list(name: str, values: list[float]) -> None:
-    """Raise ValueError if a list of float-like values contains non-finite entries."""
-    for index, value in enumerate(values):
-        if not math.isfinite(value):
-            raise ValueError(f"{name}[{index}] must be finite")
 
 
 def _validate_freeze_mask(
@@ -143,8 +128,7 @@ def validate_control_problem(cp: ControlProblem) -> None:
     _validate_nonempty("rho_targ", cp.rho_targ)
 
     if cp.fidelity_mode not in VALID_FIDELITY_MODES:
-        valid = ", ".join(sorted(VALID_FIDELITY_MODES))
-        raise ValueError(f"fidelity_mode must be one of: {valid}")
+        _raise_invalid_mode("fidelity_mode")
     if cp.pulse_dt <= 0.0 or not math.isfinite(cp.pulse_dt):
         raise ValueError("pulse_dt must be finite and positive")
     if len(cp.rho_init) != len(cp.rho_targ):
@@ -249,6 +233,12 @@ def apply_freeze(
     validate_waveform(initial, waveform.shape[1], waveform.shape[0])
     result[mask] = initial[mask]
     return result
+
+
+def _zero_frozen(gradient: RealArray, freeze: npt.NDArray[np.bool_] | None) -> None:
+    """Zero gradient entries on frozen waveform positions, in place."""
+    if freeze is not None:
+        gradient[np.asarray(freeze, dtype=np.bool_)] = 0.0
 
 
 def _validate_xy_waveform(name: str, wfm_xy: RealArray) -> None:
@@ -623,32 +613,55 @@ def _validate_square_propagator(propagator: Array) -> None:
         raise ValueError(f"propagator must be square, got shape {propagator.shape}")
 
 
+def _validate_matches_propagator(name: str, matrix: Array, propagator: Array) -> None:
+    """Raise ValueError if a derivative matrix does not match the propagator shape."""
+    if matrix.shape != propagator.shape:
+        raise ValueError(
+            f"{name} shape {matrix.shape} must match "
+            f"propagator shape {propagator.shape}"
+        )
+
+
+def _propagator_layout(state: Array, propagator: Array) -> str:
+    """Return how a propagator acts on a state: vector, hilbert, or liouville.
+
+    A 1-D state takes a matching matrix-vector product. A square-matrix state
+    is either sandwiched by a same-dimension Hilbert propagator or acted on in
+    vectorised form by a Liouville propagator of dimension ``state.size``.
+    """
+    if state.ndim == 1:
+        if propagator.shape != (state.shape[0], state.shape[0]):
+            raise ValueError(
+                f"propagator shape {propagator.shape} cannot act on "
+                f"state shape {state.shape}"
+            )
+        return "vector"
+
+    if state.ndim == 2 and state.shape[0] == state.shape[1]:
+        if propagator.shape == state.shape:
+            return "hilbert"
+        if propagator.shape == (state.size, state.size):
+            return "liouville"
+        raise ValueError(
+            f"propagator shape {propagator.shape} cannot act on "
+            f"state shape {state.shape}"
+        )
+
+    raise ValueError(f"state must be a vector or square matrix, got shape {state.shape}")
+
+
 def _apply_propagator(state: Array, propagator: Array) -> Array:
     """Apply a Hilbert-space or Liouville-space propagator to one state."""
     state_arr = np.asarray(state, dtype=np.complex128)
     propagator_arr = np.asarray(propagator, dtype=np.complex128)
     _validate_square_propagator(propagator_arr)
 
-    if state_arr.ndim == 1:
-        if propagator_arr.shape != (state_arr.shape[0], state_arr.shape[0]):
-            raise ValueError(
-                f"propagator shape {propagator_arr.shape} cannot act on "
-                f"state shape {state_arr.shape}"
-            )
+    layout = _propagator_layout(state_arr, propagator_arr)
+    if layout == "vector":
         return propagator_arr @ state_arr
-
-    if state_arr.ndim == 2 and state_arr.shape[0] == state_arr.shape[1]:
-        if propagator_arr.shape == state_arr.shape:
-            return propagator_arr @ state_arr @ propagator_arr.conj().T
-        liouville_shape = (state_arr.size, state_arr.size)
-        if propagator_arr.shape == liouville_shape:
-            return unvec(propagator_arr @ vec(state_arr), state_arr.shape[0])
-        raise ValueError(
-            f"propagator shape {propagator_arr.shape} cannot act on "
-            f"state shape {state_arr.shape}"
-        )
-
-    raise ValueError(f"state must be a vector or square matrix, got shape {state_arr.shape}")
+    if layout == "hilbert":
+        return propagator_arr @ state_arr @ propagator_arr.conj().T
+    return unvec(propagator_arr @ vec(state_arr), state_arr.shape[0])
 
 
 def _apply_derivative_propagator(state: Array, propagator: Array, d_propagator: Array) -> Array:
@@ -657,35 +670,17 @@ def _apply_derivative_propagator(state: Array, propagator: Array, d_propagator: 
     propagator_arr = np.asarray(propagator, dtype=np.complex128)
     d_propagator_arr = np.asarray(d_propagator, dtype=np.complex128)
     _validate_square_propagator(propagator_arr)
-    if d_propagator_arr.shape != propagator_arr.shape:
-        raise ValueError(
-            f"d_propagator shape {d_propagator_arr.shape} must match "
-            f"propagator shape {propagator_arr.shape}"
-        )
+    _validate_matches_propagator("d_propagator", d_propagator_arr, propagator_arr)
 
-    if state_arr.ndim == 1:
-        if propagator_arr.shape != (state_arr.shape[0], state_arr.shape[0]):
-            raise ValueError(
-                f"propagator shape {propagator_arr.shape} cannot act on "
-                f"state shape {state_arr.shape}"
-            )
+    layout = _propagator_layout(state_arr, propagator_arr)
+    if layout == "vector":
         return d_propagator_arr @ state_arr
-
-    if state_arr.ndim == 2 and state_arr.shape[0] == state_arr.shape[1]:
-        if propagator_arr.shape == state_arr.shape:
-            return (
-                d_propagator_arr @ state_arr @ propagator_arr.conj().T
-                + propagator_arr @ state_arr @ d_propagator_arr.conj().T
-            )
-        liouville_shape = (state_arr.size, state_arr.size)
-        if propagator_arr.shape == liouville_shape:
-            return unvec(d_propagator_arr @ vec(state_arr), state_arr.shape[0])
-        raise ValueError(
-            f"propagator shape {propagator_arr.shape} cannot act on "
-            f"state shape {state_arr.shape}"
+    if layout == "hilbert":
+        return (
+            d_propagator_arr @ state_arr @ propagator_arr.conj().T
+            + propagator_arr @ state_arr @ d_propagator_arr.conj().T
         )
-
-    raise ValueError(f"state must be a vector or square matrix, got shape {state_arr.shape}")
+    return unvec(d_propagator_arr @ vec(state_arr), state_arr.shape[0])
 
 
 def _apply_second_derivative_propagator(
@@ -702,43 +697,22 @@ def _apply_second_derivative_propagator(
     d_b_arr = np.asarray(d_propagator_b, dtype=np.complex128)
     dd_arr = np.asarray(dd_propagator, dtype=np.complex128)
     _validate_square_propagator(propagator_arr)
-    for name, matrix in (
-        ("d_propagator_a", d_a_arr),
-        ("d_propagator_b", d_b_arr),
-        ("dd_propagator", dd_arr),
-    ):
-        if matrix.shape != propagator_arr.shape:
-            raise ValueError(
-                f"{name} shape {matrix.shape} must match "
-                f"propagator shape {propagator_arr.shape}"
-            )
+    _validate_matches_propagator("d_propagator_a", d_a_arr, propagator_arr)
+    _validate_matches_propagator("d_propagator_b", d_b_arr, propagator_arr)
+    _validate_matches_propagator("dd_propagator", dd_arr, propagator_arr)
 
-    if state_arr.ndim == 1:
-        if propagator_arr.shape != (state_arr.shape[0], state_arr.shape[0]):
-            raise ValueError(
-                f"propagator shape {propagator_arr.shape} cannot act on "
-                f"state shape {state_arr.shape}"
-            )
+    layout = _propagator_layout(state_arr, propagator_arr)
+    if layout == "vector":
         return dd_arr @ state_arr
-
-    if state_arr.ndim == 2 and state_arr.shape[0] == state_arr.shape[1]:
-        if propagator_arr.shape == state_arr.shape:
-            return np.asarray(
-                dd_arr @ state_arr @ propagator_arr.conj().T
-                + d_a_arr @ state_arr @ d_b_arr.conj().T
-                + d_b_arr @ state_arr @ d_a_arr.conj().T
-                + propagator_arr @ state_arr @ dd_arr.conj().T,
-                dtype=np.complex128,
-            )
-        liouville_shape = (state_arr.size, state_arr.size)
-        if propagator_arr.shape == liouville_shape:
-            return unvec(dd_arr @ vec(state_arr), state_arr.shape[0])
-        raise ValueError(
-            f"propagator shape {propagator_arr.shape} cannot act on "
-            f"state shape {state_arr.shape}"
+    if layout == "hilbert":
+        return np.asarray(
+            dd_arr @ state_arr @ propagator_arr.conj().T
+            + d_a_arr @ state_arr @ d_b_arr.conj().T
+            + d_b_arr @ state_arr @ d_a_arr.conj().T
+            + propagator_arr @ state_arr @ dd_arr.conj().T,
+            dtype=np.complex128,
         )
-
-    raise ValueError(f"state must be a vector or square matrix, got shape {state_arr.shape}")
+    return unvec(dd_arr @ vec(state_arr), state_arr.shape[0])
 
 
 def forward_states(rho_init: Array, propagators: list[Array]) -> list[Array]:
@@ -770,8 +744,7 @@ def _fidelity_by_mode(rho_f: Array, rho_t: Array, mode: str) -> float:
         return fidelity_imag(rho_f, rho_t)
     if mode == "abs2":
         return fidelity_abs2(rho_f, rho_t)
-    valid = ", ".join(sorted(VALID_FIDELITY_MODES))
-    raise ValueError(f"mode must be one of: {valid}")
+    _raise_invalid_mode("mode")
 
 
 def final_fidelity(fwd_states: list[Array], bwd_states: list[Array], mode: str) -> float:
@@ -781,38 +754,6 @@ def final_fidelity(fwd_states: list[Array], bwd_states: list[Array], mode: str) 
     if len(bwd_states) == 0:
         raise ValueError("bwd_states must be non-empty")
     return _fidelity_by_mode(fwd_states[-1], bwd_states[0], mode)
-
-
-def _fidelity_directional_derivative(
-    rho_final: Array,
-    rho_targ: Array,
-    d_rho_final: Array,
-    mode: str,
-) -> float:
-    """Return the fidelity directional derivative for one final-state variation."""
-    rho_final_arr = np.asarray(rho_final, dtype=np.complex128)
-    rho_targ_arr = np.asarray(rho_targ, dtype=np.complex128)
-    d_rho_final_arr = np.asarray(d_rho_final, dtype=np.complex128)
-    if rho_final_arr.shape != rho_targ_arr.shape:
-        raise ValueError(
-            f"State shapes must match, got {rho_final_arr.shape} and {rho_targ_arr.shape}"
-        )
-    if d_rho_final_arr.shape != rho_final_arr.shape:
-        raise ValueError(
-            f"d_rho_final shape {d_rho_final_arr.shape} must match "
-            f"rho_final shape {rho_final_arr.shape}"
-        )
-
-    overlap = np.complex128(np.vdot(rho_targ_arr, rho_final_arr))
-    d_overlap = np.complex128(np.vdot(rho_targ_arr, d_rho_final_arr))
-    if mode == "real":
-        return float(np.real(d_overlap))
-    if mode == "imag":
-        return float(np.imag(d_overlap))
-    if mode == "abs2":
-        return float(2.0 * np.real(overlap.conjugate() * d_overlap))
-    valid = ", ".join(sorted(VALID_FIDELITY_MODES))
-    raise ValueError(f"mode must be one of: {valid}")
 
 
 def _fidelity_second_directional_derivative(
@@ -857,8 +798,7 @@ def _fidelity_second_directional_derivative(
                 + overlap.conjugate() * dd_overlap
             )
         )
-    valid = ", ".join(sorted(VALID_FIDELITY_MODES))
-    raise ValueError(f"mode must be one of: {valid}")
+    _raise_invalid_mode("mode")
 
 
 def _mode_value(overlap: np.complex128, mode: str) -> float:
@@ -869,8 +809,7 @@ def _mode_value(overlap: np.complex128, mode: str) -> float:
         return float(np.imag(overlap))
     if mode == "abs2":
         return float(np.real(overlap.conjugate() * overlap))
-    valid = ", ".join(sorted(VALID_FIDELITY_MODES))
-    raise ValueError(f"mode must be one of: {valid}")
+    _raise_invalid_mode("mode")
 
 
 def _mode_gradient(
@@ -887,8 +826,7 @@ def _mode_gradient(
         return np.asarray(
             2.0 * np.real(np.conjugate(overlap) * d_overlaps), dtype=np.float64
         )
-    valid = ", ".join(sorted(VALID_FIDELITY_MODES))
-    raise ValueError(f"mode must be one of: {valid}")
+    _raise_invalid_mode("mode")
 
 
 def _vector_value_and_gradient(
@@ -972,9 +910,7 @@ def _single_value_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[floa
     accelerated = vector_value_gradient([cp], effective_waveform)
     if accelerated is not None:
         fidelity, accelerated_gradient = accelerated
-        if cp.freeze is not None:
-            freeze_mask = np.asarray(cp.freeze, dtype=np.bool_)
-            accelerated_gradient[freeze_mask] = 0.0
+        _zero_frozen(accelerated_gradient, cp.freeze)
         return fidelity, accelerated_gradient
 
     generators = _slice_generator_stack(cp, effective_waveform)
@@ -1010,9 +946,7 @@ def _single_value_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[floa
 
     fidelity = float(np.mean(np.asarray(values, dtype=np.float64)))
     gradient /= float(len(cp.rho_init))
-    if cp.freeze is not None:
-        freeze_mask = np.asarray(cp.freeze, dtype=np.bool_)
-        gradient[freeze_mask] = 0.0
+    _zero_frozen(gradient, cp.freeze)
     return fidelity, gradient
 
 
@@ -1036,9 +970,7 @@ def grape_xy_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[float, Re
         penalty_value, penalty_gradient = total_penalty(waveform, cp.penalties)
         fidelity -= penalty_value
         gradient = gradient - penalty_gradient
-        if cp.freeze is not None:
-            freeze_mask = np.asarray(cp.freeze, dtype=np.bool_)
-            gradient[freeze_mask] = 0.0
+        _zero_frozen(gradient, cp.freeze)
     return fidelity, np.asarray(gradient, dtype=np.float64)
 
 
@@ -1052,19 +984,11 @@ def grape_gradient(cp: ControlProblem, wfm: RealArray) -> RealArray:
     return grape_xy_and_gradient(cp, wfm)[1]
 
 
-def grape_hessian(cp: ControlProblem, wfm: RealArray) -> RealArray | None:
-    """Return the exact GRAPE Hessian for small waveforms, or None if too large."""
-    validate_control_problem(cp)
-    waveform = np.asarray(wfm, dtype=np.float64)
-    if waveform.ndim != 2:
-        raise ValueError(f"waveform must be two-dimensional, got shape {waveform.shape}")
-    validate_waveform(waveform, len(cp.operators), waveform.shape[0])
-    effective_waveform = apply_freeze(waveform, cp.freeze)
-    n_steps, n_channels = effective_waveform.shape
-    n_params = n_steps * n_channels
-    if n_params > 50:
-        return None
-
+def _hessian_slice_propagators(
+    cp: ControlProblem, effective_waveform: RealArray
+) -> tuple[list[Array], list[list[Array]], list[list[list[Array]]]]:
+    """Return per-slice propagators with their first and second derivatives."""
+    n_channels = effective_waveform.shape[1]
     propagators: list[Array] = []
     derivative_propagators: list[list[Array]] = []
     second_derivative_propagators: list[list[list[Array]]] = []
@@ -1096,72 +1020,112 @@ def grape_hessian(cp: ControlProblem, wfm: RealArray) -> RealArray | None:
                 for channel_a in range(n_channels)
             ]
         )
+    return propagators, derivative_propagators, second_derivative_propagators
+
+
+def _hessian_state_sweep(
+    rho_init: Array,
+    propagators: list[Array],
+    derivative_propagators: list[list[Array]],
+    second_derivative_propagators: list[list[list[Array]]],
+    n_channels: int,
+    n_params: int,
+) -> tuple[Array, list[Array], list[list[Array]]]:
+    """Propagate one state with all first and second parameter variations."""
+    current = np.asarray(rho_init, dtype=np.complex128).copy()
+    zero_state = np.zeros_like(current, dtype=np.complex128)
+    first_states = [zero_state.copy() for _ in range(n_params)]
+    second_states = [
+        [zero_state.copy() for _ in range(n_params)] for _ in range(n_params)
+    ]
+
+    for step_index in range(len(propagators)):
+        propagator = propagators[step_index]
+        next_current = _apply_propagator(current, propagator)
+        next_first_states = [
+            _apply_propagator(first_state, propagator)
+            for first_state in first_states
+        ]
+        next_second_states = [
+            [
+                _apply_propagator(second_states[row][col], propagator)
+                for col in range(n_params)
+            ]
+            for row in range(n_params)
+        ]
+
+        for channel_index in range(n_channels):
+            param_index = step_index * n_channels + channel_index
+            d_prop = derivative_propagators[step_index][channel_index]
+            for other_index in range(n_params):
+                next_second_states[param_index][other_index] += (
+                    _apply_derivative_propagator(
+                        first_states[other_index],
+                        propagator,
+                        d_prop,
+                    )
+                )
+                next_second_states[other_index][param_index] += (
+                    _apply_derivative_propagator(
+                        first_states[other_index],
+                        propagator,
+                        d_prop,
+                    )
+                )
+            next_first_states[param_index] += _apply_derivative_propagator(
+                current,
+                propagator,
+                d_prop,
+            )
+
+        for channel_a in range(n_channels):
+            param_a = step_index * n_channels + channel_a
+            for channel_b in range(n_channels):
+                param_b = step_index * n_channels + channel_b
+                next_second_states[param_a][param_b] += (
+                    _apply_second_derivative_propagator(
+                        current,
+                        propagator,
+                        derivative_propagators[step_index][channel_a],
+                        derivative_propagators[step_index][channel_b],
+                        second_derivative_propagators[step_index][channel_a][channel_b],
+                    )
+                )
+
+        current = next_current
+        first_states = next_first_states
+        second_states = next_second_states
+
+    return current, first_states, second_states
+
+
+def grape_hessian(cp: ControlProblem, wfm: RealArray) -> RealArray | None:
+    """Return the exact GRAPE Hessian for small waveforms, or None if too large."""
+    validate_control_problem(cp)
+    waveform = np.asarray(wfm, dtype=np.float64)
+    if waveform.ndim != 2:
+        raise ValueError(f"waveform must be two-dimensional, got shape {waveform.shape}")
+    validate_waveform(waveform, len(cp.operators), waveform.shape[0])
+    effective_waveform = apply_freeze(waveform, cp.freeze)
+    n_steps, n_channels = effective_waveform.shape
+    n_params = n_steps * n_channels
+    if n_params > 50:
+        return None
+
+    propagators, derivative_propagators, second_derivative_propagators = (
+        _hessian_slice_propagators(cp, effective_waveform)
+    )
 
     hessian: RealArray = np.zeros((n_params, n_params), dtype=np.float64)
     for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ):
-        current = np.asarray(rho_init, dtype=np.complex128).copy()
-        zero_state = np.zeros_like(current, dtype=np.complex128)
-        first_states = [zero_state.copy() for _ in range(n_params)]
-        second_states = [
-            [zero_state.copy() for _ in range(n_params)] for _ in range(n_params)
-        ]
-
-        for step_index in range(n_steps):
-            propagator = propagators[step_index]
-            next_current = _apply_propagator(current, propagator)
-            next_first_states = [
-                _apply_propagator(first_state, propagator)
-                for first_state in first_states
-            ]
-            next_second_states = [
-                [
-                    _apply_propagator(second_states[row][col], propagator)
-                    for col in range(n_params)
-                ]
-                for row in range(n_params)
-            ]
-
-            for channel_index in range(n_channels):
-                param_index = step_index * n_channels + channel_index
-                d_prop = derivative_propagators[step_index][channel_index]
-                for other_index in range(n_params):
-                    next_second_states[param_index][other_index] += (
-                        _apply_derivative_propagator(
-                            first_states[other_index],
-                            propagator,
-                            d_prop,
-                        )
-                    )
-                    next_second_states[other_index][param_index] += (
-                        _apply_derivative_propagator(
-                            first_states[other_index],
-                            propagator,
-                            d_prop,
-                        )
-                    )
-                next_first_states[param_index] += _apply_derivative_propagator(
-                    current,
-                    propagator,
-                    d_prop,
-                )
-
-            for channel_a in range(n_channels):
-                param_a = step_index * n_channels + channel_a
-                for channel_b in range(n_channels):
-                    param_b = step_index * n_channels + channel_b
-                    next_second_states[param_a][param_b] += (
-                        _apply_second_derivative_propagator(
-                            current,
-                            propagator,
-                            derivative_propagators[step_index][channel_a],
-                            derivative_propagators[step_index][channel_b],
-                            second_derivative_propagators[step_index][channel_a][channel_b],
-                        )
-                    )
-
-            current = next_current
-            first_states = next_first_states
-            second_states = next_second_states
+        current, first_states, second_states = _hessian_state_sweep(
+            rho_init,
+            propagators,
+            derivative_propagators,
+            second_derivative_propagators,
+            n_channels,
+            n_params,
+        )
 
         for row in range(n_params):
             for col in range(n_params):

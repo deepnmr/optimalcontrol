@@ -5,8 +5,9 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
+from optimalcontrol.analysis import expectation_values
 from optimalcontrol.crop import crop_robustness_sweep
-from optimalcontrol.io import Waveform
+from optimalcontrol.io import Waveform, _xy_channel_indices
 from optimalcontrol.rope import inept_max_efficiency, rope_g
 
 try:
@@ -17,7 +18,6 @@ try:
 except ImportError as _exc:
     raise ImportError("matplotlib is required for optimalcontrol.plotting") from _exc
 
-RealArray = npt.NDArray[np.float64]
 ComplexArray = npt.NDArray[np.complex128]
 
 
@@ -55,11 +55,7 @@ def plot_xy_controls(
     -------
     matplotlib.figure.Figure
     """
-    lowered = [ch.lower() for ch in wfm.channels]
-    if "x" not in lowered or "y" not in lowered:
-        raise ValueError("waveform must contain 'x' and 'y' channels")
-    x_index = lowered.index("x")
-    y_index = lowered.index("y")
+    x_index, y_index = _xy_channel_indices(wfm)
 
     fig, axes = _figure_and_axes(ax)
     times = wfm.times
@@ -89,11 +85,7 @@ def plot_ampl_phase(
     -------
     matplotlib.figure.Figure
     """
-    lowered = [ch.lower() for ch in wfm.channels]
-    if "x" not in lowered or "y" not in lowered:
-        raise ValueError("waveform must contain 'x' and 'y' channels")
-    x_index = lowered.index("x")
-    y_index = lowered.index("y")
+    x_index, y_index = _xy_channel_indices(wfm)
 
     x_values = wfm.data[x_index, :]
     y_values = wfm.data[y_index, :]
@@ -249,17 +241,8 @@ def plot_trajectory(
     indices = np.arange(n_steps, dtype=np.float64)
 
     fig, axes = _figure_and_axes(ax)
-    for name, op in ops.items():
-        op_arr = np.asarray(op, dtype=np.complex128)
-        values: list[float] = []
-        for state in trajectory:
-            state_arr = np.asarray(state, dtype=np.complex128)
-            if state_arr.ndim == 1:
-                ev = float(np.real(np.vdot(state_arr, op_arr @ state_arr)))
-            else:
-                ev = float(np.real(np.trace(op_arr @ state_arr)))
-            values.append(ev)
-        axes.plot(indices, np.array(values, dtype=np.float64), label=name)
+    for name, values in expectation_values(trajectory, ops).items():
+        axes.plot(indices, values, label=name)
 
     axes.set_xlabel("Time step")
     axes.set_ylabel("Expectation value")

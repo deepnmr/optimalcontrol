@@ -4,13 +4,10 @@ import copy
 import itertools
 
 import numpy as np
-import numpy.typing as npt
 from scipy.signal import spectrogram
 
+from optimalcontrol._types import Array, RealArray
 from optimalcontrol.grape import ControlProblem, forward_propagators, forward_states, grape_xy
-
-Array = npt.NDArray[np.complex128]
-RealArray = npt.NDArray[np.float64]
 
 
 def state_trajectory(cp: ControlProblem, wfm: RealArray) -> list[Array]:

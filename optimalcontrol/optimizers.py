@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
 import numpy as np
-import numpy.typing as npt
 
 from optimalcontrol.grape import (
     ControlProblem,
@@ -22,8 +21,8 @@ from optimalcontrol.grape import (
 if TYPE_CHECKING:
     from optimalcontrol.io import Waveform
 
-Array = npt.NDArray[np.complex128]
-RealArray = npt.NDArray[np.float64]
+from optimalcontrol._types import Array, RealArray
+
 Objective = Callable[[RealArray], float]
 Gradient = Callable[[RealArray], RealArray]
 
@@ -97,6 +96,14 @@ def _directional_derivative(gradient: RealArray, direction: RealArray) -> float:
 def _array_norm(value: RealArray) -> float:
     """Return the Euclidean norm of a real array."""
     return float(np.linalg.norm(np.asarray(value, dtype=np.float64).reshape(-1)))
+
+
+def _check_gradient_shape(gradient: RealArray, waveform: RealArray) -> None:
+    """Raise ValueError if a gradient does not match the waveform shape."""
+    if gradient.shape != waveform.shape:
+        raise ValueError(
+            f"gradient shape {gradient.shape} must match wfm shape {waveform.shape}"
+        )
 
 
 def _validate_optimizer_controls(tol_x: float, tol_g: float, max_iter: int) -> None:
@@ -751,6 +758,102 @@ def _grape_result(
     )
 
 
+_ComputeStep = Callable[[Objective, Gradient, RealArray, RealArray], tuple[float, RealArray]]
+_Finalise = Callable[[RealArray, float, int, int, bool, str, list[float]], OptimResult]
+
+
+def _drive_optimizer(
+    cp: ControlProblem,
+    wfm0: RealArray,
+    *,
+    tol_x: float,
+    tol_g: float,
+    max_iter: int,
+    checkpoint_path: str | None,
+    compute_step: _ComputeStep,
+    finalise: _Finalise,
+    restore_extra: Callable[[_CheckpointData, RealArray], None] | None = None,
+    apply_step: Callable[[RealArray, RealArray], RealArray] | None = None,
+    on_accept: Callable[[RealArray, RealArray, RealArray, RealArray], None] | None = None,
+    checkpoint_state: Callable[[], LBFGSState | None] | None = None,
+) -> OptimResult:
+    """Run the shared GRAPE ascent loop; optimizers differ only in their hooks.
+
+    The setup (control validation, checkpoint restore, cached evaluators,
+    early grad_tol/max_iter returns), the accepted-step bookkeeping, and the
+    checkpoint cadence (every tenth iteration, on convergence, and on every
+    exit path) are identical across the optimizers and live here once.
+
+    Hooks: ``compute_step`` returns the line-search ``(alpha, direction)``
+    pair, ``finalise`` builds the result, ``restore_extra`` consumes extra
+    checkpoint state, ``apply_step`` overrides the plain waveform update,
+    ``on_accept`` observes each accepted step, and ``checkpoint_state``
+    supplies optimizer memory to persist alongside checkpoints.
+    """
+    _validate_optimizer_controls(tol_x, tol_g, max_iter)
+    checkpoint_file = _effective_checkpoint_path(cp, checkpoint_path)
+    checkpoint = _restore_checkpoint(cp, wfm0, checkpoint_file)
+    waveform = checkpoint.wfm
+    if restore_extra is not None:
+        restore_extra(checkpoint, waveform)
+    objective, gradient_fn, n_feval = _cached_grape_evaluators(
+        cp, initial_count=checkpoint.n_feval
+    )
+
+    history = checkpoint.history.copy()
+
+    def save() -> None:
+        _save_optimizer_checkpoint(
+            checkpoint_file,
+            waveform,
+            history,
+            n_feval=n_feval(),
+            lbfgs_state=None if checkpoint_state is None else checkpoint_state(),
+        )
+
+    fidelity = float(history[-1]) if history else objective(waveform)
+    if not history:
+        history.append(fidelity)
+    completed_iter = max(0, len(history) - 1)
+    gradient = gradient_fn(waveform)
+    _check_gradient_shape(gradient, waveform)
+    if _array_norm(gradient) <= tol_g:
+        save()
+        return finalise(waveform, fidelity, completed_iter, n_feval(), True, "grad_tol", history)
+    if completed_iter >= max_iter:
+        save()
+        return finalise(waveform, fidelity, completed_iter, n_feval(), False, "max_iter", history)
+
+    for iteration in range(completed_iter + 1, max_iter + 1):
+        alpha, direction = compute_step(objective, gradient_fn, waveform, gradient)
+        step = np.asarray(alpha * direction, dtype=np.float64)
+        step_norm = _array_norm(step)
+        if alpha <= 0.0 or step_norm <= tol_x:
+            save()
+            return finalise(waveform, fidelity, iteration - 1, n_feval(), True, "step_tol", history)
+
+        previous_waveform = waveform
+        previous_gradient = gradient
+        if apply_step is None:
+            waveform = np.asarray(waveform + step, dtype=np.float64)
+        else:
+            waveform = apply_step(waveform, step)
+        fidelity = objective(waveform)
+        history.append(fidelity)
+        gradient = gradient_fn(waveform)
+        _check_gradient_shape(gradient, waveform)
+        if on_accept is not None:
+            on_accept(previous_waveform, previous_gradient, waveform, gradient)
+        grad_norm = _array_norm(gradient)
+        if iteration % 10 == 0 or grad_norm <= tol_g:
+            save()
+        if grad_norm <= tol_g:
+            return finalise(waveform, fidelity, iteration, n_feval(), True, "grad_tol", history)
+
+    save()
+    return finalise(waveform, fidelity, max_iter, n_feval(), False, "max_iter", history)
+
+
 def gradient_ascent(
     cp: ControlProblem,
     wfm0: RealArray,
@@ -760,62 +863,27 @@ def gradient_ascent(
     checkpoint_path: str | None = None,
 ) -> OptimResult:
     """Optimise GRAPE controls with steepest ascent and cubic line search."""
-    _validate_optimizer_controls(tol_x, tol_g, max_iter)
-    checkpoint_file = _effective_checkpoint_path(cp, checkpoint_path)
-    checkpoint = _restore_checkpoint(cp, wfm0, checkpoint_file)
-    waveform = checkpoint.wfm
-    objective, gradient_fn, n_feval = _cached_grape_evaluators(
-        cp, initial_count=checkpoint.n_feval
-    )
 
-    history = checkpoint.history.copy()
-    fidelity = float(history[-1]) if history else objective(waveform)
-    if not history:
-        history.append(fidelity)
-    completed_iter = max(0, len(history) - 1)
-    gradient = gradient_fn(waveform)
-    if gradient.shape != waveform.shape:
-        raise ValueError(f"gradient shape {gradient.shape} must match wfm shape {waveform.shape}")
-    if _array_norm(gradient) <= tol_g:
-        _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
-        return _result(waveform, fidelity, completed_iter, n_feval(), True, "grad_tol", history)
-    if completed_iter >= max_iter:
-        _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
-        return _result(waveform, fidelity, completed_iter, n_feval(), False, "max_iter", history)
-
-    for iteration in range(completed_iter + 1, max_iter + 1):
+    def compute_step(
+        objective: Objective,
+        gradient_fn: Gradient,
+        waveform: RealArray,
+        gradient: RealArray,
+    ) -> tuple[float, RealArray]:
         direction = gradient.copy()
         alpha = line_search_cubic(objective, gradient_fn, waveform, direction)
-        step = np.asarray(alpha * direction, dtype=np.float64)
-        step_norm = _array_norm(step)
-        if alpha <= 0.0 or step_norm <= tol_x:
-            _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
-            return _result(
-                waveform,
-                fidelity,
-                iteration - 1,
-                n_feval(),
-                True,
-                "step_tol",
-                history,
-            )
+        return alpha, direction
 
-        waveform = np.asarray(waveform + step, dtype=np.float64)
-        fidelity = objective(waveform)
-        history.append(fidelity)
-        gradient = gradient_fn(waveform)
-        if gradient.shape != waveform.shape:
-            raise ValueError(
-                f"gradient shape {gradient.shape} must match wfm shape {waveform.shape}"
-            )
-        grad_norm = _array_norm(gradient)
-        if iteration % 10 == 0 or grad_norm <= tol_g:
-            _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
-        if grad_norm <= tol_g:
-            return _result(waveform, fidelity, iteration, n_feval(), True, "grad_tol", history)
-
-    _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
-    return _result(waveform, fidelity, max_iter, n_feval(), False, "max_iter", history)
+    return _drive_optimizer(
+        cp,
+        wfm0,
+        tol_x=tol_x,
+        tol_g=tol_g,
+        max_iter=max_iter,
+        checkpoint_path=checkpoint_path,
+        compute_step=compute_step,
+        finalise=_result,
+    )
 
 
 def lbfgs_state(m: int = 10) -> LBFGSState:
@@ -947,149 +1015,74 @@ def lbfgs_grape(
     produce_trajectory: bool = False,
 ) -> OptimResult:
     """Optimise GRAPE controls with limited-memory BFGS and line search."""
-    _validate_optimizer_controls(tol_x, tol_g, max_iter)
-    checkpoint_file = _effective_checkpoint_path(cp, checkpoint_path)
-    checkpoint = _restore_checkpoint(cp, wfm0, checkpoint_file)
-    waveform = checkpoint.wfm
-    if checkpoint.lbfgs_state is not None:
+    state = lbfgs_state(m)
+
+    def restore_extra(checkpoint: _CheckpointData, waveform: RealArray) -> None:
+        nonlocal state
+        if checkpoint.lbfgs_state is None:
+            return
         state = _copy_lbfgs_state(checkpoint.lbfgs_state)
         if int(state["m"]) != m:
             raise ValueError(
                 f"checkpoint L-BFGS memory m={state['m']} does not match requested m={m}"
             )
         _validate_lbfgs_checkpoint_state(state, waveform.shape)
-    else:
-        state = lbfgs_state(m)
-    objective, gradient_fn, n_feval = _cached_grape_evaluators(
-        cp, initial_count=checkpoint.n_feval
-    )
 
-    history = checkpoint.history.copy()
-    fidelity = float(history[-1]) if history else objective(waveform)
-    if not history:
-        history.append(fidelity)
-    completed_iter = max(0, len(history) - 1)
-    gradient = gradient_fn(waveform)
-    if gradient.shape != waveform.shape:
-        raise ValueError(f"gradient shape {gradient.shape} must match wfm shape {waveform.shape}")
-    if _array_norm(gradient) <= tol_g:
-        _save_optimizer_checkpoint(
-            checkpoint_file,
-            waveform,
-            history,
-            n_feval=n_feval(),
-            lbfgs_state=state,
-        )
-        return _grape_result(
-            cp,
-            waveform,
-            fidelity,
-            completed_iter,
-            n_feval(),
-            True,
-            "grad_tol",
-            history,
-            produce_trajectory=produce_trajectory,
-        )
-    if completed_iter >= max_iter:
-        _save_optimizer_checkpoint(
-            checkpoint_file,
-            waveform,
-            history,
-            n_feval=n_feval(),
-            lbfgs_state=state,
-        )
-        return _grape_result(
-            cp,
-            waveform,
-            fidelity,
-            completed_iter,
-            n_feval(),
-            False,
-            "max_iter",
-            history,
-            produce_trajectory=produce_trajectory,
-        )
-
-    for iteration in range(completed_iter + 1, max_iter + 1):
+    def compute_step(
+        objective: Objective,
+        gradient_fn: Gradient,
+        waveform: RealArray,
+        gradient: RealArray,
+    ) -> tuple[float, RealArray]:
         direction = lbfgs_direction(state, gradient)
         alpha = line_search_cubic(objective, gradient_fn, waveform, direction)
         if alpha <= 0.0 and not np.array_equal(direction, gradient):
             direction = gradient.copy()
             alpha = line_search_cubic(objective, gradient_fn, waveform, direction)
+        return alpha, direction
 
-        step = np.asarray(alpha * direction, dtype=np.float64)
-        step_norm = _array_norm(step)
-        if alpha <= 0.0 or step_norm <= tol_x:
-            _save_optimizer_checkpoint(
-                checkpoint_file,
-                waveform,
-                history,
-                n_feval=n_feval(),
-                lbfgs_state=state,
-            )
-            return _grape_result(
-                cp,
-                waveform,
-                fidelity,
-                iteration - 1,
-                n_feval(),
-                True,
-                "step_tol",
-                history,
-                produce_trajectory=produce_trajectory,
-            )
-
-        previous_waveform = waveform
-        previous_gradient = gradient
-        waveform = np.asarray(waveform + step, dtype=np.float64)
-        fidelity = objective(waveform)
-        history.append(fidelity)
-        gradient = gradient_fn(waveform)
-        if gradient.shape != waveform.shape:
-            raise ValueError(
-                f"gradient shape {gradient.shape} must match wfm shape {waveform.shape}"
-            )
+    def on_accept(
+        previous_waveform: RealArray,
+        previous_gradient: RealArray,
+        waveform: RealArray,
+        gradient: RealArray,
+    ) -> None:
+        nonlocal state
         state = lbfgs_update(state, waveform - previous_waveform, previous_gradient - gradient)
-        grad_norm = _array_norm(gradient)
-        if iteration % 10 == 0 or grad_norm <= tol_g:
-            _save_optimizer_checkpoint(
-                checkpoint_file,
-                waveform,
-                history,
-                n_feval=n_feval(),
-                lbfgs_state=state,
-            )
-        if grad_norm <= tol_g:
-            return _grape_result(
-                cp,
-                waveform,
-                fidelity,
-                iteration,
-                n_feval(),
-                True,
-                "grad_tol",
-                history,
-                produce_trajectory=produce_trajectory,
-            )
 
-    _save_optimizer_checkpoint(
-        checkpoint_file,
-        waveform,
-        history,
-        n_feval=n_feval(),
-        lbfgs_state=state,
-    )
-    return _grape_result(
+    def finalise(
+        waveform: RealArray,
+        fidelity: float,
+        n_iter: int,
+        n_feval: int,
+        converged: bool,
+        reason: str,
+        history: list[float],
+    ) -> OptimResult:
+        return _grape_result(
+            cp,
+            waveform,
+            fidelity,
+            n_iter,
+            n_feval,
+            converged,
+            reason,
+            history,
+            produce_trajectory=produce_trajectory,
+        )
+
+    return _drive_optimizer(
         cp,
-        waveform,
-        fidelity,
-        max_iter,
-        n_feval(),
-        False,
-        "max_iter",
-        history,
-        produce_trajectory=produce_trajectory,
+        wfm0,
+        tol_x=tol_x,
+        tol_g=tol_g,
+        max_iter=max_iter,
+        checkpoint_path=checkpoint_path,
+        compute_step=compute_step,
+        finalise=finalise,
+        restore_extra=restore_extra,
+        on_accept=on_accept,
+        checkpoint_state=lambda: state,
     )
 
 
@@ -1105,111 +1098,58 @@ def newton_raphson(
     produce_trajectory: bool = False,
 ) -> OptimResult:
     """Optimise GRAPE controls with Newton-Raphson steps on the exact Hessian."""
-    _validate_optimizer_controls(tol_x, tol_g, max_iter)
-    checkpoint_file = _effective_checkpoint_path(cp, checkpoint_path)
-    checkpoint = _restore_checkpoint(cp, wfm0, checkpoint_file)
-    waveform = checkpoint.wfm
-    objective, gradient_fn, n_feval = _cached_grape_evaluators(
-        cp, initial_count=checkpoint.n_feval
-    )
     hessian_fn = _grape_hessian(cp)
     freeze_mask = None if cp.freeze is None else np.asarray(cp.freeze, dtype=np.bool_)
 
-    history = checkpoint.history.copy()
-    fidelity = float(history[-1]) if history else objective(waveform)
-    if not history:
-        history.append(fidelity)
-    completed_iter = max(0, len(history) - 1)
-    gradient = gradient_fn(waveform)
-    if gradient.shape != waveform.shape:
-        raise ValueError(f"gradient shape {gradient.shape} must match wfm shape {waveform.shape}")
-    if _array_norm(gradient) <= tol_g:
-        _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
-        return _grape_result(
-            cp,
-            waveform,
-            fidelity,
-            completed_iter,
-            n_feval(),
-            True,
-            "grad_tol",
-            history,
-            produce_trajectory=produce_trajectory,
-        )
-    if completed_iter >= max_iter:
-        _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
-        return _grape_result(
-            cp,
-            waveform,
-            fidelity,
-            completed_iter,
-            n_feval(),
-            False,
-            "max_iter",
-            history,
-            produce_trajectory=produce_trajectory,
-        )
-
-    for iteration in range(completed_iter + 1, max_iter + 1):
+    def compute_step(
+        objective: Objective,
+        gradient_fn: Gradient,
+        waveform: RealArray,
+        gradient: RealArray,
+    ) -> tuple[float, RealArray]:
         hessian = hessian_fn(waveform)
         step_direction = _newton_step(gradient, hessian, regularise=regularise, rfo=rfo)
         if freeze_mask is not None:
             step_direction = step_direction.copy()
             step_direction[freeze_mask] = 0.0
-
         alpha = line_search_cubic(objective, gradient_fn, waveform, step_direction, alpha0=1.0)
-        step = np.asarray(alpha * step_direction, dtype=np.float64)
-        step_norm = _array_norm(step)
-        if alpha <= 0.0 or step_norm <= tol_x:
-            _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
-            return _grape_result(
-                cp,
-                waveform,
-                fidelity,
-                iteration - 1,
-                n_feval(),
-                True,
-                "step_tol",
-                history,
-                produce_trajectory=produce_trajectory,
-            )
+        return alpha, step_direction
 
+    def apply_step(waveform: RealArray, step: RealArray) -> RealArray:
         candidate = np.asarray(waveform + step, dtype=np.float64)
-        waveform = apply_freeze(candidate, freeze_mask, waveform)
-        fidelity = objective(waveform)
-        history.append(fidelity)
-        gradient = gradient_fn(waveform)
-        if gradient.shape != waveform.shape:
-            raise ValueError(
-                f"gradient shape {gradient.shape} must match wfm shape {waveform.shape}"
-            )
-        grad_norm = _array_norm(gradient)
-        if iteration % 10 == 0 or grad_norm <= tol_g:
-            _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
-        if grad_norm <= tol_g:
-            return _grape_result(
-                cp,
-                waveform,
-                fidelity,
-                iteration,
-                n_feval(),
-                True,
-                "grad_tol",
-                history,
-                produce_trajectory=produce_trajectory,
-            )
+        return apply_freeze(candidate, freeze_mask, waveform)
 
-    _save_optimizer_checkpoint(checkpoint_file, waveform, history, n_feval=n_feval())
-    return _grape_result(
+    def finalise(
+        waveform: RealArray,
+        fidelity: float,
+        n_iter: int,
+        n_feval: int,
+        converged: bool,
+        reason: str,
+        history: list[float],
+    ) -> OptimResult:
+        return _grape_result(
+            cp,
+            waveform,
+            fidelity,
+            n_iter,
+            n_feval,
+            converged,
+            reason,
+            history,
+            produce_trajectory=produce_trajectory,
+        )
+
+    return _drive_optimizer(
         cp,
-        waveform,
-        fidelity,
-        max_iter,
-        n_feval(),
-        False,
-        "max_iter",
-        history,
-        produce_trajectory=produce_trajectory,
+        wfm0,
+        tol_x=tol_x,
+        tol_g=tol_g,
+        max_iter=max_iter,
+        checkpoint_path=checkpoint_path,
+        compute_step=compute_step,
+        finalise=finalise,
+        apply_step=apply_step,
     )
 
 

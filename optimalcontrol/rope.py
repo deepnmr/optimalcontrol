@@ -7,17 +7,8 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import brentq
 
-
-def _validate_nonnegative(name: str, value: float) -> None:
-    """Raise ValueError if a scalar parameter is outside its physical domain."""
-    if value < 0.0:
-        raise ValueError(f"{name} must be non-negative")
-
-
-def _validate_positive(name: str, value: float) -> None:
-    """Raise ValueError if a scalar parameter is not strictly positive."""
-    if value <= 0.0:
-        raise ValueError(f"{name} must be positive")
+from optimalcontrol._validation import validate_nonnegative as _validate_nonnegative
+from optimalcontrol._validation import validate_positive as _validate_positive
 
 
 def _arccot_nonnegative(x: float) -> float:
