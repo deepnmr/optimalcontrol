@@ -513,7 +513,7 @@ def export_bruker_shape(
     lines.extend(extra_tags)
     lines.append(f"##NPOINTS= {amplitude_percent.size}")
     lines.append("##XYPOINTS= (XY..XY)")
-    for amplitude, phase in zip(amplitude_percent, phase_deg):
+    for amplitude, phase in zip(amplitude_percent, phase_deg, strict=True):
         lines.append(f"{float(amplitude):.9e}, {float(phase):.9e}")
     lines.append("##END=")
     output = _output_path(path)

@@ -15,6 +15,7 @@ from optimalcontrol._validation import validate_nonempty as _validate_nonempty
 from optimalcontrol._validation import validate_square_matrix as _validate_square_matrix
 from optimalcontrol.operators import unvec, vec
 from optimalcontrol.penalties import PenaltyInput, total_penalty
+from optimalcontrol.states import _overlap
 
 VALID_FIDELITY_MODES = {"real", "imag", "abs2"}
 
@@ -739,7 +740,7 @@ def backward_states(rho_targ: Array, propagators: list[Array]) -> list[Array]:
 
 def _fidelity_by_mode(rho_f: Array, rho_t: Array, mode: str) -> float:
     """Evaluate the configured fidelity mode for one state pair."""
-    return _mode_value(np.complex128(np.vdot(rho_t, rho_f)), mode)
+    return _mode_value(_overlap(rho_f, rho_t), mode)
 
 
 def final_fidelity(fwd_states: list[Array], bwd_states: list[Array], mode: str) -> float:

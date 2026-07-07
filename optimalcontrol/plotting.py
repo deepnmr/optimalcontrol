@@ -21,6 +21,16 @@ except ImportError as _exc:
 ComplexArray = npt.NDArray[np.complex128]
 
 
+def _root_figure(ax: matplotlib.axes.Axes) -> matplotlib.figure.Figure:
+    """Return the top-level Figure owning ax; unlike get_figure(root=True), works on mpl < 3.10."""
+    fig = ax.get_figure()
+    while isinstance(fig, matplotlib.figure.SubFigure):
+        fig = fig.figure
+    if fig is None:
+        raise ValueError("provided ax has no associated figure")
+    return fig
+
+
 def _figure_and_axes(
     ax: matplotlib.axes.Axes | None,
     n_rows: int = 1,
@@ -28,10 +38,7 @@ def _figure_and_axes(
 ) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]:
     """Return (fig, ax), creating a new figure when ax is None."""
     if ax is not None:
-        fig = ax.get_figure(root=True)
-        if fig is None:
-            raise ValueError("provided ax has no associated figure")
-        return fig, ax
+        return _root_figure(ax), ax
     fig, axes = plt.subplots(n_rows, n_cols)
     if isinstance(axes, np.ndarray):
         return fig, axes.flat[0]
@@ -93,9 +100,7 @@ def plot_ampl_phase(
     phase_deg = np.degrees(np.arctan2(y_values, x_values))
 
     if ax is not None:
-        fig = ax.get_figure(root=True)
-        if fig is None:
-            raise ValueError("provided ax has no associated figure")
+        fig = _root_figure(ax)
         ax2 = ax.twinx()
         ax.plot(wfm.times, amplitude, color="C0", label="Amplitude")
         ax2.plot(wfm.times, phase_deg, color="C1", linestyle="--", label="Phase")

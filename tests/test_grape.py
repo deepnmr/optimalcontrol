@@ -242,6 +242,14 @@ def test_backward_states_accumulates_target_first_with_adjoint_propagators() -> 
     np.testing.assert_allclose(states[2], expected_after_swap_adjoint, rtol=1e-12)
 
 
+def test_final_fidelity_rejects_mismatched_shapes() -> None:
+    vector = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.complex128)
+    matrix = np.eye(2, dtype=np.complex128)
+
+    with pytest.raises(ValueError, match="State shapes must match"):
+        final_fidelity([vector], [matrix], "real")
+
+
 def test_final_fidelity_uses_configured_mode() -> None:
     rho_targ = np.array([1.0, 0.0], dtype=np.complex128)
     rho_final = np.complex128(1j) * rho_targ

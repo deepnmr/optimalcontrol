@@ -18,7 +18,7 @@ dev = [
     "pytest",
     "ruff",
     "mypy",
-    "matplotlib>=3.10",
+    "matplotlib",
 ]
 
 [tool.ruff]
