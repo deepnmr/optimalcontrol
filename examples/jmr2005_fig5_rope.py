@@ -23,6 +23,7 @@ import numpy as np
 import numpy.typing as npt
 
 from optimalcontrol.grape import ControlProblem, forward_propagators, forward_states
+from optimalcontrol.io import export_bruker_shape as write_bruker_shape
 from optimalcontrol.operators import liouvillian_comm, vec
 from optimalcontrol.optimizers import lbfgs_grape
 from optimalcontrol.rope import rope_finite_efficiency, rope_waveform
@@ -153,39 +154,24 @@ def _export_bruker_shape(waveform: npt.NDArray[np.float64], output_dir: str) -> 
     phase_deg = np.mod(phase_deg, 360.0)
     phase_deg[amplitude_percent == 0.0] = 0.0
 
-    shape_path = Path(output_dir) / BRUKER_SHAPE_NAME
-    shape_integral = float(np.mean(amplitude_percent) / 100.0)
-    lines = [
-        "##TITLE= jmr2005_fig5_rope",
-        "##JCAMP-DX= 5.00 Bruker JCAMP library",
-        "##DATA TYPE= Shape Data",
-        "##ORIGIN= optimalcontrol",
-        "##OWNER= optimalcontrol",
-        "##MINX= 0.000000e+00",
-        "##MAXX= 1.000000e+02",
-        "##MINY= 0.000000e+00",
-        "##MAXY= 3.600000e+02",
-        "##$SHAPE_EXMODE= None",
-        "##$SHAPE_TOTROT= 0.000000e+00",
-        "##$SHAPE_BWFAC= 0.000000e+00",
-        f"##$SHAPE_INTEGFAC= {shape_integral:.9e}",
-        "##$SHAPE_MODE= 0",
-        f"##$OPTIMALCONTROL_NPOINTS= {N_STEPS}",
-        f"##$OPTIMALCONTROL_TOTAL_DURATION_S= {T_TOTAL:.12e}",
-        f"##$OPTIMALCONTROL_STEP_DURATION_S= {DT:.12e}",
-        f"##$OPTIMALCONTROL_J_HZ= {J_HZ:.12e}",
-        f"##$OPTIMALCONTROL_RF_MAX_NU_OVER_J= {max_nu_over_j:.12e}",
-        f"##$OPTIMALCONTROL_RF_MAX_NU_HZ= {max_nu_over_j * J_HZ:.12e}",
-        "##$OPTIMALCONTROL_NOTE= "
-        "Set the Bruker pulse length to TOTAL_DURATION_S; amplitude 100 is RF_MAX_NU_HZ.",
-        "##NPOINTS= " + str(N_STEPS),
-        "##XYPOINTS= (XY..XY)",
-    ]
-    for amplitude, phase in zip(amplitude_percent, phase_deg):
-        lines.append(f"{amplitude:.9e}, {phase:.9e}")
-    lines.append("##END=")
-    shape_path.write_text("\n".join(lines) + "\n", encoding="ascii")
-    return shape_path
+    return write_bruker_shape(
+        Path(output_dir) / BRUKER_SHAPE_NAME,
+        "jmr2005_fig5_rope",
+        amplitude_percent,
+        phase_deg,
+        totrot=0.0,
+        shape_mode=0,
+        extra_tags=[
+            f"##$OPTIMALCONTROL_NPOINTS= {N_STEPS}",
+            f"##$OPTIMALCONTROL_TOTAL_DURATION_S= {T_TOTAL:.12e}",
+            f"##$OPTIMALCONTROL_STEP_DURATION_S= {DT:.12e}",
+            f"##$OPTIMALCONTROL_J_HZ= {J_HZ:.12e}",
+            f"##$OPTIMALCONTROL_RF_MAX_NU_OVER_J= {max_nu_over_j:.12e}",
+            f"##$OPTIMALCONTROL_RF_MAX_NU_HZ= {max_nu_over_j * J_HZ:.12e}",
+            "##$OPTIMALCONTROL_NOTE= "
+            "Set the Bruker pulse length to TOTAL_DURATION_S; amplitude 100 is RF_MAX_NU_HZ.",
+        ],
+    )
 
 
 def run(optimize: bool = False, max_iter: int = 30) -> npt.NDArray[np.float64]:

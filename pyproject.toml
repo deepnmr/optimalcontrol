@@ -18,7 +18,7 @@ dev = [
     "pytest",
     "ruff",
     "mypy",
-    "matplotlib",
+    "matplotlib>=3.10",
 ]
 
 [tool.ruff]
@@ -28,7 +28,7 @@ line-length = 100
 select = ["E", "F", "I"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 strict = true
 ignore_missing_imports = true
 

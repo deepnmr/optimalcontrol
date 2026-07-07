@@ -118,10 +118,8 @@ def _validate_optimizer_controls(tol_x: float, tol_g: float, max_iter: int) -> N
 
 def _initial_waveform(cp: ControlProblem, wfm0: RealArray) -> RealArray:
     """Return a validated mutable copy of the initial GRAPE waveform."""
-    waveform = _as_real_array("wfm0", wfm0)
-    if waveform.ndim != 2:
-        raise ValueError(f"wfm0 must be two-dimensional, got shape {waveform.shape}")
-    validate_waveform(waveform, len(cp.operators), waveform.shape[0])
+    waveform = np.asarray(wfm0, dtype=np.float64)
+    validate_waveform(waveform, len(cp.operators), waveform.shape[0] if waveform.ndim else 0)
     return waveform.copy()
 
 
@@ -293,10 +291,10 @@ def _save_optimizer_checkpoint(
     _write_checkpoint(
         checkpoint_path,
         _CheckpointData(
-            wfm=np.asarray(waveform, dtype=np.float64),
-            history=_checkpoint_history(history),
+            wfm=waveform,
+            history=history,
             n_feval=n_feval,
-            lbfgs_state=None if lbfgs_state is None else _copy_lbfgs_state(lbfgs_state),
+            lbfgs_state=lbfgs_state,
         ),
     )
 
@@ -308,7 +306,7 @@ def save_checkpoint(path: str, wfm: RealArray, result_so_far: list[float] | Opti
     _write_checkpoint(
         checkpoint_path,
         _CheckpointData(
-            wfm=np.asarray(wfm, dtype=np.float64),
+            wfm=wfm,
             history=_checkpoint_history(result_so_far),
             n_feval=n_feval,
             lbfgs_state=None,
@@ -320,25 +318,6 @@ def load_checkpoint(path: str) -> tuple[RealArray, list[float]]:
     """Load a waveform and fidelity history from a JSON checkpoint file."""
     checkpoint = _read_checkpoint(path)
     return checkpoint.wfm.copy(), checkpoint.history.copy()
-
-
-def print_iteration_table(
-    n_iter: int,
-    fidelity: float,
-    penalty: float,
-    grad_norm: float,
-    step_norm: float,
-) -> None:
-    """Print one fixed-width optimizer diagnostics row."""
-    values = [fidelity, penalty, grad_norm, step_norm]
-    if n_iter < 0:
-        raise ValueError("n_iter must be non-negative")
-    if not all(math.isfinite(value) for value in values):
-        raise ValueError("iteration diagnostics must be finite")
-    print(
-        f"{n_iter:6d} {fidelity:13.6e} {penalty:13.6e} "
-        f"{grad_norm:13.6e} {step_norm:13.6e}"
-    )
 
 
 def _as_symmetric_matrix(name: str, value: RealArray) -> RealArray:
@@ -852,38 +831,6 @@ def _drive_optimizer(
 
     save()
     return finalise(waveform, fidelity, max_iter, n_feval(), False, "max_iter", history)
-
-
-def gradient_ascent(
-    cp: ControlProblem,
-    wfm0: RealArray,
-    tol_x: float = 1e-6,
-    tol_g: float = 1e-6,
-    max_iter: int = 500,
-    checkpoint_path: str | None = None,
-) -> OptimResult:
-    """Optimise GRAPE controls with steepest ascent and cubic line search."""
-
-    def compute_step(
-        objective: Objective,
-        gradient_fn: Gradient,
-        waveform: RealArray,
-        gradient: RealArray,
-    ) -> tuple[float, RealArray]:
-        direction = gradient.copy()
-        alpha = line_search_cubic(objective, gradient_fn, waveform, direction)
-        return alpha, direction
-
-    return _drive_optimizer(
-        cp,
-        wfm0,
-        tol_x=tol_x,
-        tol_g=tol_g,
-        max_iter=max_iter,
-        checkpoint_path=checkpoint_path,
-        compute_step=compute_step,
-        finalise=_result,
-    )
 
 
 def lbfgs_state(m: int = 10) -> LBFGSState:

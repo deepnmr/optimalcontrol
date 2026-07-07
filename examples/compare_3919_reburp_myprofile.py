@@ -144,7 +144,9 @@ def _draw_panel(
     axis.axhline(1.0, color="black", linewidth=0.5, linestyle=":")
     axis.axhline(-1.0, color="black", linewidth=0.5, linestyle=":")
     axis.axhline(0.0, color="black", linewidth=0.5)
-    axis.axvline(WATER_PPM, color="tab:gray", linestyle="--", linewidth=0.9, label="water (4.7 ppm)")
+    axis.axvline(
+        WATER_PPM, color="tab:gray", linestyle="--", linewidth=0.9, label="water (4.7 ppm)"
+    )
     axis.axvline(-4.0, color="tab:gray", linestyle=":", linewidth=0.9, label="3-9-19 null (-4 ppm)")
     axis.plot(ppm, reburp, color="tab:blue", linewidth=1.8, label="min-length REBURP (10 kHz OC)")
     axis.plot(ppm, w3919, color="tab:red", linewidth=1.4, label="3-9-19 WATERGATE (36 kHz hard)")

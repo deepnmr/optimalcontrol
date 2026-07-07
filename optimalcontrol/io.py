@@ -4,6 +4,7 @@ import csv
 import hashlib
 import json
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, cast
@@ -40,8 +41,8 @@ class Waveform:
         if not units.strip():
             raise ValueError("units must be a non-empty string")
 
-        times = _as_real_1d("times", self.times)
-        data = _as_real_2d("data", self.data)
+        times = _as_real("times", self.times, 1)
+        data = _as_real("data", self.data, 2)
         if data.shape[0] != len(channels):
             raise ValueError(
                 f"data has {data.shape[0]} channels, expected {len(channels)}"
@@ -63,23 +64,12 @@ class Waveform:
         self.problem_hash = problem_hash
 
 
-def _as_real_1d(name: str, value: object) -> RealArray:
-    """Return a finite float64 one-dimensional array."""
+def _as_real(name: str, value: object, ndim: int) -> RealArray:
+    """Return a finite float64 array with the requested dimensionality."""
     array = np.asarray(value, dtype=np.float64)
-    if array.ndim != 1:
-        raise ValueError(f"{name} must be one-dimensional, got shape {array.shape}")
-    if array.size == 0:
-        raise ValueError(f"{name} must be non-empty")
-    if not np.all(np.isfinite(array)):
-        raise ValueError(f"{name} entries must be finite")
-    return array.copy()
-
-
-def _as_real_2d(name: str, value: object) -> RealArray:
-    """Return a finite float64 two-dimensional array."""
-    array = np.asarray(value, dtype=np.float64)
-    if array.ndim != 2:
-        raise ValueError(f"{name} must be two-dimensional, got shape {array.shape}")
+    if array.ndim != ndim:
+        wording = "one" if ndim == 1 else "two"
+        raise ValueError(f"{name} must be {wording}-dimensional, got shape {array.shape}")
     if array.size == 0:
         raise ValueError(f"{name} must be non-empty")
     if not np.all(np.isfinite(array)):
@@ -349,8 +339,8 @@ def waveform_from_result(
 ) -> Waveform:
     """Construct an exportable channel-by-time waveform from an optimizer result."""
     validate_control_problem(cp)
-    source_waveform = _as_real_2d("wfm", wfm)
-    final_waveform = _as_real_2d("result.wfm_final", result.wfm_final)
+    source_waveform = _as_real("wfm", wfm, 2)
+    final_waveform = _as_real("result.wfm_final", result.wfm_final, 2)
     if source_waveform.shape != final_waveform.shape:
         raise ValueError(
             f"wfm shape {source_waveform.shape} must match "
@@ -476,29 +466,59 @@ def export_bruker(wfm: Waveform, path: str | Path) -> None:
         handle.write("##END=\n")
 
 
-def _jcamp_default_times(tags: dict[str, str], n_points: int) -> RealArray:
-    """Return a time axis from simple JCAMP axis tags or sample indices."""
-    if n_points <= 0:
-        raise ValueError("n_points must be positive")
+def export_bruker_shape(
+    path: str | Path,
+    title: str,
+    amplitude_percent: RealArray,
+    phase_deg: RealArray,
+    *,
+    minx: float = 0.0,
+    maxy: float = 360.0,
+    totrot: float = 180.0,
+    bwfac: float | None = 0.0,
+    integfac: float | None = None,
+    shape_mode: int = 1,
+    extra_tags: Sequence[str] = (),
+) -> Path:
+    """Write a Bruker shape-library JCAMP file from amplitude/phase arrays.
 
-    first_raw = tags.get("FIRSTX")
-    last_raw = tags.get("LASTX")
-    delta_raw = tags.get("DELTAX")
-    if first_raw is not None and delta_raw is not None:
-        first = float(first_raw)
-        delta = float(delta_raw)
-        if not math.isfinite(first) or not math.isfinite(delta):
-            raise ValueError("FIRSTX and DELTAX must be finite")
-        return np.asarray(first + delta * np.arange(n_points, dtype=np.float64), dtype=np.float64)
-
-    if first_raw is not None and last_raw is not None:
-        first = float(first_raw)
-        last = float(last_raw)
-        if not math.isfinite(first) or not math.isfinite(last):
-            raise ValueError("FIRSTX and LASTX must be finite")
-        return np.asarray(np.linspace(first, last, n_points, dtype=np.float64), dtype=np.float64)
-
-    return np.arange(n_points, dtype=np.float64)
+    This is the shared writer behind the example scripts; :func:`export_bruker`
+    remains the minimal :class:`Waveform` round-trip stub. Amplitude is in
+    percent of the calibrated RF maximum and phase in degrees. ``extra_tags``
+    are raw ``##...`` lines inserted verbatim before ``##NPOINTS``; passing
+    ``bwfac=None`` omits the ``##$SHAPE_BWFAC`` tag, and ``integfac`` defaults
+    to the mean amplitude fraction.
+    """
+    amplitude_percent = np.asarray(amplitude_percent, dtype=np.float64)
+    phase_deg = np.asarray(phase_deg, dtype=np.float64)
+    if integfac is None:
+        integfac = float(np.mean(amplitude_percent)) / 100.0
+    lines = [
+        f"##TITLE= {title}",
+        "##JCAMP-DX= 5.00 Bruker JCAMP library",
+        "##DATA TYPE= Shape Data",
+        "##ORIGIN= optimalcontrol",
+        "##OWNER= optimalcontrol",
+        f"##MINX= {minx:.6e}",
+        "##MAXX= 1.000000e+02",
+        "##MINY= 0.000000e+00",
+        f"##MAXY= {maxy:.6e}",
+        "##$SHAPE_EXMODE= None",
+        f"##$SHAPE_TOTROT= {totrot:.6e}",
+    ]
+    if bwfac is not None:
+        lines.append(f"##$SHAPE_BWFAC= {bwfac:.6e}")
+    lines.append(f"##$SHAPE_INTEGFAC= {integfac:.9e}")
+    lines.append(f"##$SHAPE_MODE= {shape_mode}")
+    lines.extend(extra_tags)
+    lines.append(f"##NPOINTS= {amplitude_percent.size}")
+    lines.append("##XYPOINTS= (XY..XY)")
+    for amplitude, phase in zip(amplitude_percent, phase_deg):
+        lines.append(f"{float(amplitude):.9e}, {float(phase):.9e}")
+    lines.append("##END=")
+    output = _output_path(path)
+    output.write_text("\n".join(lines) + "\n", encoding="ascii")
+    return output
 
 
 def _parse_jcamp(text: str) -> tuple[dict[str, str], list[str]]:
@@ -536,50 +556,29 @@ def _resolve_jcamp_layout(
 ) -> tuple[list[str], RealArray, RealArray]:
     """Return (channels, times, data) resolved from JCAMP tags and the table.
 
-    Layout precedence: a private ``$OPTIMALCONTROL_TIMES`` tag wins and every
-    table column is a channel; otherwise a declared ``CHANNELS`` list with one
-    extra column treats column 0 as the time axis; otherwise the declared
-    channels take all columns with synthesised times; otherwise a bare 2-column
-    table is time plus one ``signal`` channel; otherwise every column is a
-    default channel on synthesised times.
+    The only supported layout is the one written by :func:`export_bruker`: a
+    ``CHANNELS`` label list, a private ``$OPTIMALCONTROL_TIMES`` time axis, and
+    one table column per channel.
     """
     channels_raw = tags.get("CHANNELS")
-    channels = _split_label_list(channels_raw) if channels_raw is not None else []
+    if channels_raw is None:
+        raise ValueError("JCAMP-DX file is missing ##CHANNELS")
+    channels = _split_label_list(channels_raw)
     times_raw = tags.get("$OPTIMALCONTROL_TIMES")
-    if times_raw is not None:
-        times = np.asarray(_split_float_tokens(times_raw), dtype=np.float64)
-        if times.shape[0] != n_points:
-            raise ValueError(
-                f"JCAMP-DX private time axis has {times.shape[0]} points, "
-                f"expected {n_points}"
-            )
-        if not channels:
-            channels = _default_channels(int(table.shape[1]))
-        elif table.shape[1] != len(channels):
-            raise ValueError(
-                f"JCAMP-DX table has {table.shape[1]} columns, "
-                f"expected {len(channels)} channels"
-            )
-        data = np.asarray(table.T, dtype=np.float64)
-    elif channels and table.shape[1] == len(channels) + 1:
-        times = np.asarray(table[:, 0], dtype=np.float64)
-        data = np.asarray(table[:, 1:].T, dtype=np.float64)
-    elif channels:
-        if table.shape[1] != len(channels):
-            raise ValueError(
-                f"JCAMP-DX table has {table.shape[1]} columns, "
-                f"expected {len(channels)} channels"
-            )
-        times = _jcamp_default_times(tags, n_points)
-        data = np.asarray(table.T, dtype=np.float64)
-    elif table.shape[1] == 2:
-        channels = ["signal"]
-        times = np.asarray(table[:, 0], dtype=np.float64)
-        data = np.asarray(table[:, 1].reshape(1, n_points), dtype=np.float64)
-    else:
-        channels = _default_channels(int(table.shape[1]))
-        times = _jcamp_default_times(tags, n_points)
-        data = np.asarray(table.T, dtype=np.float64)
+    if times_raw is None:
+        raise ValueError("JCAMP-DX file is missing ##$OPTIMALCONTROL_TIMES")
+    times = np.asarray(_split_float_tokens(times_raw), dtype=np.float64)
+    if times.shape[0] != n_points:
+        raise ValueError(
+            f"JCAMP-DX private time axis has {times.shape[0]} points, "
+            f"expected {n_points}"
+        )
+    if table.shape[1] != len(channels):
+        raise ValueError(
+            f"JCAMP-DX table has {table.shape[1]} columns, "
+            f"expected {len(channels)} channels"
+        )
+    data = np.asarray(table.T, dtype=np.float64)
     return channels, times, data
 
 
@@ -588,9 +587,10 @@ def import_jcamp_dx(path: str | Path) -> Waveform:
 
     This is a deliberately small import stub, not a full JCAMP-DX reader. It
     recognises flat ``##KEY= value`` tags, a numeric ``##XYPOINTS`` table, and
-    optional ``##CHANNELS`` plus ``##$OPTIMALCONTROL_TIMES`` metadata. It does
-    not support compressed JCAMP encodings, multi-block files, vendor-specific
-    Bruker shape semantics, or spectrometer validation.
+    requires ``##CHANNELS`` plus ``##$OPTIMALCONTROL_TIMES`` metadata as
+    written by :func:`export_bruker`. It does not support compressed JCAMP
+    encodings, multi-block files, vendor-specific Bruker shape semantics, or
+    spectrometer validation.
     """
     input_file = _input_path(path)
     payload = input_file.read_bytes()

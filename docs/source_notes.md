@@ -141,8 +141,7 @@ Resonance* 172 (2005) 296–305.
   propagator slice.
 
 - **Optimizer:** `fminnewton.m` provides the Newton-Raphson convergence diagnostics format
-  (iteration table with fidelity, penalty, gradient norm, step norm) that the Python
-  `print_iteration_table` function should match.
+  (iteration table with fidelity, penalty, gradient norm, step norm).
 
 - **Ensemble dimensions:** Spinach supports drifts, power levels, offsets, and phase cycles as
   independent ensemble axes combined by Cartesian product, plus correlated modes `rho_match` and

@@ -51,6 +51,7 @@ from scipy.optimize import minimize
 
 from optimalcontrol.bloch import propagate_bloch_ensemble
 from optimalcontrol.grape import ControlProblem, grape_xy_and_gradient
+from optimalcontrol.io import export_bruker_shape as write_bruker_shape
 from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm, vec
 from optimalcontrol.states import normalise_hs
 
@@ -592,37 +593,25 @@ def search_minimum_duration() -> tuple[float, RealArray, list[tuple[float, Pulse
 def export_bruker_shape(signed: RealArray, output_dir: Path) -> Path:
     """Write the variable-amplitude, binary-phase Bruker shape file."""
     amplitude, phase_deg = amplitude_phase(signed)
-    shape_path = output_dir / f"{PULSE_NAME}.shape"
-    lines = [
-        f"##TITLE= {PULSE_NAME}",
-        "##JCAMP-DX= 5.00 Bruker JCAMP library",
-        "##DATA TYPE= Shape Data",
-        "##ORIGIN= optimalcontrol",
-        "##OWNER= optimalcontrol",
-        "##MINX= 0.000000e+00",
-        "##MAXX= 1.000000e+02",
-        "##MINY= 0.000000e+00",
-        "##MAXY= 1.800000e+02",
-        "##$SHAPE_EXMODE= None",
-        "##$SHAPE_TOTROT= 1.800000e+02",
-        f"##$SHAPE_INTEGFAC= {float(np.mean(amplitude)):.9e}",
-        "##$SHAPE_MODE= 1",
-        f"##$OPTIMALCONTROL_TOTAL_DURATION_S= {DURATION_S:.12e}",
-        f"##$OPTIMALCONTROL_STEP_DURATION_S= {DT:.12e}",
-        f"##$OPTIMALCONTROL_RF_MAX_HZ= {RF_MAX_HZ:.12e}",
-        f"##$OPTIMALCONTROL_SPECTROMETER_1H_MHZ= {SPECTROMETER_1H_MHZ:.12e}",
-        f"##$OPTIMALCONTROL_METHYL_PPM= {METHYL_PPM_LO:.3f}..{METHYL_PPM_HI:.3f}",
-        f"##$OPTIMALCONTROL_WATER_PPM= {WATER_PPM:.3f}",
-        "##$OPTIMALCONTROL_PHASE_SET_DEG= 0,180",
-        "##$OPTIMALCONTROL_SYMMETRIC= yes",
-        f"##NPOINTS= {signed.size}",
-        "##XYPOINTS= (XY..XY)",
-    ]
-    for amplitude_fraction, phase in zip(amplitude, phase_deg):
-        lines.append(f"{100.0 * float(amplitude_fraction):.9e}, {float(phase):.9e}")
-    lines.append("##END=")
-    shape_path.write_text("\n".join(lines) + "\n", encoding="ascii")
-    return shape_path
+    return write_bruker_shape(
+        output_dir / f"{PULSE_NAME}.shape",
+        PULSE_NAME,
+        100.0 * amplitude,
+        phase_deg,
+        maxy=180.0,
+        bwfac=None,
+        integfac=float(np.mean(amplitude)),
+        extra_tags=[
+            f"##$OPTIMALCONTROL_TOTAL_DURATION_S= {DURATION_S:.12e}",
+            f"##$OPTIMALCONTROL_STEP_DURATION_S= {DT:.12e}",
+            f"##$OPTIMALCONTROL_RF_MAX_HZ= {RF_MAX_HZ:.12e}",
+            f"##$OPTIMALCONTROL_SPECTROMETER_1H_MHZ= {SPECTROMETER_1H_MHZ:.12e}",
+            f"##$OPTIMALCONTROL_METHYL_PPM= {METHYL_PPM_LO:.3f}..{METHYL_PPM_HI:.3f}",
+            f"##$OPTIMALCONTROL_WATER_PPM= {WATER_PPM:.3f}",
+            "##$OPTIMALCONTROL_PHASE_SET_DEG= 0,180",
+            "##$OPTIMALCONTROL_SYMMETRIC= yes",
+        ],
+    )
 
 
 def plot_diagnostics(

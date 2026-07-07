@@ -13,6 +13,8 @@ from optimalcontrol._validation import validate_square_matrix as _validate_squar
 from optimalcontrol.grape import (
     ControlProblem,
     _has_rf_power_ensemble,
+    _validate_phase_cycle,
+    _validate_same_drift_dimensions,
     _zero_frozen,
     grape_gradient,
     grape_xy,
@@ -51,17 +53,6 @@ def _copy_complex_matrix(matrix: Array) -> Array:
 def _copy_complex_states(states: Sequence[Array]) -> list[Array]:
     """Return complex128 copies of state arrays."""
     return [np.asarray(state, dtype=np.complex128).copy() for state in states]
-
-
-def _validate_same_drift_dimensions(drifts: Sequence[Array]) -> int:
-    """Validate drift generators and return their shared dimension."""
-    _validate_nonempty("drifts", drifts)
-    generator_dim = _validate_square_matrix("drifts[0]", drifts[0])
-    for index, drift in enumerate(drifts[1:], start=1):
-        dim = _validate_square_matrix(f"drifts[{index}]", drift)
-        if dim != generator_dim:
-            raise ValueError(f"drifts[{index}] dimension {dim} does not match {generator_dim}")
-    return generator_dim
 
 
 def _validate_power_levels(pwr_levels: list[float]) -> None:
@@ -159,22 +150,11 @@ def _phase_cycle_rows(phase_cycle: RealArray | None) -> list[RealArray]:
     if phase_cycle is None:
         return []
 
+    _validate_phase_cycle(phase_cycle)
     array = np.asarray(phase_cycle, dtype=np.float64)
     if array.ndim == 1:
-        if array.size == 0:
-            raise ValueError("phase_cycle must be non-empty")
-        rows = [np.asarray([phase], dtype=np.float64) for phase in array]
-    elif array.ndim == 2:
-        if array.shape[0] == 0 or array.shape[1] == 0:
-            raise ValueError(f"phase_cycle must be non-empty, got shape {array.shape}")
-        rows = [np.asarray(row, dtype=np.float64).copy() for row in array]
-    else:
-        raise ValueError(f"phase_cycle must be a 1-D or 2-D array, got shape {array.shape}")
-
-    for row_index, row in enumerate(rows):
-        if not np.all(np.isfinite(row)):
-            raise ValueError(f"phase_cycle row {row_index} entries must be finite")
-    return rows
+        return [np.asarray([phase], dtype=np.float64) for phase in array]
+    return [np.asarray(row, dtype=np.float64).copy() for row in array]
 
 
 def _phase_factors(row: RealArray, n_states: int) -> Array:

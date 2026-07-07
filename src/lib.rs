@@ -11,9 +11,6 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
-type GradientRows = Vec<Vec<f64>>;
-type PairGradients = Vec<GradientRows>;
-type MemberGradients = Vec<PairGradients>;
 type CMatrix<D> = OMatrix<Complex64, D, D>;
 type CVector<D> = OVector<Complex64, D>;
 /// Per-slice data: (propagator adjoint, propagator, per-channel derivatives).
@@ -129,6 +126,48 @@ where
     }
 }
 
+/// Eigendecomposition of one slice's Hermitian generator plus its propagator:
+/// (propagator, eigenvectors, eigenvector adjoint, eigenvalues, phases).
+type SliceEigen<D> = (
+    CMatrix<D>,
+    CMatrix<D>,
+    CMatrix<D>,
+    OVector<f64, D>,
+    Vec<Complex64>,
+);
+
+/// Assemble drift_h + sum(w_k * control_h_k) for one slice, eigendecompose it,
+/// and build the step propagator V * diag(exp(-i*dt*lambda)) * V^H.
+fn slice_propagator<D>(
+    drift_h: &CMatrix<D>,
+    controls_h: &[CMatrix<D>],
+    weights: &[f64],
+    minus_i_dt: Complex64,
+) -> SliceEigen<D>
+where
+    D: DimSub<U1>,
+    DefaultAllocator: Allocator<D, D> + Allocator<D> + Allocator<DimDiff<D, U1>>,
+{
+    let mut hermitian = drift_h.clone();
+    for (control_h, weight) in controls_h.iter().zip(weights) {
+        add_scaled(&mut hermitian, control_h, *weight);
+    }
+    let decomposition = SymmetricEigen::new(hermitian);
+    let vectors = decomposition.eigenvectors;
+    let eigenvalues = decomposition.eigenvalues;
+    let adjoint = vectors.adjoint();
+    let phases: Vec<Complex64> = eigenvalues
+        .iter()
+        .map(|value| (minus_i_dt * value).exp())
+        .collect();
+    let mut scaled = vectors.clone();
+    for (mut column, phase) in scaled.column_iter_mut().zip(phases.iter()) {
+        column *= *phase;
+    }
+    let propagator = &scaled * &adjoint;
+    (propagator, vectors, adjoint, eigenvalues, phases)
+}
+
 /// Per-pair fidelities and flat (steps * channels) gradients for one member.
 ///
 /// `drift` and `operators` are row-major slices for this member only and must
@@ -168,32 +207,16 @@ where
         .collect();
 
     let step_slice = |step: usize| -> SliceData<D> {
-        let mut hermitian = drift_h.clone();
-        for channel in 0..channels {
-            add_scaled(
-                &mut hermitian,
-                &controls_h[channel],
-                waveform[step * channels + channel],
-            );
-        }
-        let decomposition = SymmetricEigen::new(hermitian);
-        let vectors = decomposition.eigenvectors;
-        let eigenvalues = decomposition.eigenvalues;
-        let adjoint = vectors.adjoint();
-        let phases: Vec<Complex64> = eigenvalues
-            .iter()
-            .map(|value| (minus_i_dt * value).exp())
-            .collect();
+        let (propagator, vectors, adjoint, eigenvalues, phases) = slice_propagator(
+            &drift_h,
+            &controls_h,
+            &waveform[step * channels..(step + 1) * channels],
+            minus_i_dt,
+        );
         let scale = eigenvalues
             .iter()
             .map(|value| value.abs())
             .fold(1.0_f64, f64::max);
-
-        let mut scaled = vectors.clone();
-        for (mut column, phase) in scaled.column_iter_mut().zip(phases.iter()) {
-            column *= *phase;
-        }
-        let propagator = &scaled * &adjoint;
 
         let step_derivatives: Vec<CMatrix<D>> = controls_h
             .iter()
@@ -327,24 +350,13 @@ where
         .collect();
 
     let step_propagator = |step: usize| -> CMatrix<D> {
-        let mut hermitian = drift_h.clone();
-        for channel in 0..channels {
-            add_scaled(
-                &mut hermitian,
-                &controls_h[channel],
-                waveform[step * channels + channel],
-            );
-        }
-        let decomposition = SymmetricEigen::new(hermitian);
-        let adjoint = decomposition.eigenvectors.adjoint();
-        let mut scaled = decomposition.eigenvectors;
-        for (mut column, value) in scaled
-            .column_iter_mut()
-            .zip(decomposition.eigenvalues.iter())
-        {
-            column *= (minus_i_dt * value).exp();
-        }
-        scaled * adjoint
+        slice_propagator(
+            &drift_h,
+            &controls_h,
+            &waveform[step * channels..(step + 1) * channels],
+            minus_i_dt,
+        )
+        .0
     };
 
     if parallel_steps {
@@ -437,17 +449,11 @@ fn member_fidelity_expm(
     pair_sum / pairs as f64
 }
 
-#[allow(clippy::too_many_arguments)]
 fn validate_shapes(
-    drifts: &[Complex64],
     drift_shape: &[usize],
-    operators: &[Complex64],
     operator_shape: &[usize],
-    waveform: &[f64],
     waveform_shape: &[usize],
-    rho_init: &[Complex64],
     init_shape: &[usize],
-    rho_targ: &[Complex64],
     target_shape: &[usize],
 ) -> PyResult<(usize, usize, usize, usize)> {
     let (members, dim, dim_2) = (drift_shape[0], drift_shape[1], drift_shape[2]);
@@ -482,14 +488,6 @@ fn validate_shapes(
             "rho_init and rho_targ must have shape (pairs, dim)",
         ));
     }
-    if drifts.len() != members * dim * dim
-        || operators.len() != members * channels * dim * dim
-        || waveform.len() != steps * channels
-        || rho_init.len() != pairs * dim
-        || rho_targ.len() != pairs * dim
-    {
-        return Err(PyValueError::new_err("input arrays must be contiguous"));
-    }
     Ok((members, channels, steps, dim))
 }
 
@@ -522,15 +520,10 @@ fn grape_fidelity_vectors(
     let rho_init = rho_init.as_slice()?;
     let rho_targ = rho_targ.as_slice()?;
     let (members, channels, steps, dim) = validate_shapes(
-        drifts,
         &drift_shape,
-        operators,
         &operator_shape,
-        waveform,
         &waveform_shape,
-        rho_init,
         &init_shape,
-        rho_targ,
         &target_shape,
     )?;
     let pairs = init_shape[0];
@@ -657,15 +650,10 @@ fn grape_value_gradient_vectors(
     let rho_init = rho_init.as_slice()?;
     let rho_targ = rho_targ.as_slice()?;
     let (members, channels, steps, dim) = validate_shapes(
-        drifts,
         &drift_shape,
-        operators,
         &operator_shape,
-        waveform,
         &waveform_shape,
-        rho_init,
         &init_shape,
-        rho_targ,
         &target_shape,
     )?;
     let pairs = init_shape[0];
@@ -702,78 +690,6 @@ fn grape_value_gradient_vectors(
     }
     let rows = gradient.chunks(channels).map(|row| row.to_vec()).collect();
     Ok((value, rows))
-}
-
-/// Fidelity and exact gradient for every ensemble member and state pair.
-///
-/// This lower-level kernel supports smooth-min/max robust pulse objectives in
-/// Python without repeating matrix decompositions or crossing the Python/Rust
-/// boundary for every offset.
-#[pyfunction]
-fn grape_member_value_gradients_vectors(
-    drifts: PyReadonlyArray3<'_, Complex64>,
-    operators: PyReadonlyArray4<'_, Complex64>,
-    waveform: PyReadonlyArray2<'_, f64>,
-    rho_init: PyReadonlyArray2<'_, Complex64>,
-    rho_targ: PyReadonlyArray2<'_, Complex64>,
-    dt: f64,
-    mode: &str,
-) -> PyResult<(Vec<Vec<f64>>, MemberGradients)> {
-    if !dt.is_finite() || dt <= 0.0 {
-        return Err(PyValueError::new_err("dt must be finite and positive"));
-    }
-    let fidelity_mode = FidelityMode::parse(mode)?;
-    let drift_shape = drifts.shape().to_vec();
-    let operator_shape = operators.shape().to_vec();
-    let waveform_shape = waveform.shape().to_vec();
-    let init_shape = rho_init.shape().to_vec();
-    let target_shape = rho_targ.shape().to_vec();
-    let drifts = drifts.as_slice()?;
-    let operators = operators.as_slice()?;
-    let waveform = waveform.as_slice()?;
-    let rho_init = rho_init.as_slice()?;
-    let rho_targ = rho_targ.as_slice()?;
-    let (members, channels, steps, dim) = validate_shapes(
-        drifts,
-        &drift_shape,
-        operators,
-        &operator_shape,
-        waveform,
-        &waveform_shape,
-        rho_init,
-        &init_shape,
-        rho_targ,
-        &target_shape,
-    )?;
-    let pairs = init_shape[0];
-
-    let member_results = all_member_pair_results(
-        drifts,
-        operators,
-        waveform,
-        rho_init,
-        rho_targ,
-        dt,
-        fidelity_mode,
-        members,
-        channels,
-        steps,
-        dim,
-        pairs,
-    )?;
-
-    let mut values: Vec<Vec<f64>> = Vec::with_capacity(members);
-    let mut gradients: MemberGradients = Vec::with_capacity(members);
-    for (pair_values, pair_gradients) in member_results {
-        values.push(pair_values);
-        gradients.push(
-            pair_gradients
-                .into_iter()
-                .map(|flat| flat.chunks(channels).map(|row| row.to_vec()).collect())
-                .collect(),
-        );
-    }
-    Ok((values, gradients))
 }
 
 fn rotate_bloch(mut state: [f64; 3], field: [f64; 3], dt: f64) -> [f64; 3] {
@@ -854,11 +770,6 @@ fn bloch_ensemble(
 fn _rust(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(grape_fidelity_vectors, module)?)?;
     module.add_function(wrap_pyfunction!(grape_value_gradient_vectors, module)?)?;
-    module.add_function(wrap_pyfunction!(
-        grape_member_value_gradients_vectors,
-        module
-    )?)?;
     module.add_function(wrap_pyfunction!(bloch_ensemble, module)?)?;
-    module.add("RUST_ACCELERATOR", true)?;
     Ok(())
 }

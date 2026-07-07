@@ -28,7 +28,7 @@ def _figure_and_axes(
 ) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]:
     """Return (fig, ax), creating a new figure when ax is None."""
     if ax is not None:
-        fig = ax.get_figure()
+        fig = ax.get_figure(root=True)
         if fig is None:
             raise ValueError("provided ax has no associated figure")
         return fig, ax
@@ -93,7 +93,7 @@ def plot_ampl_phase(
     phase_deg = np.degrees(np.arctan2(y_values, x_values))
 
     if ax is not None:
-        fig = ax.get_figure()
+        fig = ax.get_figure(root=True)
         if fig is None:
             raise ValueError("provided ax has no associated figure")
         ax2 = ax.twinx()

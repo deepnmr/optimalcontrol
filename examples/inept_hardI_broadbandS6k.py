@@ -26,6 +26,7 @@ import numpy as np
 import numpy.typing as npt
 
 from optimalcontrol.grape import ControlProblem, grape_xy
+from optimalcontrol.io import export_bruker_shape as write_bruker_shape
 from optimalcontrol.operators import Ix, Iy, Iz, place_operator
 from optimalcontrol.states import normalise_hs, state_from_label
 
@@ -147,39 +148,25 @@ def _contiguous_bandwidth(
 
 def _export_s_bruker_shape(output_dir: Path) -> Path:
     """Write the cached S-spin pulse as a Bruker amplitude/phase shape."""
-    shape_path = output_dir / f"{PULSE_NAME}.shape"
     amplitude = np.asarray(np.linalg.norm(S_PULSE_XY, axis=1), dtype=np.float64)
     phase_deg = np.asarray(
         np.degrees(np.arctan2(S_PULSE_XY[:, 1], S_PULSE_XY[:, 0])), dtype=np.float64
     )
     phase_deg = np.mod(phase_deg, 360.0)
-    lines = [
-        f"##TITLE= {PULSE_NAME}",
-        "##JCAMP-DX= 5.00 Bruker JCAMP library",
-        "##DATA TYPE= Shape Data",
-        "##ORIGIN= optimalcontrol",
-        "##OWNER= optimalcontrol",
-        "##MINX= 0.000000e+00",
-        "##MAXX= 1.000000e+02",
-        "##MINY= 0.000000e+00",
-        "##MAXY= 3.600000e+02",
-        "##$SHAPE_EXMODE= None",
-        "##$SHAPE_TOTROT= 1.800000e+02",
-        "##$SHAPE_BWFAC= 0.000000e+00",
-        f"##$SHAPE_INTEGFAC= {float(np.mean(amplitude)):.9e}",
-        "##$SHAPE_MODE= 0",
-        f"##$OPTIMALCONTROL_RF_HZ= {S_RF_HZ:.12e}",
-        f"##$OPTIMALCONTROL_TOTAL_DURATION_S= {S_PULSE_XY.shape[0] * DT:.12e}",
-        f"##$OPTIMALCONTROL_STEP_DURATION_S= {DT:.12e}",
-        "##$OPTIMALCONTROL_NOTE= Set amplitude 100 to 6 kHz on the S channel.",
-        f"##NPOINTS= {S_PULSE_XY.shape[0]}",
-        "##XYPOINTS= (XY..XY)",
-    ]
-    for amp, phase in zip(amplitude, phase_deg):
-        lines.append(f"{100.0 * float(amp):.9e}, {float(phase):.9e}")
-    lines.append("##END=")
-    shape_path.write_text("\n".join(lines) + "\n", encoding="ascii")
-    return shape_path
+    return write_bruker_shape(
+        output_dir / f"{PULSE_NAME}.shape",
+        PULSE_NAME,
+        100.0 * amplitude,
+        phase_deg,
+        integfac=float(np.mean(amplitude)),
+        shape_mode=0,
+        extra_tags=[
+            f"##$OPTIMALCONTROL_RF_HZ= {S_RF_HZ:.12e}",
+            f"##$OPTIMALCONTROL_TOTAL_DURATION_S= {S_PULSE_XY.shape[0] * DT:.12e}",
+            f"##$OPTIMALCONTROL_STEP_DURATION_S= {DT:.12e}",
+            "##$OPTIMALCONTROL_NOTE= Set amplitude 100 to 6 kHz on the S channel.",
+        ],
+    )
 
 
 def run() -> npt.NDArray[np.float64]:

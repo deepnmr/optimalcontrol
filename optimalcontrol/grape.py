@@ -1,6 +1,7 @@
 """GRAPE control-problem containers and validation helpers."""
 
 import math
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import NoReturn
 
@@ -14,7 +15,6 @@ from optimalcontrol._validation import validate_nonempty as _validate_nonempty
 from optimalcontrol._validation import validate_square_matrix as _validate_square_matrix
 from optimalcontrol.operators import unvec, vec
 from optimalcontrol.penalties import PenaltyInput, total_penalty
-from optimalcontrol.states import fidelity_abs2, fidelity_imag, fidelity_real
 
 VALID_FIDELITY_MODES = {"real", "imag", "abs2"}
 
@@ -120,6 +120,17 @@ def _validate_phase_cycle(phase_cycle: npt.NDArray[np.float64] | None) -> None:
         raise ValueError("phase_cycle entries must be finite")
 
 
+def _validate_same_drift_dimensions(drifts: Sequence[Array]) -> int:
+    """Validate drift generators and return their shared dimension."""
+    _validate_nonempty("drifts", drifts)
+    generator_dim = _validate_square_matrix("drifts[0]", drifts[0])
+    for index, drift in enumerate(drifts[1:], start=1):
+        dim = _validate_square_matrix(f"drifts[{index}]", drift)
+        if dim != generator_dim:
+            raise ValueError(f"drifts[{index}] dimension {dim} does not match {generator_dim}")
+    return generator_dim
+
+
 def validate_control_problem(cp: ControlProblem) -> None:
     """Raise ValueError if a GRAPE control problem is internally inconsistent."""
     _validate_nonempty("drifts", cp.drifts)
@@ -143,13 +154,7 @@ def validate_control_problem(cp: ControlProblem) -> None:
     if any(level < 0.0 for level in cp.pwr_levels):
         raise ValueError("pwr_levels entries must be non-negative")
 
-    generator_dim = _validate_square_matrix("drifts[0]", cp.drifts[0])
-    for index, drift in enumerate(cp.drifts[1:], start=1):
-        dim = _validate_square_matrix(f"drifts[{index}]", drift)
-        if dim != generator_dim:
-            raise ValueError(
-                f"drifts[{index}] dimension {dim} does not match {generator_dim}"
-            )
+    generator_dim = _validate_same_drift_dimensions(cp.drifts)
 
     for index, operator in enumerate(cp.operators):
         dim = _validate_square_matrix(f"operators[{index}]", operator)
@@ -360,15 +365,6 @@ def _single_drift(cp: ControlProblem) -> Array:
     if len(cp.drifts) != 1:
         raise ValueError("forward propagation currently supports exactly one drift")
     return np.asarray(cp.drifts[0], dtype=np.complex128)
-
-
-def _slice_generator(cp: ControlProblem, waveform_row: RealArray) -> Array:
-    """Assemble the generator for one pulse slice."""
-    generator = _single_drift(cp).copy()
-    for channel_index, operator in enumerate(cp.operators):
-        amplitude = np.complex128(waveform_row[channel_index] * cp.pwr_levels[channel_index])
-        generator += amplitude * np.asarray(operator, dtype=np.complex128)
-    return generator
 
 
 def _control_direction_stack(cp: ControlProblem) -> Array:
@@ -590,14 +586,19 @@ def _second_dir_diff_generator_expm(
     return block_expm[0:dim, 3 * dim : 4 * dim]
 
 
-def forward_propagators(cp: ControlProblem, wfm: RealArray) -> list[Array]:
-    """Return per-slice propagators for a waveform under a control problem."""
+def _effective_waveform(cp: ControlProblem, wfm: RealArray) -> RealArray:
+    """Validate a problem-waveform pair and return the freeze-masked waveform."""
     validate_control_problem(cp)
     waveform = np.asarray(wfm, dtype=np.float64)
     if waveform.ndim != 2:
         raise ValueError(f"waveform must be two-dimensional, got shape {waveform.shape}")
     validate_waveform(waveform, len(cp.operators), waveform.shape[0])
-    effective_waveform = apply_freeze(waveform, cp.freeze)
+    return apply_freeze(waveform, cp.freeze)
+
+
+def forward_propagators(cp: ControlProblem, wfm: RealArray) -> list[Array]:
+    """Return per-slice propagators for a waveform under a control problem."""
+    effective_waveform = _effective_waveform(cp, wfm)
 
     generators = _slice_generator_stack(cp, effective_waveform)
     if _has_hermitian_igenerators(cp):
@@ -738,13 +739,7 @@ def backward_states(rho_targ: Array, propagators: list[Array]) -> list[Array]:
 
 def _fidelity_by_mode(rho_f: Array, rho_t: Array, mode: str) -> float:
     """Evaluate the configured fidelity mode for one state pair."""
-    if mode == "real":
-        return fidelity_real(rho_f, rho_t)
-    if mode == "imag":
-        return fidelity_imag(rho_f, rho_t)
-    if mode == "abs2":
-        return fidelity_abs2(rho_f, rho_t)
-    _raise_invalid_mode("mode")
+    return _mode_value(np.complex128(np.vdot(rho_t, rho_f)), mode)
 
 
 def final_fidelity(fwd_states: list[Array], bwd_states: list[Array], mode: str) -> float:
@@ -783,10 +778,6 @@ def _fidelity_second_directional_derivative(
             )
 
     dd_overlap = np.complex128(np.vdot(rho_targ_arr, dd_arr))
-    if mode == "real":
-        return float(np.real(dd_overlap))
-    if mode == "imag":
-        return float(np.imag(dd_overlap))
     if mode == "abs2":
         overlap = np.complex128(np.vdot(rho_targ_arr, rho_final_arr))
         d_overlap_a = np.complex128(np.vdot(rho_targ_arr, d_a_arr))
@@ -798,7 +789,7 @@ def _fidelity_second_directional_derivative(
                 + overlap.conjugate() * dd_overlap
             )
         )
-    _raise_invalid_mode("mode")
+    return _mode_value(dd_overlap, mode)
 
 
 def _mode_value(overlap: np.complex128, mode: str) -> float:
@@ -897,12 +888,7 @@ def _single_value_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[floa
     Penalties are not applied here; callers handle penalty terms so the same
     core serves both ``grape_gradient`` and ``grape_xy_and_gradient``.
     """
-    validate_control_problem(cp)
-    waveform = np.asarray(wfm, dtype=np.float64)
-    if waveform.ndim != 2:
-        raise ValueError(f"waveform must be two-dimensional, got shape {waveform.shape}")
-    validate_waveform(waveform, len(cp.operators), waveform.shape[0])
-    effective_waveform = apply_freeze(waveform, cp.freeze)
+    effective_waveform = _effective_waveform(cp, wfm)
     n_steps, n_channels = effective_waveform.shape
 
     from optimalcontrol._accelerator import vector_value_gradient
@@ -992,12 +978,9 @@ def _hessian_slice_propagators(
     propagators: list[Array] = []
     derivative_propagators: list[list[Array]] = []
     second_derivative_propagators: list[list[list[Array]]] = []
-    control_directions = [
-        np.complex128(level) * np.asarray(operator, dtype=np.complex128)
-        for level, operator in zip(cp.pwr_levels, cp.operators)
-    ]
-    for waveform_row in effective_waveform:
-        generator = _slice_generator(cp, waveform_row)
+    control_directions = list(_control_direction_stack(cp))
+    generators = _slice_generator_stack(cp, effective_waveform)
+    for generator in generators:
         propagator = np.asarray(expm(generator * cp.pulse_dt), dtype=np.complex128)
         propagators.append(propagator)
         derivative_propagators.append(
@@ -1058,20 +1041,13 @@ def _hessian_state_sweep(
             param_index = step_index * n_channels + channel_index
             d_prop = derivative_propagators[step_index][channel_index]
             for other_index in range(n_params):
-                next_second_states[param_index][other_index] += (
-                    _apply_derivative_propagator(
-                        first_states[other_index],
-                        propagator,
-                        d_prop,
-                    )
+                cross_term = _apply_derivative_propagator(
+                    first_states[other_index],
+                    propagator,
+                    d_prop,
                 )
-                next_second_states[other_index][param_index] += (
-                    _apply_derivative_propagator(
-                        first_states[other_index],
-                        propagator,
-                        d_prop,
-                    )
-                )
+                next_second_states[param_index][other_index] += cross_term
+                next_second_states[other_index][param_index] += cross_term
             next_first_states[param_index] += _apply_derivative_propagator(
                 current,
                 propagator,
@@ -1101,12 +1077,7 @@ def _hessian_state_sweep(
 
 def grape_hessian(cp: ControlProblem, wfm: RealArray) -> RealArray | None:
     """Return the exact GRAPE Hessian for small waveforms, or None if too large."""
-    validate_control_problem(cp)
-    waveform = np.asarray(wfm, dtype=np.float64)
-    if waveform.ndim != 2:
-        raise ValueError(f"waveform must be two-dimensional, got shape {waveform.shape}")
-    validate_waveform(waveform, len(cp.operators), waveform.shape[0])
-    effective_waveform = apply_freeze(waveform, cp.freeze)
+    effective_waveform = _effective_waveform(cp, wfm)
     n_steps, n_channels = effective_waveform.shape
     n_params = n_steps * n_channels
     if n_params > 50:
@@ -1190,20 +1161,30 @@ def _vectorise_liouville_state(state: Array, generator_dim: int, name: str) -> A
     raise ValueError(f"{name} must be a vector or square density matrix")
 
 
-def grape_xy_liouville(cp: ControlProblem, wfm: RealArray) -> float:
-    """Return GRAPE fidelity using vectorised-density Liouville propagation."""
+def _grape_xy_in_basis(
+    cp: ControlProblem,
+    wfm: RealArray,
+    convert_fn: Callable[[Array, int, str], Array],
+    basis: str,
+) -> float:
+    """Return GRAPE fidelity after converting states with ``convert_fn``."""
     validate_control_problem(cp)
     generator_dim = int(np.asarray(cp.drifts[0], dtype=np.complex128).shape[0])
     rho_init = [
-        _vectorise_liouville_state(state, generator_dim, f"rho_init[{index}]")
+        convert_fn(state, generator_dim, f"rho_init[{index}]")
         for index, state in enumerate(cp.rho_init)
     ]
     rho_targ = [
-        _vectorise_liouville_state(state, generator_dim, f"rho_targ[{index}]")
+        convert_fn(state, generator_dim, f"rho_targ[{index}]")
         for index, state in enumerate(cp.rho_targ)
     ]
-    liouville_cp = replace(cp, rho_init=rho_init, rho_targ=rho_targ, basis="liouville")
-    return _grape_xy_core(liouville_cp, wfm)
+    converted_cp = replace(cp, rho_init=rho_init, rho_targ=rho_targ, basis=basis)
+    return _grape_xy_core(converted_cp, wfm)
+
+
+def grape_xy_liouville(cp: ControlProblem, wfm: RealArray) -> float:
+    """Return GRAPE fidelity using vectorised-density Liouville propagation."""
+    return _grape_xy_in_basis(cp, wfm, _vectorise_liouville_state, "liouville")
 
 
 def _validate_hilbert_state(state: Array, generator_dim: int, name: str) -> Array:
@@ -1221,18 +1202,7 @@ def _validate_hilbert_state(state: Array, generator_dim: int, name: str) -> Arra
 
 def grape_xy_hilbert(cp: ControlProblem, wfm: RealArray) -> float:
     """Return GRAPE fidelity using pure-state Hilbert-space propagation."""
-    validate_control_problem(cp)
-    generator_dim = int(np.asarray(cp.drifts[0], dtype=np.complex128).shape[0])
-    rho_init = [
-        _validate_hilbert_state(state, generator_dim, f"rho_init[{index}]")
-        for index, state in enumerate(cp.rho_init)
-    ]
-    rho_targ = [
-        _validate_hilbert_state(state, generator_dim, f"rho_targ[{index}]")
-        for index, state in enumerate(cp.rho_targ)
-    ]
-    hilbert_cp = replace(cp, rho_init=rho_init, rho_targ=rho_targ, basis="hilbert")
-    return _grape_xy_core(hilbert_cp, wfm)
+    return _grape_xy_in_basis(cp, wfm, _validate_hilbert_state, "hilbert")
 
 
 def grape_xy(cp: ControlProblem, wfm: RealArray) -> float:

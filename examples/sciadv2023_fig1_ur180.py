@@ -31,6 +31,7 @@ from scipy.optimize import minimize
 
 from optimalcontrol.bloch import propagate_bloch_ensemble
 from optimalcontrol.grape import ControlProblem, grape_gradient, grape_xy, phase_only_gradient
+from optimalcontrol.io import export_bruker_shape as write_bruker_shape
 from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm, vec
 from optimalcontrol.states import normalise_hs, state_from_label
 
@@ -296,37 +297,23 @@ def _display_phase_deg(phase_rad: npt.NDArray[np.float64]) -> npt.NDArray[np.flo
 
 def _export_bruker_shape(phase_rad: npt.NDArray[np.float64], output_dir: Path) -> Path:
     """Write the constant-amplitude Bruker shape file."""
-    shape_path = output_dir / f"{PULSE_NAME}.shape"
-    phase_deg = np.mod(np.degrees(phase_rad), 360.0)
-    lines = [
-        f"##TITLE= {PULSE_NAME}",
-        "##JCAMP-DX= 5.00 Bruker JCAMP library",
-        "##DATA TYPE= Shape Data",
-        "##ORIGIN= optimalcontrol",
-        "##OWNER= optimalcontrol",
-        "##MINX= 1.000000e+02",
-        "##MAXX= 1.000000e+02",
-        "##MINY= 0.000000e+00",
-        "##MAXY= 3.600000e+02",
-        "##$SHAPE_EXMODE= None",
-        "##$SHAPE_TOTROT= 1.800000e+02",
-        "##$SHAPE_BWFAC= 0.000000e+00",
-        "##$SHAPE_INTEGFAC= 1.000000e+00",
-        "##$SHAPE_MODE= 1",
-        f"##$OPTIMALCONTROL_TOTAL_DURATION_S= {DURATION_S:.12e}",
-        f"##$OPTIMALCONTROL_STEP_DURATION_S= {DT:.12e}",
-        f"##$OPTIMALCONTROL_RF_HZ= {RF_HZ:.12e}",
-        f"##$OPTIMALCONTROL_BANDWIDTH_HZ= {BANDWIDTH_HZ:.12e}",
-        f"##$OPTIMALCONTROL_B1_DEVIATION_PERCENT= {100.0 * B1_DEVIATION_FRACTION:.12e}",
-        "##$OPTIMALCONTROL_NOTE= Set pulse length to TOTAL_DURATION_S and calibrate 100% to RF_HZ.",
-        f"##NPOINTS= {N_STEPS}",
-        "##XYPOINTS= (XY..XY)",
-    ]
-    for phase in phase_deg:
-        lines.append(f"1.000000000e+02, {float(phase):.9e}")
-    lines.append("##END=")
-    shape_path.write_text("\n".join(lines) + "\n", encoding="ascii")
-    return shape_path
+    return write_bruker_shape(
+        output_dir / f"{PULSE_NAME}.shape",
+        PULSE_NAME,
+        np.full(N_STEPS, 100.0),
+        np.mod(np.degrees(phase_rad), 360.0),
+        minx=100.0,
+        integfac=1.0,
+        extra_tags=[
+            f"##$OPTIMALCONTROL_TOTAL_DURATION_S= {DURATION_S:.12e}",
+            f"##$OPTIMALCONTROL_STEP_DURATION_S= {DT:.12e}",
+            f"##$OPTIMALCONTROL_RF_HZ= {RF_HZ:.12e}",
+            f"##$OPTIMALCONTROL_BANDWIDTH_HZ= {BANDWIDTH_HZ:.12e}",
+            f"##$OPTIMALCONTROL_B1_DEVIATION_PERCENT= {100.0 * B1_DEVIATION_FRACTION:.12e}",
+            "##$OPTIMALCONTROL_NOTE= Set pulse length to TOTAL_DURATION_S "
+            "and calibrate 100% to RF_HZ.",
+        ],
+    )
 
 
 def _plot_figure(

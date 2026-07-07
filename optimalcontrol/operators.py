@@ -43,7 +43,7 @@ def kron_product(ops: list[npt.NDArray[np.complex128]]) -> npt.NDArray[np.comple
         raise ValueError("ops must be non-empty")
     result: npt.NDArray[np.complex128] = ops[0].astype(np.complex128)
     for op in ops[1:]:
-        result = np.kron(result, op)
+        result = np.kron(result, op).astype(np.complex128)
     return result
 
 
@@ -126,7 +126,7 @@ def L_op(A: npt.NDArray[np.complex128]) -> npt.NDArray[np.complex128]:
     L_op(A) @ vec(rho) == vec(A @ rho).  L_op(A) = I_n ⊗ A.
     """
     n = A.shape[0]
-    return np.kron(np.eye(n, dtype=np.complex128), A)
+    return np.kron(np.eye(n, dtype=np.complex128), A).astype(np.complex128)
 
 
 def R_op(A: npt.NDArray[np.complex128]) -> npt.NDArray[np.complex128]:
@@ -135,7 +135,7 @@ def R_op(A: npt.NDArray[np.complex128]) -> npt.NDArray[np.complex128]:
     R_op(A) @ vec(rho) == vec(rho @ A).  R_op(A) = A^T ⊗ I_n.
     """
     n = A.shape[0]
-    return np.kron(A.T, np.eye(n, dtype=np.complex128))
+    return np.kron(A.T, np.eye(n, dtype=np.complex128)).astype(np.complex128)
 
 
 def liouvillian_comm(A: npt.NDArray[np.complex128]) -> npt.NDArray[np.complex128]:

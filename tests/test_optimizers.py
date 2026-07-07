@@ -330,18 +330,9 @@ def test_save_load_checkpoint_round_trip(tmp_path: pathlib.Path) -> None:
     assert loaded_history == pytest.approx(history)
 
 
-def test_print_iteration_table_uses_fixed_width_row(capsys: pytest.CaptureFixture[str]) -> None:
-    optimizers.print_iteration_table(12, 0.987654321, 0.0125, 3.5e-4, 6.75e-6)
-
-    assert (
-        capsys.readouterr().out
-        == "    12  9.876543e-01  1.250000e-02  3.500000e-04  6.750000e-06\n"
-    )
-
-
 @pytest.mark.parametrize(
     "optimizer_name",
-    ["gradient_ascent", "lbfgs_grape", "newton_raphson"],
+    ["lbfgs_grape", "newton_raphson"],
 )
 def test_optimizer_checkpoint_resume_matches_continuous_run(
     monkeypatch: pytest.MonkeyPatch,

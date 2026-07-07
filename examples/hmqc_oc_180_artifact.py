@@ -78,6 +78,7 @@ import numpy.typing as npt
 from scipy.linalg import expm
 
 from optimalcontrol.grape import ControlProblem, grape_xy, grape_xy_and_gradient
+from optimalcontrol.io import export_bruker_shape as write_bruker_shape
 from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm, vec
 from optimalcontrol.optimizers import (
     lbfgs_direction,
@@ -529,44 +530,26 @@ def _offset_profile(wfm_xy: RealArray) -> dict[str, RealArray]:
 
 def _export_bruker_shape(wfm_xy: RealArray, output_dir: Path) -> Path:
     """Write a variable-amplitude Bruker shape file for the OC pulse."""
-    shape_path = output_dir / f"{PULSE_NAME}.shape"
     amplitude_percent = 100.0 * np.hypot(wfm_xy[:, 0], wfm_xy[:, 1])
     phase_deg = np.mod(np.degrees(np.arctan2(wfm_xy[:, 1], wfm_xy[:, 0])), 360.0)
     phase_deg[amplitude_percent < 1e-6] = 0.0
-    integfac = float(np.mean(amplitude_percent)) / 100.0
-
-    lines = [
-        f"##TITLE= {PULSE_NAME}",
-        "##JCAMP-DX= 5.00 Bruker JCAMP library",
-        "##DATA TYPE= Shape Data",
-        "##ORIGIN= optimalcontrol",
-        "##OWNER= optimalcontrol",
-        "##MINX= 0.000000e+00",
-        "##MAXX= 1.000000e+02",
-        "##MINY= 0.000000e+00",
-        "##MAXY= 3.600000e+02",
-        "##$SHAPE_EXMODE= None",
-        "##$SHAPE_TOTROT= 1.800000e+02",
-        "##$SHAPE_BWFAC= 0.000000e+00",
-        f"##$SHAPE_INTEGFAC= {integfac:.9e}",
-        "##$SHAPE_MODE= 1",
-        f"##$OPTIMALCONTROL_TOTAL_DURATION_S= {DURATION_S:.12e}",
-        f"##$OPTIMALCONTROL_STEP_DURATION_S= {DT:.12e}",
-        f"##$OPTIMALCONTROL_RF_HZ= {RF_MAX_HZ:.12e}",
-        f"##$OPTIMALCONTROL_SPECTROMETER_1H_MHZ= {SPECTROMETER_1H_MHZ:.12e}",
-        f"##$OPTIMALCONTROL_WATER_PPM= {WATER_PPM:.12e}",
-        f"##$OPTIMALCONTROL_METHYL_PPM_LO= {METHYL_PPM_LO:.12e}",
-        f"##$OPTIMALCONTROL_METHYL_PPM_HI= {METHYL_PPM_HI:.12e}",
-        f"##$OPTIMALCONTROL_B1_DEVIATION_PERCENT= {100.0 * B1_DEVIATION_FRACTION:.12e}",
-        "##$OPTIMALCONTROL_NOTE= Band-selective methyl 180; identity at water.",
-        f"##NPOINTS= {N_STEPS}",
-        "##XYPOINTS= (XY..XY)",
-    ]
-    for amp, phase in zip(amplitude_percent, phase_deg):
-        lines.append(f"{float(amp):.9e}, {float(phase):.9e}")
-    lines.append("##END=")
-    shape_path.write_text("\n".join(lines) + "\n", encoding="ascii")
-    return shape_path
+    return write_bruker_shape(
+        output_dir / f"{PULSE_NAME}.shape",
+        PULSE_NAME,
+        amplitude_percent,
+        phase_deg,
+        extra_tags=[
+            f"##$OPTIMALCONTROL_TOTAL_DURATION_S= {DURATION_S:.12e}",
+            f"##$OPTIMALCONTROL_STEP_DURATION_S= {DT:.12e}",
+            f"##$OPTIMALCONTROL_RF_HZ= {RF_MAX_HZ:.12e}",
+            f"##$OPTIMALCONTROL_SPECTROMETER_1H_MHZ= {SPECTROMETER_1H_MHZ:.12e}",
+            f"##$OPTIMALCONTROL_WATER_PPM= {WATER_PPM:.12e}",
+            f"##$OPTIMALCONTROL_METHYL_PPM_LO= {METHYL_PPM_LO:.12e}",
+            f"##$OPTIMALCONTROL_METHYL_PPM_HI= {METHYL_PPM_HI:.12e}",
+            f"##$OPTIMALCONTROL_B1_DEVIATION_PERCENT= {100.0 * B1_DEVIATION_FRACTION:.12e}",
+            "##$OPTIMALCONTROL_NOTE= Band-selective methyl 180; identity at water.",
+        ],
+    )
 
 
 def _plot_figure(wfm_xy: RealArray, profile: dict[str, RealArray], output_dir: Path) -> Path:

@@ -19,6 +19,16 @@ except ImportError:  # pragma: no cover - exercised by source-only installations
 
 RUST_ACCELERATOR_AVAILABLE = _rust is not None
 
+_KernelInputs = tuple[
+    npt.NDArray[np.complex128],
+    npt.NDArray[np.complex128],
+    RealArray,
+    npt.NDArray[np.complex128],
+    npt.NDArray[np.complex128],
+    float,
+    str,
+]
+
 
 def _enabled() -> bool:
     """Return whether the native extension should be used for this process."""
@@ -26,20 +36,7 @@ def _enabled() -> bool:
     return RUST_ACCELERATOR_AVAILABLE and disabled not in {"1", "true", "yes", "on"}
 
 
-def _vector_inputs(
-    problems: Sequence[Any], wfm: RealArray
-) -> (
-    tuple[
-        npt.NDArray[np.complex128],
-        npt.NDArray[np.complex128],
-        RealArray,
-        npt.NDArray[np.complex128],
-        npt.NDArray[np.complex128],
-        float,
-        str,
-    ]
-    | None
-):
+def _vector_inputs(problems: Sequence[Any], wfm: RealArray) -> _KernelInputs | None:
     """Prepare native vector-kernel inputs, or return ``None`` if unsupported."""
     if not _enabled() or not problems:
         return None
@@ -51,8 +48,10 @@ def _vector_inputs(
         return None
 
     waveform = np.asarray(wfm, dtype=np.float64)
-    if waveform.ndim != 2 or not waveform.flags.c_contiguous:
-        waveform = np.ascontiguousarray(waveform, dtype=np.float64)
+    if waveform.ndim != 2:
+        return None
+    if not waveform.flags.c_contiguous:
+        waveform = np.ascontiguousarray(waveform)
 
     for problem in problems:
         if (
@@ -107,20 +106,7 @@ def _vector_inputs(
     )
 
 
-def _problem_inputs(
-    problem: Any, wfm: RealArray
-) -> (
-    tuple[
-        npt.NDArray[np.complex128],
-        npt.NDArray[np.complex128],
-        RealArray,
-        npt.NDArray[np.complex128],
-        npt.NDArray[np.complex128],
-        float,
-        str,
-    ]
-    | None
-):
+def _problem_inputs(problem: Any, wfm: RealArray) -> _KernelInputs | None:
     """Build native vector-kernel inputs directly from an unexpanded problem.
 
     This mirrors ``cartesian_product_ensemble`` followed by ``_vector_inputs``
@@ -260,7 +246,10 @@ def vector_fidelity(problems: Sequence[Any], wfm: RealArray) -> float | None:
     if inputs is None:
         return None
     assert _rust is not None
-    return float(_rust.grape_fidelity_vectors(*inputs))
+    try:
+        return float(_rust.grape_fidelity_vectors(*inputs))
+    except ValueError:
+        return None
 
 
 def vector_value_gradient(
@@ -276,25 +265,3 @@ def vector_value_gradient(
     except ValueError:
         return None
     return float(value), np.asarray(gradient, dtype=np.float64)
-
-
-def vector_member_value_gradients(
-    problems: Sequence[Any], wfm: RealArray
-) -> tuple[RealArray, RealArray] | None:
-    """Return per-ensemble/per-state coherent values and gradients.
-
-    Values have shape ``(members, state_pairs)`` and gradients have shape
-    ``(members, state_pairs, steps, channels)``.
-    """
-    inputs = _vector_inputs(problems, wfm)
-    if inputs is None:
-        return None
-    assert _rust is not None
-    try:
-        values, gradients = _rust.grape_member_value_gradients_vectors(*inputs)
-    except ValueError:
-        return None
-    return (
-        np.asarray(values, dtype=np.float64),
-        np.asarray(gradients, dtype=np.float64),
-    )

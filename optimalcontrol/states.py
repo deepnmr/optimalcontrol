@@ -130,9 +130,9 @@ def _validate_square_array(name: str, arr: npt.NDArray[np.complex128]) -> None:
 def _liouville_size_for_state(rho: npt.NDArray[np.complex128]) -> int:
     """Return the expected Liouville-space dimension for rho."""
     if rho.ndim == 1:
-        return rho.shape[0]
+        return int(rho.shape[0])
     if rho.ndim == 2 and rho.shape[0] == rho.shape[1]:
-        return rho.shape[0] * rho.shape[1]
+        return int(rho.shape[0] * rho.shape[1])
     raise ValueError(f"rho must be a vectorised state or square matrix, got shape {rho.shape}")
 
 
