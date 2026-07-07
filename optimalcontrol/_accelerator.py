@@ -100,6 +100,10 @@ def _vector_inputs(problems: Sequence[Any], wfm: RealArray) -> _KernelInputs | N
         rho_targ = np.ascontiguousarray(np.stack(target_states), dtype=np.complex128)
     except (TypeError, ValueError):
         return None
+    if not all(
+        np.all(np.isfinite(array)) for array in (drifts, operators, rho_init, rho_targ)
+    ):
+        return None
 
     return (
         drifts,
@@ -207,6 +211,11 @@ def _problem_inputs(problem: Any, wfm: RealArray) -> _KernelInputs | None:
     else:
         n_offsets = 1
     operator_members = np.repeat(np.tile(scaled_operators, (n_drift, 1, 1, 1)), n_offsets, axis=0)
+    if not all(
+        np.all(np.isfinite(array))
+        for array in (drift_members, operator_members, rho_init, rho_targ)
+    ):
+        return None
 
     return (
         np.ascontiguousarray(drift_members, dtype=np.complex128),

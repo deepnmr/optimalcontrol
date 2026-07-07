@@ -182,6 +182,36 @@ def test_near_degenerate_gradient_parity(monkeypatch) -> None:
     np.testing.assert_allclose(rust_result[1], python_gradient, rtol=0.0, atol=1e-12)
 
 
+def test_nan_generator_raises_on_both_paths(monkeypatch) -> None:
+    """NaN drift/operator/state entries must raise ValueError, not return NaN."""
+    from dataclasses import replace
+
+    from optimalcontrol.ensemble import ensemble_fidelity
+    from optimalcontrol.grape import grape_xy, grape_xy_and_gradient
+
+    nan_drift = np.asarray(np.complex128(-1j) * _sz(), dtype=np.complex128)
+    nan_drift[0, 0] = np.nan
+    base = _problem()
+    waveform = 0.3 * np.ones((4, 2), dtype=np.float64)
+
+    nan_cases = [
+        replace(base, drifts=[nan_drift]),
+        replace(base, operators=[nan_drift, base.operators[1]]),
+        replace(base, rho_init=[np.array([np.nan, 0.0], dtype=np.complex128)]),
+    ]
+    ensemble_cp = replace(base, drifts=[nan_drift, np.complex128(-1j) * _sz()])
+
+    for disable_rust in ("0", "1"):
+        monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", disable_rust)
+        for cp in nan_cases:
+            with pytest.raises(ValueError, match="finite"):
+                grape_xy(cp, waveform)
+            with pytest.raises(ValueError, match="finite"):
+                grape_xy_and_gradient(cp, waveform)
+        with pytest.raises(ValueError, match="finite"):
+            ensemble_fidelity(ensemble_cp, waveform)
+
+
 def test_negative_power_level_raises_on_both_paths(monkeypatch) -> None:
     """The Rust fast path must not bypass Python's pwr_levels validation."""
     from optimalcontrol.ensemble import ensemble_fidelity

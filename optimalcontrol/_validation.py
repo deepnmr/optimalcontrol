@@ -43,10 +43,12 @@ def as_finite_waveform(wfm: RealArray) -> RealArray:
 
 
 def validate_square_matrix(name: str, matrix: Array) -> int:
-    """Validate a square 2-D complex array and return its dimension."""
+    """Validate a finite square 2-D complex array and return its dimension."""
     array = np.asarray(matrix, dtype=np.complex128)
     if array.ndim != 2 or array.shape[0] != array.shape[1]:
         raise ValueError(f"{name} must be a square matrix, got shape {array.shape}")
+    if not np.all(np.isfinite(array)):
+        raise ValueError(f"{name} entries must be finite")
     return int(array.shape[0])
 
 

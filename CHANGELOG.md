@@ -10,6 +10,12 @@
   gradient with a fidelity-only Hessian. Also document that
   `curvilinear_reparameterise` maps onto the closed interval (output reaches
   the bounds exactly once `tanh` saturates in float64).
+- Reject non-finite (NaN/Inf) generator and state entries on every path:
+  `validate_square_matrix` and the control-problem state validation now
+  require finite entries, and the Rust marshalling screens non-finite
+  drifts/operators/states so those inputs fall back to Python and raise
+  `ValueError` instead of the accelerator silently returning NaN (the pure
+  eigh path previously surfaced this as a `LinAlgError`).
 - Make the Rust fidelity kernel bitwise reproducible: per-member values are
   now collected in member order and reduced serially instead of a rayon
   parallel `f64` sum whose association order depends on work-stealing,

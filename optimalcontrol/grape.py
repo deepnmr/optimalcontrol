@@ -71,6 +71,8 @@ def _has_ensemble_axes(cp: ControlProblem) -> bool:
 def _validate_state_shape(name: str, state: Array, generator_dim: int) -> None:
     """Raise ValueError if a state cannot be acted on by the generators."""
     array = np.asarray(state, dtype=np.complex128)
+    if not np.all(np.isfinite(array)):
+        raise ValueError(f"{name} entries must be finite")
     if array.ndim == 1:
         if array.shape[0] != generator_dim:
             raise ValueError(
