@@ -228,6 +228,33 @@ def _problem_inputs(problem: Any, wfm: RealArray) -> _KernelInputs | None:
     )
 
 
+def _generators_coherent(problem: Any) -> bool:
+    """Return True when every generator is anti-Hermitian (coherent dynamics).
+
+    Cheap pre-gate for the gradient kernel, which rejects dissipative members
+    anyway: skipping the ensemble marshalling and kernel round-trip here avoids
+    paying that cost on every gradient call of a relaxation problem. The check
+    mirrors the Rust ``member_is_anti_hermitian`` tolerance on the raw (not
+    power-scaled) matrices; near-threshold disagreement is harmless because the
+    kernel still validates each member itself.
+    """
+    matrices = list(problem.drifts) + list(problem.operators)
+    if problem.offset_operators is not None:
+        matrices += list(problem.offset_operators)
+    for matrix in matrices:
+        try:
+            array = np.asarray(matrix, dtype=np.complex128)
+        except (TypeError, ValueError):
+            return False
+        if array.ndim != 2 or array.shape[0] != array.shape[1] or array.size == 0:
+            return False
+        deviation = float(np.abs(array + array.conj().T).max())
+        scale = max(1.0, float(np.abs(array).max()))
+        if not deviation <= 1e-12 * scale:
+            return False
+    return True
+
+
 def problem_vector_fidelity(problem: Any, wfm: RealArray) -> float | None:
     """Return Rust fidelity computed straight from an unexpanded problem."""
     inputs = _problem_inputs(problem, wfm)
@@ -242,6 +269,8 @@ def problem_vector_fidelity(problem: Any, wfm: RealArray) -> float | None:
 
 def problem_vector_value_gradient(problem: Any, wfm: RealArray) -> tuple[float, RealArray] | None:
     """Return Rust fidelity/gradient computed straight from an unexpanded problem."""
+    if not _enabled() or not _generators_coherent(problem):
+        return None
     inputs = _problem_inputs(problem, wfm)
     if inputs is None:
         return None
@@ -269,6 +298,8 @@ def vector_value_gradient(
     problems: Sequence[Any], wfm: RealArray
 ) -> tuple[float, RealArray] | None:
     """Return Rust-accelerated coherent fidelity/gradient when supported."""
+    if not _enabled() or not all(_generators_coherent(problem) for problem in problems):
+        return None
     inputs = _vector_inputs(problems, wfm)
     if inputs is None:
         return None

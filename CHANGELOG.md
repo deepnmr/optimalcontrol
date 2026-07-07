@@ -10,6 +10,18 @@
   gradient with a fidelity-only Hessian. Also document that
   `curvilinear_reparameterise` maps onto the closed interval (output reaches
   the bounds exactly once `tanh` saturates in float64).
+- Validate finiteness inside the Rust kernels themselves:
+  `grape_fidelity_vectors` and `grape_value_gradient_vectors` now raise
+  `ValueError` for NaN/Inf inputs, so even direct private-module calls can no
+  longer return silent NaN or stall the eigensolver.
+- Make `grape_xy` and `grape_xy_and_gradient[0]` agree bitwise on the Rust
+  path: the fidelity kernel now accumulates raw per-pair values and applies
+  the single `1/(members*pairs)` scale exactly like the gradient kernel,
+  instead of averaging per member first.
+- Skip the Rust gradient kernel for dissipative problems before marshalling:
+  a cheap anti-Hermiticity pre-gate in the gradient wrappers avoids building
+  and shipping ensemble arrays the kernel would reject anyway (fidelity
+  wrappers are unaffected — that kernel handles dissipative members).
 - Reject non-finite (NaN/Inf) generator and state entries on every path:
   `validate_square_matrix` and the control-problem state validation now
   require finite entries, and the Rust marshalling screens non-finite

@@ -305,7 +305,9 @@ where
     (pair_values, pair_gradients)
 }
 
-/// Mean fidelity over all state pairs of one member via the eigen propagators.
+/// Summed (not yet averaged) fidelity over all state pairs of one member
+/// via the eigen propagators. The caller applies the 1/(members*pairs) scale
+/// exactly as the gradient kernel does, so both kernels agree bitwise.
 #[allow(clippy::too_many_arguments)]
 fn member_fidelity_eigen<D>(
     dim: D,
@@ -392,7 +394,7 @@ where
             mode.value(target.dotc(state))
         })
         .sum();
-    pair_sum / pairs as f64
+    pair_sum
 }
 
 /// General (possibly dissipative) fallback via dense matrix exponentials.
@@ -447,7 +449,26 @@ fn member_fidelity_expm(
             mode.value(target.dotc(state))
         })
         .sum();
-    pair_sum / pairs as f64
+    pair_sum
+}
+
+fn ensure_finite_f64(name: &str, values: &[f64]) -> PyResult<()> {
+    if values.iter().all(|value| value.is_finite()) {
+        Ok(())
+    } else {
+        Err(PyValueError::new_err(format!("{name} entries must be finite")))
+    }
+}
+
+fn ensure_finite_c64(name: &str, values: &[Complex64]) -> PyResult<()> {
+    if values
+        .iter()
+        .all(|value| value.re.is_finite() && value.im.is_finite())
+    {
+        Ok(())
+    } else {
+        Err(PyValueError::new_err(format!("{name} entries must be finite")))
+    }
 }
 
 fn validate_shapes(
@@ -527,6 +548,11 @@ fn grape_fidelity_vectors(
         &init_shape,
         &target_shape,
     )?;
+    ensure_finite_c64("drifts", drifts)?;
+    ensure_finite_c64("operators", operators)?;
+    ensure_finite_f64("waveform", waveform)?;
+    ensure_finite_c64("rho_init", rho_init)?;
+    ensure_finite_c64("rho_targ", rho_targ)?;
     let pairs = init_shape[0];
     let matrix_len = dim * dim;
     let parallel_steps = members < rayon::current_num_threads() && members * steps >= 256;
@@ -575,8 +601,9 @@ fn grape_fidelity_vectors(
         })
         .collect();
     let sum: f64 = member_values.iter().sum();
+    let scale = 1.0 / (members as f64 * pairs as f64);
 
-    Ok(sum / members as f64)
+    Ok(sum * scale)
 }
 
 /// Shared parallel driver returning per-pair values and gradients per member.
@@ -662,6 +689,11 @@ fn grape_value_gradient_vectors(
         &init_shape,
         &target_shape,
     )?;
+    ensure_finite_c64("drifts", drifts)?;
+    ensure_finite_c64("operators", operators)?;
+    ensure_finite_f64("waveform", waveform)?;
+    ensure_finite_c64("rho_init", rho_init)?;
+    ensure_finite_c64("rho_targ", rho_targ)?;
     let pairs = init_shape[0];
 
     let member_results = all_member_pair_results(

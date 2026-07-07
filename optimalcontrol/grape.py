@@ -350,9 +350,10 @@ def curvilinear_reparameterise(wfm: RealArray, bounds: tuple[float, float]) -> R
     """Map an unconstrained waveform into bounds using a tanh reparameterisation.
 
     The mapping targets the closed interval: once ``|wfm|`` exceeds ~19,
-    ``tanh`` rounds to ``+/-1.0`` in float64 and the output equals the bound
-    exactly. Callers requiring strict interiority (e.g. log barriers) must
-    clip the result themselves.
+    ``tanh`` rounds to ``+/-1.0`` in float64 and the output saturates at the
+    bound to within one ulp (rounding may land it one ulp past the bound).
+    Callers requiring strict interiority (e.g. log barriers) must clip the
+    result themselves.
     """
     lower, upper = bounds
     if not math.isfinite(lower) or not math.isfinite(upper):

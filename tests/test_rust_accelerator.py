@@ -182,6 +182,132 @@ def test_near_degenerate_gradient_parity(monkeypatch) -> None:
     np.testing.assert_allclose(rust_result[1], python_gradient, rtol=0.0, atol=1e-12)
 
 
+def test_rust_kernels_reject_non_finite_arrays_directly() -> None:
+    """Direct private-kernel calls with NaN inputs must raise, not return NaN."""
+    from optimalcontrol import _rust
+
+    dim, steps, channels, members = 2, 3, 1, 1
+    drifts = np.zeros((members, dim, dim), dtype=np.complex128)
+    operators = np.zeros((members, channels, dim, dim), dtype=np.complex128)
+    operators[0, 0] = np.complex128(-1j) * _sx()
+    waveform = 0.3 * np.ones((steps, channels), dtype=np.float64)
+    rho_init = np.array([[1.0, 0.0]], dtype=np.complex128)
+    rho_targ = np.array([[0.0, 1.0]], dtype=np.complex128)
+
+    corrupt = {
+        "drifts": drifts.copy(),
+        "operators": operators.copy(),
+        "waveform": waveform.copy(),
+        "rho_init": rho_init.copy(),
+        "rho_targ": rho_targ.copy(),
+    }
+    for name, array in corrupt.items():
+        array.flat[0] = np.nan
+        arguments = {
+            "drifts": drifts,
+            "operators": operators,
+            "waveform": waveform,
+            "rho_init": rho_init,
+            "rho_targ": rho_targ,
+        }
+        arguments[name] = array
+        with pytest.raises(ValueError, match="finite"):
+            _rust.grape_fidelity_vectors(*arguments.values(), 0.05, "real")
+        with pytest.raises(ValueError, match="finite"):
+            _rust.grape_value_gradient_vectors(*arguments.values(), 0.05, "real")
+
+
+def test_rust_fidelity_and_gradient_value_agree_bitwise() -> None:
+    """grape_xy and grape_xy_and_gradient[0] must agree exactly on the Rust path."""
+    from dataclasses import replace
+
+    from optimalcontrol._accelerator import problem_vector_fidelity
+
+    # members * pairs must NOT be a power of two: the old per-member /pairs
+    # grouping is bitwise identical to the unified 1/(members*pairs) scaling
+    # whenever the scale is exact in binary, so a power-of-two case cannot
+    # regress. 2 drifts x 3 pairs = 6 exercises the inexact-scale rounding.
+    cp = _problem()
+    extra_states = [
+        np.array([0.0, 1.0], dtype=np.complex128),
+        normalise_2norm(np.array([0.6 - 0.2j, 0.75 + 0.1j], dtype=np.complex128)),
+    ]
+    cp = replace(
+        cp,
+        drifts=[cp.drifts[0], 1.3 * np.asarray(cp.drifts[0])],
+        rho_init=cp.rho_init + extra_states,
+        rho_targ=cp.rho_targ + extra_states[::-1],
+    )
+    from optimalcontrol._accelerator import problem_vector_value_gradient
+
+    # Equality is structural under the unified reduction, so many waveforms
+    # cannot flake; under the old per-member grouping each waveform coincides
+    # only by rounding luck (~2/3 per leg), so the batch discriminates. The
+    # first waveform was explicitly verified to differ by 1 ulp pre-change.
+    rng = np.random.default_rng(7)
+    waveforms = [
+        np.array(
+            [[0.0411, -0.0691], [-0.1377, -0.145], [0.094, 0.1238], [0.032, 0.0688]],
+            dtype=np.float64,
+        )
+    ] + [0.15 * rng.standard_normal((4, 2)) for _ in range(7)]
+
+    single = replace(_problem(), rho_init=cp.rho_init, rho_targ=cp.rho_targ)
+    for waveform in waveforms:
+        fidelity = problem_vector_fidelity(cp, waveform)
+        accelerated = problem_vector_value_gradient(cp, waveform)
+        assert fidelity is not None
+        assert accelerated is not None
+        assert fidelity == accelerated[0]
+
+        fidelity_single = vector_fidelity([single], waveform)
+        gradient_single = vector_value_gradient([single], waveform)
+        assert fidelity_single is not None
+        assert gradient_single is not None
+        assert fidelity_single == gradient_single[0]
+
+
+def test_gradient_wrapper_skips_dissipative_problems_before_marshalling(
+    monkeypatch,
+) -> None:
+    """Dissipative problems must return None before any marshalling happens."""
+    from dataclasses import replace
+
+    from optimalcontrol import _accelerator
+
+    cp = _problem()
+    dissipative_drift = np.asarray(cp.drifts[0], dtype=np.complex128) - 0.1 * np.eye(2)
+    dissipative = replace(cp, drifts=[dissipative_drift])
+    waveform = 0.2 * np.ones((3, 2), dtype=np.float64)
+
+    def _must_not_marshal(*args: object) -> None:
+        raise AssertionError("gradient wrapper marshalled a dissipative problem")
+
+    monkeypatch.setattr(_accelerator, "_vector_inputs", _must_not_marshal)
+    monkeypatch.setattr(_accelerator, "_problem_inputs", _must_not_marshal)
+    assert _accelerator.vector_value_gradient([dissipative], waveform) is None
+    assert _accelerator.problem_vector_value_gradient(dissipative, waveform) is None
+
+    monkeypatch.undo()
+    assert vector_fidelity([dissipative], waveform) is not None
+
+
+def test_non_square_drift_raises_same_error_on_both_paths(monkeypatch) -> None:
+    """The coherence pre-gate must not crash on malformed drifts before validation."""
+    from dataclasses import replace
+
+    from optimalcontrol.grape import grape_xy_and_gradient
+
+    bad_drift = np.zeros((2, 3), dtype=np.complex128)
+    bad = replace(_problem(), drifts=[bad_drift, bad_drift])
+    waveform = 0.2 * np.ones((3, 2), dtype=np.float64)
+
+    for disable_rust in ("0", "1"):
+        monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", disable_rust)
+        with pytest.raises(ValueError, match="square"):
+            grape_xy_and_gradient(bad, waveform)
+
+
 def test_nan_generator_raises_on_both_paths(monkeypatch) -> None:
     """NaN drift/operator/state entries must raise ValueError, not return NaN."""
     from dataclasses import replace
