@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Include penalty curvature in `grape_hessian`: when `cp.penalties` is set,
+  the penalty Hessian (new `total_penalty_hessian`, central differences of
+  the penalty gradient — exact for the quadratic NS/DNS kinds) is subtracted
+  from the fidelity Hessian, so the Hessian differentiates the same objective
+  as `grape_gradient`. Previously the Newton optimiser paired a penalised
+  gradient with a fidelity-only Hessian. Also document that
+  `curvilinear_reparameterise` maps onto the closed interval (output reaches
+  the bounds exactly once `tanh` saturates in float64).
 - Fix penalty accounting in the public ensemble API: `ensemble_fidelity`,
   `ensemble_gradient`, and `ensemble_xy_and_gradient` now strip
   `cp.penalties` before member evaluation and apply the penalty exactly once

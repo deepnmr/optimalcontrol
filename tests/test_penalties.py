@@ -120,6 +120,18 @@ def test_total_penalty_sums_specs_and_callables() -> None:
     np.testing.assert_allclose(gradient, gradient_ns + gradient_sns + gradient_dns, rtol=1e-12)
 
 
+def test_total_penalty_hessian_is_exact_for_norm_square() -> None:
+    from optimalcontrol.penalties import total_penalty_hessian
+
+    waveform = np.array([[0.2, 1.1], [-0.4, 0.8]], dtype=np.float64)
+
+    hessian = total_penalty_hessian(waveform, [PenaltySpec("NS", weight=0.3)])
+
+    np.testing.assert_allclose(hessian, 0.6 * np.eye(waveform.size), rtol=1e-9, atol=1e-9)
+    assert total_penalty_hessian(waveform, None).shape == (waveform.size, waveform.size)
+    np.testing.assert_allclose(total_penalty_hessian(waveform, None), 0.0, atol=0.0)
+
+
 def test_total_penalty_rejects_unknown_spec() -> None:
     waveform = np.zeros((2, 1), dtype=np.float64)
 

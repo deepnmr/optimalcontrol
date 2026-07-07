@@ -164,3 +164,34 @@ def total_penalty(
         total_value += float(value)
         total_gradient += gradient_array
     return total_value, total_gradient
+
+
+def total_penalty_hessian(
+    wfm: RealArray,
+    penalty_list: Sequence[PenaltyInput] | None,
+    step: float = 1e-6,
+) -> RealArray:
+    """Return the summed penalty Hessian over flattened waveform parameters.
+
+    Central differences of the ``total_penalty`` gradient, symmetrised. This
+    is exact (to round-off) for the quadratic penalties NS and DNS, whose
+    gradients are linear, and for the spillout penalties SNS/SNSA away from
+    their activation kinks; callable penalties are differentiated the same
+    way. Parameters are flattened in waveform order (time-major, matching
+    ``grape_hessian``).
+    """
+    waveform = _as_waveform(wfm)
+    n_params = waveform.size
+    hessian = np.zeros((n_params, n_params), dtype=np.float64)
+    if penalty_list is None:
+        return hessian
+
+    flat = waveform.reshape(-1)
+    for index in range(n_params):
+        shifted = flat.copy()
+        shifted[index] = flat[index] + step
+        _, grad_plus = total_penalty(shifted.reshape(waveform.shape), penalty_list)
+        shifted[index] = flat[index] - step
+        _, grad_minus = total_penalty(shifted.reshape(waveform.shape), penalty_list)
+        hessian[:, index] = (grad_plus - grad_minus).reshape(-1) / (2.0 * step)
+    return np.asarray(0.5 * (hessian + hessian.T), dtype=np.float64)

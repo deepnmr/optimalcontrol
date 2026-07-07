@@ -299,6 +299,46 @@ def test_grape_hessian_returns_exact_small_hilbert_hessian() -> None:
     np.testing.assert_allclose(hessian, expected, rtol=1e-12, atol=1e-12)
 
 
+def test_grape_hessian_matches_finite_difference_with_penalties() -> None:
+    from optimalcontrol.penalties import PenaltySpec
+
+    drift = np.zeros((2, 2), dtype=np.complex128)
+    sigma_x = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128)
+    rho_init = np.array([1.0, 0.0], dtype=np.complex128)
+    rho_targ = normalise_2norm(np.array([0.6, 0.8], dtype=np.complex128))
+    cp = ControlProblem(
+        drifts=[drift],
+        operators=[np.complex128(-1j) * sigma_x],
+        rho_init=[rho_init],
+        rho_targ=[rho_targ],
+        pulse_dt=0.2,
+        pwr_levels=[1.0],
+        freeze=None,
+        fidelity_mode="real",
+        basis="hilbert",
+        penalties=[PenaltySpec("NS", 1e-2), PenaltySpec("DNS", 5e-2)],
+    )
+    waveform = np.array([[0.3], [-0.2], [0.1]], dtype=np.float64)
+
+    hessian = grape_hessian(cp, waveform)
+
+    assert hessian is not None
+    np.testing.assert_allclose(hessian, hessian.T, atol=1e-12)
+    eps = 1e-6
+    flat = waveform.reshape(-1)
+    finite_difference = np.zeros((flat.size, flat.size), dtype=np.float64)
+    for index in range(flat.size):
+        plus = flat.copy()
+        minus = flat.copy()
+        plus[index] += eps
+        minus[index] -= eps
+        finite_difference[:, index] = (
+            grape_gradient(cp, plus.reshape(waveform.shape)).reshape(-1)
+            - grape_gradient(cp, minus.reshape(waveform.shape)).reshape(-1)
+        ) / (2.0 * eps)
+    assert _relative_l2_error(hessian, finite_difference) <= 1e-5
+
+
 def test_grape_hessian_returns_none_for_large_waveforms() -> None:
     cp = _basic_control_problem()
     cp.freeze = np.zeros((51, 1), dtype=np.bool_)

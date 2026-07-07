@@ -14,7 +14,7 @@ from optimalcontrol._validation import validate_finite_floats as _validate_float
 from optimalcontrol._validation import validate_nonempty as _validate_nonempty
 from optimalcontrol._validation import validate_square_matrix as _validate_square_matrix
 from optimalcontrol.operators import unvec, vec
-from optimalcontrol.penalties import PenaltyInput, total_penalty
+from optimalcontrol.penalties import PenaltyInput, total_penalty, total_penalty_hessian
 from optimalcontrol.states import _overlap
 
 VALID_FIDELITY_MODES = {"real", "imag", "abs2"}
@@ -345,7 +345,13 @@ def phase_only_gradient(
 
 
 def curvilinear_reparameterise(wfm: RealArray, bounds: tuple[float, float]) -> RealArray:
-    """Map an unconstrained waveform into bounds using a tanh reparameterisation."""
+    """Map an unconstrained waveform into bounds using a tanh reparameterisation.
+
+    The mapping targets the closed interval: once ``|wfm|`` exceeds ~19,
+    ``tanh`` rounds to ``+/-1.0`` in float64 and the output equals the bound
+    exactly. Callers requiring strict interiority (e.g. log barriers) must
+    clip the result themselves.
+    """
     lower, upper = bounds
     if not math.isfinite(lower) or not math.isfinite(upper):
         raise ValueError("bounds must be finite")
@@ -1073,7 +1079,12 @@ def _hessian_state_sweep(
 
 
 def grape_hessian(cp: ControlProblem, wfm: RealArray) -> RealArray | None:
-    """Return the exact GRAPE Hessian for small waveforms, or None if too large."""
+    """Return the GRAPE objective Hessian for small waveforms, or None if too large.
+
+    The Hessian differentiates the same objective as ``grape_gradient``: when
+    ``cp.penalties`` is set, the penalty Hessian is subtracted from the exact
+    fidelity Hessian.
+    """
     effective_waveform = _effective_waveform(cp, wfm)
     n_steps, n_channels = effective_waveform.shape
     n_params = n_steps * n_channels
@@ -1107,6 +1118,8 @@ def grape_hessian(cp: ControlProblem, wfm: RealArray) -> RealArray | None:
                 )
 
     hessian /= float(len(cp.rho_init))
+    if cp.penalties is not None:
+        hessian -= total_penalty_hessian(effective_waveform, cp.penalties)
     if cp.freeze is not None:
         freeze_mask = np.asarray(cp.freeze, dtype=np.bool_).reshape(n_params)
         hessian[freeze_mask, :] = 0.0
