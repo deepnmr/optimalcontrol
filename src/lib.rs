@@ -207,16 +207,12 @@ where
         .collect();
 
     let step_slice = |step: usize| -> SliceData<D> {
-        let (propagator, vectors, adjoint, eigenvalues, phases) = slice_propagator(
+        let (propagator, vectors, adjoint, eigenvalues, _phases) = slice_propagator(
             &drift_h,
             &controls_h,
             &waveform[step * channels..(step + 1) * channels],
             minus_i_dt,
         );
-        let scale = eigenvalues
-            .iter()
-            .map(|value| value.abs())
-            .fold(1.0_f64, f64::max);
 
         let step_derivatives: Vec<CMatrix<D>> = controls_h
             .iter()
@@ -224,14 +220,19 @@ where
                 let mut weighted = &adjoint * control_h * &vectors;
                 for row in 0..n {
                     for col in 0..n {
-                        let difference = eigenvalues[row] - eigenvalues[col];
-                        let divided = if difference.abs() <= 1.0e-12 * scale {
-                            minus_i_dt
-                                * (minus_i_dt * (0.5 * (eigenvalues[row] + eigenvalues[col])))
-                                    .exp()
+                        // Daleckii-Krein divided difference in its
+                        // cancellation-free sinc form, well-conditioned for
+                        // near-degenerate eigenvalue pairs and identical to
+                        // the Python expression in grape.py.
+                        let half_gap = 0.5 * dt * (eigenvalues[row] - eigenvalues[col]);
+                        let sinc = if half_gap == 0.0 {
+                            1.0
                         } else {
-                            (phases[row] - phases[col]) / difference
+                            half_gap.sin() / half_gap
                         };
+                        let divided = minus_i_dt
+                            * (minus_i_dt * (0.5 * (eigenvalues[row] + eigenvalues[col]))).exp()
+                            * sinc;
                         weighted[(row, col)] *= divided;
                     }
                 }

@@ -389,17 +389,19 @@ def _slice_generator_stack(cp: ControlProblem, effective_waveform: RealArray) ->
 def _has_hermitian_igenerators(cp: ControlProblem) -> bool:
     """Return True when ``1j * generator`` is Hermitian for every waveform.
 
-    This holds exactly when ``1j * drift`` and every ``1j * operator`` are
-    Hermitian, i.e. coherent (unitary) dynamics without relaxation. Such
-    problems admit a much faster eigendecomposition propagator path.
+    This holds exactly when ``1j * drift`` and every power-scaled
+    ``1j * operator`` are Hermitian, i.e. coherent (unitary) dynamics without
+    relaxation. Such problems admit a much faster eigendecomposition
+    propagator path. The deviation is measured on the same power-scaled
+    matrices with the same scale-relative tolerance as the Rust kernel's
+    ``is_anti_hermitian_slice``, so both implementations always select the
+    same propagator algorithm.
     """
-    candidates = [_single_drift(cp)] + [
-        np.asarray(operator, dtype=np.complex128) for operator in cp.operators
-    ]
+    candidates = [_single_drift(cp)] + list(_control_direction_stack(cp))
     for matrix in candidates:
-        hermitian_part = np.complex128(1j) * matrix
-        deviation = float(np.abs(hermitian_part - hermitian_part.conj().T).max())
-        if deviation > 1e-12:
+        deviation = float(np.abs(matrix + matrix.conj().T).max())
+        scale = max(1.0, float(np.abs(matrix).max()))
+        if deviation > 1e-12 * scale:
             return False
     return True
 
@@ -428,23 +430,17 @@ def _derivative_propagators_via_eigh(
 ) -> Array:
     """Return slice-propagator control derivatives from eigendecompositions.
 
-    Uses the Daleckii-Krein formula: in the eigenbasis of ``1j * G`` the
-    Frechet derivative of ``exp(-1j * X * dt)`` is the eigenvalue divided
-    difference of the exponential, applied entrywise.
+    Uses the Daleckii-Krein formula in its cancellation-free sinc form:
+    ``(exp(-1j*a*dt) - exp(-1j*b*dt)) / (a - b)`` equals
+    ``-1j*dt * exp(-1j*dt*(a+b)/2) * sinc((a-b)*dt/2)``, which stays
+    well-conditioned for near-degenerate eigenvalue pairs and matches the
+    Rust kernel expression exactly.
     """
-    phases = np.exp(np.complex128(-1j * dt) * eigenvalues)
-    lam_diff = eigenvalues[:, :, None] - eigenvalues[:, None, :]
-    phase_diff = phases[:, :, None] - phases[:, None, :]
-    scale = np.maximum(np.abs(eigenvalues).max(axis=(-1,)), 1.0)[:, None, None]
-    degenerate = np.abs(lam_diff) <= 1e-12 * scale
-    safe_diff = np.where(degenerate, 1.0, lam_diff)
-    divided = np.where(
-        degenerate,
-        np.complex128(-1j * dt) * np.exp(
-            np.complex128(-1j * dt) * 0.5 * (eigenvalues[:, :, None] + eigenvalues[:, None, :])
-        ),
-        phase_diff / safe_diff,
-    )
+    half_gap = 0.5 * dt * (eigenvalues[:, :, None] - eigenvalues[:, None, :])
+    safe_gap = np.where(half_gap == 0.0, 1.0, half_gap)
+    sinc = np.where(half_gap == 0.0, 1.0, np.sin(safe_gap) / safe_gap)
+    midpoint = 0.5 * (eigenvalues[:, :, None] + eigenvalues[:, None, :])
+    divided = np.complex128(-1j * dt) * np.exp(np.complex128(-1j * dt) * midpoint) * sinc
 
     adjoint_vectors = eigenvectors.conj().transpose(0, 2, 1)
     hermitian_directions = np.complex128(1j) * control_directions

@@ -1,6 +1,7 @@
 """Tests for native and fallback Bloch ensemble propagation."""
 
 import numpy as np
+import pytest
 
 from optimalcontrol.bloch import propagate_bloch_ensemble
 
@@ -27,3 +28,16 @@ def test_bloch_ensemble_preserves_vector_norm() -> None:
         1e-5,
     )
     np.testing.assert_allclose(np.linalg.norm(result, axis=-1), 1.0, atol=1e-13)
+
+
+def test_bloch_ensemble_rejects_non_finite_arrays(monkeypatch) -> None:
+    initial = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    waveform = np.ones((3, 2), dtype=np.float64)
+    offsets = np.array([np.inf], dtype=np.float64)
+    scales = np.array([1.0], dtype=np.float64)
+    with pytest.raises(ValueError, match="finite"):
+        propagate_bloch_ensemble(initial, waveform, offsets, scales, 100.0, 1e-5)
+
+    monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", "1")
+    with pytest.raises(ValueError, match="finite"):
+        propagate_bloch_ensemble(initial, waveform, offsets, scales, 100.0, 1e-5)

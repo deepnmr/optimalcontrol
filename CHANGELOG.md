@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- Fix four Rust/Python parity divergences found by adversarial differential
+  audit (all empirically confirmed at 1e-7..1e-5 before the fix, at or below
+  1e-11 after):
+  - Unify the coherent-dynamics branch gate: `_has_hermitian_igenerators` now
+    applies the same scale-relative 1e-12 tolerance to the same power-scaled
+    matrices as the Rust `is_anti_hermitian_slice`, so both implementations
+    always select the same propagator algorithm (previously an absolute
+    threshold on the raw operators let the two sides classify near-threshold
+    Hermitian defects differently, diverging up to 2.5e-6 in fidelity).
+  - Evaluate the Daleckii-Krein divided difference in its cancellation-free
+    sinc form on both sides, removing the degenerate-gap branch whose
+    threshold-adjacent band amplified eigensolver round-off into gradient
+    disagreements up to 3.5e-5.
+  - Guard the native fast paths against inputs Python validation rejects
+    (negative `pwr_levels`, non-finite waveforms), falling back so both
+    paths raise the same `ValueError` instead of Rust silently returning.
+  - Validate array finiteness in `propagate_bloch_ensemble` before dispatch,
+    so infinite offsets/waveforms raise `ValueError` on both paths instead
+    of raising in Python but returning NaN vectors from Rust.
+
 ## v0.4.0 - 2026-07-07
 
 - Refactor sweep across the Python and Rust sources (net -400 lines): dedupe

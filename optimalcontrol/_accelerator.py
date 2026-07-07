@@ -48,12 +48,18 @@ def _vector_inputs(problems: Sequence[Any], wfm: RealArray) -> _KernelInputs | N
         return None
 
     waveform = np.asarray(wfm, dtype=np.float64)
-    if waveform.ndim != 2:
+    if waveform.ndim != 2 or not np.all(np.isfinite(waveform)):
         return None
     if not waveform.flags.c_contiguous:
         waveform = np.ascontiguousarray(waveform)
 
     for problem in problems:
+        try:
+            levels = [float(level) for level in problem.pwr_levels]
+        except (TypeError, ValueError):
+            return None
+        if any(not np.isfinite(level) or level < 0.0 for level in levels):
+            return None
         if (
             problem.pulse_dt != first.pulse_dt
             or problem.fidelity_mode != first.fidelity_mode
@@ -130,7 +136,7 @@ def _problem_inputs(problem: Any, wfm: RealArray) -> _KernelInputs | None:
         return None
 
     waveform = np.asarray(wfm, dtype=np.float64)
-    if waveform.ndim != 2:
+    if waveform.ndim != 2 or not np.all(np.isfinite(waveform)):
         return None
     if not waveform.flags.c_contiguous:
         waveform = np.ascontiguousarray(waveform)
@@ -158,12 +164,10 @@ def _problem_inputs(problem: Any, wfm: RealArray) -> _KernelInputs | None:
         levels = np.asarray([float(level) for level in problem.pwr_levels], dtype=np.float64)
     except (TypeError, ValueError):
         return None
-    if not np.all(np.isfinite(levels)):
+    if not np.all(np.isfinite(levels)) or np.any(levels < 0.0):
         return None
     power_ensemble = levels.size > 1 and levels.size != operators.shape[0]
     if power_ensemble:
-        if np.any(levels < 0.0):
-            return None
         scaled_operators = levels[:, None, None, None] * operators[None, :, :, :]
     else:
         if levels.size != operators.shape[0]:

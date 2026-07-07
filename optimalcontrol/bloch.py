@@ -44,6 +44,14 @@ def propagate_bloch_ensemble(
         raise ValueError("offsets_hz must be a non-empty one-dimensional array")
     if scales.ndim != 1 or scales.size == 0:
         raise ValueError("b1_scales must be a non-empty one-dimensional array")
+    for name, array in (
+        ("initial", initial_array),
+        ("waveform_xy", waveform),
+        ("offsets_hz", offsets),
+        ("b1_scales", scales),
+    ):
+        if not np.all(np.isfinite(array)):
+            raise ValueError(f"{name} entries must be finite")
     if not math.isfinite(rf_hz) or rf_hz < 0.0:
         raise ValueError("rf_hz must be finite and non-negative")
     if not math.isfinite(dt) or dt <= 0.0:
