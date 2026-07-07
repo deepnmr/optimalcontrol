@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Fix penalty accounting in the public ensemble API: `ensemble_fidelity`,
+  `ensemble_gradient`, and `ensemble_xy_and_gradient` now strip
+  `cp.penalties` before member evaluation and apply the penalty exactly once
+  to the ensemble mean. Previously the Rust fast paths ignored penalties
+  entirely while the pure-Python member loop subtracted them, so the same
+  call returned results differing by exactly the penalty term depending on
+  whether the accelerator was enabled (and `ensemble_gradient`, which has no
+  Rust path, disagreed with `ensemble_xy_and_gradient` in the same process).
+  Frozen waveform entries are re-zeroed after the penalty gradient is
+  subtracted, matching `grape_xy_and_gradient`. Found by a
+  finite-difference gradient audit; both acceleration paths now agree to
+  machine precision and match central finite differences.
 - Fix four Rust/Python parity divergences found by adversarial differential
   audit (all empirically confirmed at 1e-7..1e-5 before the fix, at or below
   1e-11 after):

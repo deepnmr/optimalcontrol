@@ -20,6 +20,7 @@ from optimalcontrol.grape import (
     grape_xy,
     grape_xy_and_gradient,
 )
+from optimalcontrol.penalties import total_penalty
 
 ProblemT = TypeVar("ProblemT")
 ResultT = TypeVar("ResultT")
@@ -269,10 +270,19 @@ def correlated_rho_drift(cp: ControlProblem) -> list[ControlProblem]:
 
 
 def ensemble_fidelity(cp: ControlProblem, wfm: RealArray) -> float:
-    """Return mean GRAPE fidelity over Cartesian ensemble members."""
+    """Return mean GRAPE fidelity over Cartesian ensemble members.
+
+    When ``cp.penalties`` is set, the summed penalty value is subtracted once
+    from the ensemble mean. Penalties are stripped before member evaluation so
+    every acceleration path returns the same penalised value.
+    """
     from optimalcontrol._accelerator import problem_vector_fidelity, vector_fidelity
 
     waveform = np.asarray(wfm, dtype=np.float64)
+    if cp.penalties is not None:
+        fidelity = ensemble_fidelity(replace(cp, penalties=None), waveform)
+        penalty_value, _ = total_penalty(waveform, cp.penalties)
+        return fidelity - penalty_value
     direct = problem_vector_fidelity(cp, waveform)
     if direct is not None:
         return direct
@@ -285,8 +295,18 @@ def ensemble_fidelity(cp: ControlProblem, wfm: RealArray) -> float:
 
 
 def ensemble_gradient(cp: ControlProblem, wfm: RealArray) -> RealArray:
-    """Return mean GRAPE gradient over Cartesian ensemble members."""
+    """Return mean GRAPE gradient over Cartesian ensemble members.
+
+    When ``cp.penalties`` is set, the penalty gradient is subtracted once from
+    the ensemble mean, matching ``ensemble_xy_and_gradient`` on every path.
+    """
     waveform = np.asarray(wfm, dtype=np.float64)
+    if cp.penalties is not None:
+        gradient = ensemble_gradient(replace(cp, penalties=None), waveform)
+        _, penalty_gradient = total_penalty(waveform, cp.penalties)
+        gradient = np.asarray(gradient - penalty_gradient, dtype=np.float64)
+        _zero_frozen(gradient, cp.freeze)
+        return gradient
     problems = cartesian_product_ensemble(cp)
     gradient = np.zeros_like(waveform, dtype=np.float64)
     for problem in problems:
@@ -301,13 +321,24 @@ def ensemble_gradient(cp: ControlProblem, wfm: RealArray) -> RealArray:
 
 
 def ensemble_xy_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[float, RealArray]:
-    """Return mean GRAPE fidelity and gradient over Cartesian ensemble members."""
+    """Return mean GRAPE fidelity and gradient over Cartesian ensemble members.
+
+    When ``cp.penalties`` is set, the penalty value and gradient are applied
+    once to the ensemble mean. Penalties are stripped before member evaluation
+    so every acceleration path returns the same penalised result.
+    """
     from optimalcontrol._accelerator import (
         problem_vector_value_gradient,
         vector_value_gradient,
     )
 
     waveform = np.asarray(wfm, dtype=np.float64)
+    if cp.penalties is not None:
+        value, gradient = ensemble_xy_and_gradient(replace(cp, penalties=None), waveform)
+        penalty_value, penalty_gradient = total_penalty(waveform, cp.penalties)
+        gradient = np.asarray(gradient - penalty_gradient, dtype=np.float64)
+        _zero_frozen(gradient, cp.freeze)
+        return value - penalty_value, gradient
     accelerated = problem_vector_value_gradient(cp, waveform)
     if accelerated is not None:
         value, gradient = accelerated

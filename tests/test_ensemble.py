@@ -1,6 +1,9 @@
 """Tests for GRAPE ensemble expansion helpers."""
 
+from dataclasses import replace
+
 import numpy as np
+import pytest
 
 from optimalcontrol.ensemble import (
     cartesian_product_ensemble,
@@ -8,6 +11,7 @@ from optimalcontrol.ensemble import (
     correlated_rho_match,
     ensemble_fidelity,
     ensemble_gradient,
+    ensemble_xy_and_gradient,
     expand_drifts,
     expand_offsets,
     expand_phase_cycle,
@@ -17,6 +21,7 @@ from optimalcontrol.ensemble import (
 )
 from optimalcontrol.grape import ControlProblem, grape_gradient, grape_xy
 from optimalcontrol.operators import Ix, Iz
+from optimalcontrol.penalties import PenaltySpec, total_penalty
 from optimalcontrol.states import normalise_2norm
 
 
@@ -229,3 +234,40 @@ def test_ensemble_gradient_averages_expanded_problem_gradients() -> None:
     gradient = ensemble_gradient(cp, waveform)
 
     np.testing.assert_allclose(gradient, expected, rtol=1e-12, atol=1e-12)
+
+
+def test_ensemble_penalties_applied_once_on_every_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cp = replace(
+        _ensemble_control_problem(),
+        penalties=[PenaltySpec("NS", 1e-3), PenaltySpec("DNS", 1e-2)],
+    )
+    waveform = np.array([[0.12], [-0.04], [0.08]], dtype=np.float64)
+    penalty_value, penalty_gradient = total_penalty(waveform, cp.penalties)
+    bare = replace(cp, penalties=None)
+
+    results = {}
+    for disable_rust in ("0", "1"):
+        monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", disable_rust)
+        expected_value = ensemble_fidelity(bare, waveform) - penalty_value
+        expected_gradient = ensemble_gradient(bare, waveform) - penalty_gradient
+
+        value, gradient = ensemble_xy_and_gradient(cp, waveform)
+        np.testing.assert_allclose(value, expected_value, rtol=1e-12)
+        np.testing.assert_allclose(gradient, expected_gradient, rtol=1e-9, atol=1e-14)
+        np.testing.assert_allclose(ensemble_fidelity(cp, waveform), expected_value, rtol=1e-12)
+        np.testing.assert_allclose(
+            ensemble_gradient(cp, waveform), gradient, rtol=1e-9, atol=1e-14
+        )
+        results[disable_rust] = (value, gradient)
+
+    np.testing.assert_allclose(results["0"][0], results["1"][0], rtol=1e-12)
+    np.testing.assert_allclose(results["0"][1], results["1"][1], rtol=1e-9, atol=1e-14)
+
+    freeze = np.zeros_like(waveform, dtype=np.bool_)
+    freeze[0, 0] = True
+    frozen_cp = replace(cp, freeze=freeze)
+    assert penalty_gradient[0, 0] != 0.0
+    assert ensemble_xy_and_gradient(frozen_cp, waveform)[1][0, 0] == 0.0
+    assert ensemble_gradient(frozen_cp, waveform)[0, 0] == 0.0
