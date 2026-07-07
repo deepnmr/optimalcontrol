@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+- Refactor sweep across the Python and Rust sources (net -400 lines): dedupe
+  the GRAPE entry-point validation preamble, the `grape_xy` basis dispatch,
+  the Hessian generator assembly, and the Rust eigenpropagator; unify
+  checkpoint serialisation and waveform validation behind single authorities.
+  Behavior verified equivalent against the pre-refactor tree (fixed-seed
+  value/gradient/Hessian/fidelity/ensemble/IO comparisons, bit-identical on
+  the pure Python path).
+- Remove dead public surface: the unused `gradient_ascent` optimizer, the
+  never-wired `print_iteration_table` diagnostics helper, and the Rust
+  `grape_member_value_gradients_vectors` kernel with its Python wrapper.
+  `run_grape` continues to offer `lbfgs` and `newton`.
+- Consolidate the ten per-example Bruker shape writers into
+  `optimalcontrol.io.export_bruker_shape` (byte-identical output; the shared
+  writer rejects mismatched amplitude/phase lengths).
+- Tighten `import_jcamp_dx`: files must carry `##CHANNELS` and
+  `##$OPTIMALCONTROL_TIMES` (the layout-guessing fallbacks were untested and
+  unreachable from `export_bruker` round trips).
+- Restore the shape-mismatch `ValueError` in `final_fidelity` that the
+  fidelity-dispatch cleanup briefly dropped, with a regression test.
+- Fix plotting helpers to resolve the parent figure on any matplotlib
+  version instead of requiring 3.10 for `get_figure(root=True)`.
+- Make `mypy` actually check the package (the pinned `python_version = 3.10`
+  aborted inside numpy stubs on Python 3.14) and fix the seven latent typing
+  errors it revealed.
+
 ## v0.3.0 - 2026-07-02
 
 - Speed up the GRAPE hot path roughly 2x end to end. The Rust kernels now
