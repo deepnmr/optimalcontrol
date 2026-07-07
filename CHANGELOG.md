@@ -10,6 +10,10 @@
   gradient with a fidelity-only Hessian. Also document that
   `curvilinear_reparameterise` maps onto the closed interval (output reaches
   the bounds exactly once `tanh` saturates in float64).
+- Make the Rust fidelity kernel bitwise reproducible: per-member values are
+  now collected in member order and reduced serially instead of a rayon
+  parallel `f64` sum whose association order depends on work-stealing,
+  matching the gradient kernel's ordered accumulation.
 - Fix penalty accounting in the public ensemble API: `ensemble_fidelity`,
   `ensemble_gradient`, and `ensemble_xy_and_gradient` now strip
   `cp.penalties` before member evaluation and apply the penalty exactly once

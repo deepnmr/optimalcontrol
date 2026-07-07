@@ -531,7 +531,11 @@ fn grape_fidelity_vectors(
     let matrix_len = dim * dim;
     let parallel_steps = members < rayon::current_num_threads() && members * steps >= 256;
 
-    let sum: f64 = (0..members)
+    // Collect per-member values in index order and reduce serially so the
+    // fidelity is bitwise reproducible run-to-run; a parallel f64 sum
+    // associates in work-stealing order. Matches the gradient kernel's
+    // ordered accumulation.
+    let member_values: Vec<f64> = (0..members)
         .into_par_iter()
         .map(|member| {
             let drift = &drifts[member * matrix_len..(member + 1) * matrix_len];
@@ -569,7 +573,8 @@ fn grape_fidelity_vectors(
                 )
             }
         })
-        .sum();
+        .collect();
+    let sum: f64 = member_values.iter().sum();
 
     Ok(sum / members as f64)
 }
