@@ -1,6 +1,6 @@
 import numpy
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 from optimalcontrol.bloch import propagate_bloch_ensemble
 from optimalcontrol.crop import CROPPulse, crop_eta, crop_waveform

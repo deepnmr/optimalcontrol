@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.4.0 - 2026-07-07
 
 - Refactor sweep across the Python and Rust sources (net -400 lines): dedupe
   the GRAPE entry-point validation preamble, the `grape_xy` basis dispatch,
