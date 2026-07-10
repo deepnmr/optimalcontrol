@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.4.1 - 2026-07-10
 
 - Close validation and representation gaps across GRAPE entry points: native
   ensemble acceleration now falls back for invalid freeze/basis metadata,
