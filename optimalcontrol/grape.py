@@ -1110,10 +1110,7 @@ def grape_hessian(cp: ControlProblem, wfm: RealArray) -> RealArray | None:
         )
         if cp.penalties is not None:
             ensemble_hessian -= total_penalty_hessian(waveform, cp.penalties)
-        if cp.freeze is not None:
-            freeze_mask = np.asarray(cp.freeze, dtype=np.bool_).reshape(ensemble_hessian.shape[0])
-            ensemble_hessian[freeze_mask, :] = 0.0
-            ensemble_hessian[:, freeze_mask] = 0.0
+        _zero_frozen_hessian(ensemble_hessian, cp.freeze)
         return ensemble_hessian
 
     effective_waveform = _effective_waveform(cp, wfm)
@@ -1152,11 +1149,20 @@ def grape_hessian(cp: ControlProblem, wfm: RealArray) -> RealArray | None:
     hessian /= float(len(cp.rho_init))
     if cp.penalties is not None:
         hessian -= total_penalty_hessian(effective_waveform, cp.penalties)
-    if cp.freeze is not None:
-        freeze_mask = np.asarray(cp.freeze, dtype=np.bool_).reshape(n_params)
-        hessian[freeze_mask, :] = 0.0
-        hessian[:, freeze_mask] = 0.0
+    _zero_frozen_hessian(hessian, cp.freeze)
     return hessian
+
+
+def _zero_frozen_hessian(
+    hessian: RealArray,
+    freeze: npt.NDArray[np.bool_] | None,
+) -> None:
+    """Zero Hessian rows and columns for frozen waveform entries, in place."""
+    if freeze is None:
+        return
+    freeze_mask = np.asarray(freeze, dtype=np.bool_).reshape(hessian.shape[0])
+    hessian[freeze_mask, :] = 0.0
+    hessian[:, freeze_mask] = 0.0
 
 
 def _grape_xy_core(cp: ControlProblem, wfm: RealArray) -> float:
@@ -1229,15 +1235,23 @@ def _grape_xy_in_basis(
     return _grape_xy_core(_problem_in_basis(basis_cp, convert_fn, basis), wfm)
 
 
+def _minus_penalty(fidelity: float, wfm: RealArray, cp: ControlProblem) -> float:
+    """Subtract waveform penalties from a scalar fidelity."""
+    if cp.penalties is None:
+        return fidelity
+    penalty_value, _ = total_penalty(np.asarray(wfm, dtype=np.float64), cp.penalties)
+    return fidelity - penalty_value
+
+
 def grape_xy_liouville(cp: ControlProblem, wfm: RealArray) -> float:
     """Return GRAPE fidelity using vectorised-density Liouville propagation."""
     if _has_ensemble_axes(cp):
         return grape_xy(replace(cp, basis="liouville"), wfm)
-    fidelity = _grape_xy_in_basis(cp, wfm, _vectorise_liouville_state, "liouville")
-    if cp.penalties is not None:
-        penalty_value, _ = total_penalty(np.asarray(wfm, dtype=np.float64), cp.penalties)
-        fidelity -= penalty_value
-    return fidelity
+    return _minus_penalty(
+        _grape_xy_in_basis(cp, wfm, _vectorise_liouville_state, "liouville"),
+        wfm,
+        cp,
+    )
 
 
 def _validate_hilbert_state(state: Array, generator_dim: int, name: str) -> Array:
@@ -1251,11 +1265,11 @@ def grape_xy_hilbert(cp: ControlProblem, wfm: RealArray) -> float:
     """Return GRAPE fidelity using pure-state Hilbert-space propagation."""
     if _has_ensemble_axes(cp):
         return grape_xy(replace(cp, basis="hilbert"), wfm)
-    fidelity = _grape_xy_in_basis(cp, wfm, _validate_hilbert_state, "hilbert")
-    if cp.penalties is not None:
-        penalty_value, _ = total_penalty(np.asarray(wfm, dtype=np.float64), cp.penalties)
-        fidelity -= penalty_value
-    return fidelity
+    return _minus_penalty(
+        _grape_xy_in_basis(cp, wfm, _validate_hilbert_state, "hilbert"),
+        wfm,
+        cp,
+    )
 
 
 def grape_xy(cp: ControlProblem, wfm: RealArray) -> float:
@@ -1278,7 +1292,4 @@ def grape_xy(cp: ControlProblem, wfm: RealArray) -> float:
             return grape_xy_hilbert(cp, wfm)
         else:
             fidelity = _grape_xy_core(cp, wfm)
-    if cp.penalties is not None:
-        penalty_value, _ = total_penalty(np.asarray(wfm, dtype=np.float64), cp.penalties)
-        return fidelity - penalty_value
-    return fidelity
+    return _minus_penalty(fidelity, wfm, cp)
