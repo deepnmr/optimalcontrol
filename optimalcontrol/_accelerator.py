@@ -36,6 +36,16 @@ def _enabled() -> bool:
     return RUST_ACCELERATOR_AVAILABLE and disabled not in {"1", "true", "yes", "on"}
 
 
+def _metadata_supported(problem: Any, waveform: RealArray) -> bool:
+    """Return whether metadata ignored by the native kernels is valid."""
+    if not isinstance(problem.basis, str) or not problem.basis:
+        return False
+    if problem.freeze is None:
+        return True
+    freeze = np.asarray(problem.freeze)
+    return bool(freeze.dtype == np.dtype(np.bool_) and freeze.shape == waveform.shape)
+
+
 def _vector_inputs(problems: Sequence[Any], wfm: RealArray) -> _KernelInputs | None:
     """Prepare native vector-kernel inputs, or return ``None`` if unsupported."""
     if not _enabled() or not problems:
@@ -54,6 +64,8 @@ def _vector_inputs(problems: Sequence[Any], wfm: RealArray) -> _KernelInputs | N
         waveform = np.ascontiguousarray(waveform)
 
     for problem in problems:
+        if not _metadata_supported(problem, waveform):
+            return None
         try:
             levels = [float(level) for level in problem.pwr_levels]
         except (TypeError, ValueError):
@@ -100,9 +112,7 @@ def _vector_inputs(problems: Sequence[Any], wfm: RealArray) -> _KernelInputs | N
         rho_targ = np.ascontiguousarray(np.stack(target_states), dtype=np.complex128)
     except (TypeError, ValueError):
         return None
-    if not all(
-        np.all(np.isfinite(array)) for array in (drifts, operators, rho_init, rho_targ)
-    ):
+    if not all(np.all(np.isfinite(array)) for array in (drifts, operators, rho_init, rho_targ)):
         return None
 
     return (
@@ -141,6 +151,8 @@ def _problem_inputs(problem: Any, wfm: RealArray) -> _KernelInputs | None:
 
     waveform = np.asarray(wfm, dtype=np.float64)
     if waveform.ndim != 2 or not np.all(np.isfinite(waveform)):
+        return None
+    if not _metadata_supported(problem, waveform):
         return None
     if not waveform.flags.c_contiguous:
         waveform = np.ascontiguousarray(waveform)

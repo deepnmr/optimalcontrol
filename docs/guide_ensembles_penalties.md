@@ -111,6 +111,23 @@ return `(value, gradient)`. Built-in kinds are:
 | `SNSA` | row-amplitude spillout across channels | `weight`, `limit` |
 | `DNS` | adjacent-row finite-difference norm-square | `weight` |
 
+Custom callables used with `run_grape()` or checkpointing need a stable
+provenance tag because their captured Python state cannot be inferred safely:
+
+```python
+import numpy as np
+
+def custom_penalty(wfm):
+    return 0.0, np.zeros_like(wfm)
+
+custom_penalty.__optimalcontrol_provenance__ = "custom-penalty-v1"
+cp.penalties = [custom_penalty]
+```
+
+Change the tag whenever the callable's behavior or configuration changes.
+Untagged callables remain valid with direct, non-checkpointed optimizer calls.
+Bound methods require tags on both the method function and its instance.
+
 ```python
 import numpy as np
 

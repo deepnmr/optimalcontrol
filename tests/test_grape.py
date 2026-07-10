@@ -56,9 +56,7 @@ def _finite_difference_gradient(
         wfm_minus = waveform.copy()
         wfm_plus[index] += eps
         wfm_minus[index] -= eps
-        gradient[index] = (grape_xy(cp, wfm_plus) - grape_xy(cp, wfm_minus)) / (
-            2.0 * eps
-        )
+        gradient[index] = (grape_xy(cp, wfm_plus) - grape_xy(cp, wfm_minus)) / (2.0 * eps)
     return gradient
 
 
@@ -74,9 +72,7 @@ def _one_spin_hilbert_gradient_problem(
     freeze: npt.NDArray[np.bool_] | None = None,
 ) -> ControlProblem:
     rho_init = np.array([1.0, 0.0], dtype=np.complex128)
-    rho_targ = normalise_2norm(
-        np.array([0.35 + 0.15j, 0.88 - 0.28j], dtype=np.complex128)
-    )
+    rho_targ = normalise_2norm(np.array([0.35 + 0.15j, 0.88 - 0.28j], dtype=np.complex128))
     return ControlProblem(
         drifts=[np.complex128(-1j) * 0.3 * Iz()],
         operators=[np.complex128(-1j) * Ix(), np.complex128(-1j) * Iy()],
@@ -295,7 +291,7 @@ def test_grape_hessian_returns_exact_small_hilbert_hessian() -> None:
     hessian = grape_hessian(cp, waveform)
 
     assert hessian is not None
-    expected = np.array([[-cp.pulse_dt**2 * np.cos(waveform[0, 0] * cp.pulse_dt)]])
+    expected = np.array([[-(cp.pulse_dt**2) * np.cos(waveform[0, 0] * cp.pulse_dt)]])
     np.testing.assert_allclose(hessian, expected, rtol=1e-12, atol=1e-12)
 
 
@@ -398,10 +394,7 @@ def test_grape_gradient_matches_finite_difference_one_spin_hilbert() -> None:
 
 
 def test_grape_gradient_matches_finite_difference_two_spin_liouville() -> None:
-    drift_h = (
-        0.2 * place_operator(Iz(), 0, 2)
-        + 0.13 * place_operator(Iz(), 1, 2)
-    )
+    drift_h = 0.2 * place_operator(Iz(), 0, 2) + 0.13 * place_operator(Iz(), 1, 2)
     control_x_h = place_operator(Ix(), 0, 2) + 0.7 * place_operator(Ix(), 1, 2)
     control_y_h = place_operator(Iy(), 0, 2) - 0.4 * place_operator(Iy(), 1, 2)
     rho_init = vec(normalise_hs(state_from_label("Iz", 2)))
@@ -479,6 +472,7 @@ def test_grape_xy_ns_penalty_lowers_fidelity() -> None:
     fidelity_with_penalty = grape_xy(cp_penalty, waveform)
 
     assert fidelity_with_penalty < fidelity_bare
+    assert grape_xy_hilbert(cp_penalty, waveform) == pytest.approx(fidelity_with_penalty)
 
 
 def test_grape_gradient_penalty_lowers_gradient_norm() -> None:
@@ -663,3 +657,70 @@ def test_grape_xy_and_gradient_matches_separate_calls() -> None:
 
     np.testing.assert_allclose(fidelity, grape_xy(cp, waveform), atol=1e-12, rtol=0.0)
     np.testing.assert_allclose(gradient, grape_gradient(cp, waveform), atol=1e-12, rtol=0.0)
+
+
+def test_combined_evaluation_uses_scalar_state_layout_and_basis_validation() -> None:
+    from optimalcontrol.analysis import state_trajectory
+    from optimalcontrol.grape import grape_xy_and_gradient
+
+    cp = ControlProblem(
+        drifts=[np.zeros((1, 1), dtype=np.complex128)],
+        operators=[-1j * np.ones((1, 1), dtype=np.complex128)],
+        rho_init=[np.ones((1, 1), dtype=np.complex128)],
+        rho_targ=[np.ones((1, 1), dtype=np.complex128)],
+        pulse_dt=0.5,
+        pwr_levels=[1.0],
+        freeze=None,
+        basis="dense",
+    )
+    waveform = np.ones((1, 1), dtype=np.float64)
+
+    fidelity, gradient = grape_xy_and_gradient(cp, waveform)
+    assert fidelity == pytest.approx(grape_xy(cp, waveform))
+    np.testing.assert_allclose(gradient, _finite_difference_gradient(cp, waveform), atol=1e-8)
+
+    cp.basis = "liouville"
+    hessian = grape_hessian(cp, waveform)
+    assert hessian is not None
+    np.testing.assert_allclose(hessian, [[-0.25 * np.cos(0.5)]], atol=1e-12)
+    trajectory = state_trajectory(cp, waveform)
+    np.testing.assert_allclose(trajectory[-1], [np.exp(-0.5j)], atol=1e-12)
+
+    cp.basis = "hilbert"
+    np.testing.assert_allclose(grape_xy_liouville(cp, waveform), np.cos(0.5), atol=1e-12)
+    with pytest.raises(ValueError, match="pure-state vector"):
+        grape_xy(cp, waveform)
+    with pytest.raises(ValueError, match="pure-state vector"):
+        grape_xy_and_gradient(cp, waveform)
+    with pytest.raises(ValueError, match="pure-state vector"):
+        grape_hessian(cp, waveform)
+    with pytest.raises(ValueError, match="pure-state vector"):
+        state_trajectory(cp, waveform)
+
+
+def test_rf_ensemble_hessian_dispatches_and_forward_propagators_rejects() -> None:
+    from optimalcontrol.penalties import PenaltySpec
+
+    cp = ControlProblem(
+        drifts=[np.zeros((1, 1), dtype=np.complex128)],
+        operators=[-1j * np.ones((1, 1), dtype=np.complex128)],
+        rho_init=[np.ones(1, dtype=np.complex128)],
+        rho_targ=[np.ones(1, dtype=np.complex128)],
+        pulse_dt=0.5,
+        pwr_levels=[0.8, 1.2],
+        freeze=None,
+        basis="hilbert",
+        penalties=[PenaltySpec("NS", 0.03)],
+    )
+    waveform = np.ones((1, 1), dtype=np.float64)
+
+    hessian = grape_hessian(cp, waveform)
+    assert hessian is not None
+    eps = 1e-6
+    finite_difference = (
+        grape_gradient(cp, waveform + eps) - grape_gradient(cp, waveform - eps)
+    ) / (2.0 * eps)
+    np.testing.assert_allclose(hessian, finite_difference, atol=1e-10)
+    np.testing.assert_allclose(grape_xy_hilbert(cp, waveform), grape_xy(cp, waveform))
+    with pytest.raises(ValueError, match="does not support ensemble"):
+        forward_propagators(cp, waveform)

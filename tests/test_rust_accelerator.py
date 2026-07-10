@@ -308,6 +308,33 @@ def test_non_square_drift_raises_same_error_on_both_paths(monkeypatch) -> None:
             grape_xy_and_gradient(bad, waveform)
 
 
+def test_ensemble_metadata_validation_matches_on_both_paths(monkeypatch) -> None:
+    """The native ensemble path must not bypass metadata validation."""
+    from dataclasses import replace
+
+    from optimalcontrol.grape import grape_xy, grape_xy_and_gradient
+
+    base = _problem()
+    base = replace(base, drifts=[base.drifts[0], 1.1 * base.drifts[0]])
+    waveform = np.zeros((3, 2), dtype=np.float64)
+    cases = [
+        (replace(base, freeze=np.zeros((3, 1), dtype=np.bool_)), "freeze mask"),
+        (replace(base, freeze=np.zeros((2, 2), dtype=np.bool_)), "freeze mask"),
+        (replace(base, freeze=np.zeros((3, 2), dtype=np.int64)), "freeze mask"),
+        (replace(base, freeze=np.zeros(3, dtype=np.bool_)), "freeze mask"),
+        (replace(base, basis=""), "basis"),
+        (replace(base, basis=1), "basis"),
+    ]
+
+    for disable_rust in ("0", "1"):
+        monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", disable_rust)
+        for problem, message in cases:
+            with pytest.raises(ValueError, match=message):
+                grape_xy(problem, waveform)
+            with pytest.raises(ValueError, match=message):
+                grape_xy_and_gradient(problem, waveform)
+
+
 def test_nan_generator_raises_on_both_paths(monkeypatch) -> None:
     """NaN drift/operator/state entries must raise ValueError, not return NaN."""
     from dataclasses import replace

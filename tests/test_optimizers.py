@@ -179,6 +179,40 @@ def test_lbfgs_checkpoint_resume_five_plus_five_matches_ten_iterations(
     np.testing.assert_allclose(resumed.fidelity_final, continuous.fidelity_final, rtol=1e-6)
 
 
+def test_optimizer_rejects_checkpoint_for_different_control_problem(
+    tmp_path: pathlib.Path,
+) -> None:
+    cp = _one_spin_iz_to_ix_problem(n_steps=2)
+    waveform = np.zeros((2, 2), dtype=np.float64)
+    checkpoint_path = tmp_path / "different-problem.json"
+    optimizers.lbfgs_grape(cp, waveform, max_iter=0, checkpoint_path=str(checkpoint_path))
+
+    with pytest.raises(ValueError, match="optimizer or control problem"):
+        optimizers.newton_raphson(
+            cp,
+            waveform,
+            max_iter=0,
+            checkpoint_path=str(checkpoint_path),
+        )
+    with pytest.raises(ValueError, match="waveform shape"):
+        optimizers.lbfgs_grape(
+            cp,
+            np.zeros((3, 2), dtype=np.float64),
+            max_iter=0,
+            checkpoint_path=str(checkpoint_path),
+        )
+
+    cp.rho_targ = [normalise_hs(Iz())]
+
+    with pytest.raises(ValueError, match="optimizer or control problem"):
+        optimizers.lbfgs_grape(
+            cp,
+            waveform,
+            max_iter=0,
+            checkpoint_path=str(checkpoint_path),
+        )
+
+
 def test_newton_raphson_converges_on_concave_quadratic(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -258,6 +292,19 @@ def test_lbfgs_grape_attaches_trajectory_when_requested() -> None:
         np.testing.assert_allclose(state, cp.rho_init[0], atol=1e-12, rtol=1e-12)
 
 
+def test_lbfgs_grape_attaches_first_ensemble_member_trajectory() -> None:
+    cp = _optimizer_control_problem(n_steps=3, n_channels=2)
+    cp.drifts = [cp.drifts[0], cp.drifts[0] - 1j * np.eye(1, dtype=np.complex128)]
+    wfm0 = np.zeros((3, 2), dtype=np.float64)
+
+    result = optimizers.lbfgs_grape(cp, wfm0, max_iter=0, produce_trajectory=True)
+
+    assert result.trajectory is not None
+    assert len(result.trajectory) == wfm0.shape[0] + 1
+    for state in result.trajectory:
+        np.testing.assert_allclose(state, cp.rho_init[0], atol=1e-12, rtol=1e-12)
+
+
 def test_newton_raphson_attaches_trajectory_when_requested() -> None:
     cp = _optimizer_control_problem(n_steps=2, n_channels=1)
     wfm0 = np.zeros((2, 1), dtype=np.float64)
@@ -298,6 +345,21 @@ def test_run_grape_rejects_unknown_method() -> None:
         optimizers.run_grape(cp, wfm0, method="unsupported")
 
 
+def test_run_grape_supports_callable_penalties() -> None:
+    cp = _optimizer_control_problem(n_steps=1, n_channels=1)
+
+    def penalty(wfm: npt.NDArray[np.float64]) -> tuple[float, npt.NDArray[np.float64]]:
+        return 0.0, np.zeros_like(wfm)
+
+    penalty.__optimalcontrol_provenance__ = "zero-penalty-v1"
+    cp.penalties = [penalty]
+
+    waveform, result = optimizers.run_grape(cp, np.zeros((1, 1)), max_iter=0)
+
+    assert len(waveform.problem_hash) == 64
+    assert result.fidelity_final == pytest.approx(1.0)
+
+
 def _run_optimizer(
     optimizer_name: str,
     cp: ControlProblem,
@@ -328,6 +390,15 @@ def test_save_load_checkpoint_round_trip(tmp_path: pathlib.Path) -> None:
 
     np.testing.assert_allclose(loaded_waveform, waveform, atol=1e-12, rtol=1e-12)
     assert loaded_history == pytest.approx(history)
+
+    cp = _optimizer_control_problem(n_steps=2, n_channels=2)
+    resumed = optimizers.lbfgs_grape(
+        cp,
+        np.zeros_like(waveform),
+        max_iter=0,
+        checkpoint_path=str(checkpoint_path),
+    )
+    assert resumed.history == pytest.approx([1.0])
 
 
 @pytest.mark.parametrize(

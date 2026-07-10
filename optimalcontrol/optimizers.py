@@ -1,5 +1,6 @@
 """Shared optimizer result types and line-search utilities."""
 
+import hashlib
 import json
 import math
 from collections.abc import Callable
@@ -76,6 +77,7 @@ class _CheckpointData:
     history: list[float]
     n_feval: int = 0
     lbfgs_state: LBFGSState | None = None
+    signature: str | None = None
 
 
 def _as_real_array(name: str, value: RealArray) -> RealArray:
@@ -101,9 +103,7 @@ def _array_norm(value: RealArray) -> float:
 def _check_gradient_shape(gradient: RealArray, waveform: RealArray) -> None:
     """Raise ValueError if a gradient does not match the waveform shape."""
     if gradient.shape != waveform.shape:
-        raise ValueError(
-            f"gradient shape {gradient.shape} must match wfm shape {waveform.shape}"
-        )
+        raise ValueError(f"gradient shape {gradient.shape} must match wfm shape {waveform.shape}")
 
 
 def _validate_optimizer_controls(tol_x: float, tol_g: float, max_iter: int) -> None:
@@ -131,6 +131,14 @@ def _validate_checkpoint_path(path: str) -> Path:
     if checkpoint_path.exists() and checkpoint_path.is_dir():
         raise ValueError("checkpoint_path must point to a file, not a directory")
     return checkpoint_path
+
+
+def _checkpoint_signature(cp: ControlProblem, optimizer_name: str) -> str:
+    """Return a signature binding a checkpoint to its problem and optimizer."""
+    from optimalcontrol.io import _hash_control_problem
+
+    payload = f"{optimizer_name}\0{_hash_control_problem(cp)}".encode()
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _serialise_lbfgs_state(state: LBFGSState) -> _SerialisedLBFGSState:
@@ -206,6 +214,10 @@ def _write_checkpoint(checkpoint_path: Path, checkpoint: _CheckpointData) -> Non
         raise ValueError("checkpoint n_feval must be non-negative")
     if checkpoint.lbfgs_state is not None:
         payload["lbfgs_state"] = _serialise_lbfgs_state(checkpoint.lbfgs_state)
+    if checkpoint.signature is not None:
+        if not checkpoint.signature:
+            raise ValueError("checkpoint signature must be a non-empty string")
+        payload["signature"] = checkpoint.signature
 
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     checkpoint_path.write_text(
@@ -239,11 +251,18 @@ def _read_checkpoint(path: str | Path) -> _CheckpointData:
         raise ValueError("checkpoint n_feval must be non-negative")
 
     lbfgs_state = (
-        _deserialise_lbfgs_state(payload["lbfgs_state"])
-        if "lbfgs_state" in payload
-        else None
+        _deserialise_lbfgs_state(payload["lbfgs_state"]) if "lbfgs_state" in payload else None
     )
-    return _CheckpointData(wfm=waveform, history=history, n_feval=n_feval, lbfgs_state=lbfgs_state)
+    raw_signature = payload.get("signature")
+    if raw_signature is not None and (not isinstance(raw_signature, str) or not raw_signature):
+        raise ValueError("checkpoint signature must be a non-empty string")
+    return _CheckpointData(
+        wfm=waveform,
+        history=history,
+        n_feval=n_feval,
+        lbfgs_state=lbfgs_state,
+        signature=raw_signature,
+    )
 
 
 def _effective_checkpoint_path(
@@ -261,16 +280,28 @@ def _restore_checkpoint(
     cp: ControlProblem,
     wfm0: RealArray,
     checkpoint_path: Path | None,
+    signature: str | None,
 ) -> _CheckpointData:
     """Return the starting optimizer state, loading a checkpoint if present."""
     if checkpoint_path is not None and checkpoint_path.exists():
         checkpoint = _read_checkpoint(checkpoint_path)
         waveform = _initial_waveform(cp, checkpoint.wfm)
+        requested_shape = np.asarray(wfm0).shape
+        if waveform.shape != requested_shape:
+            raise ValueError(
+                f"checkpoint waveform shape {waveform.shape} must match "
+                f"wfm0 shape {requested_shape}"
+            )
+        if checkpoint.signature is None:
+            return _CheckpointData(wfm=waveform, history=[], signature=signature)
+        if checkpoint.signature != signature:
+            raise ValueError("checkpoint optimizer or control problem does not match current run")
         return _CheckpointData(
             wfm=waveform,
             history=checkpoint.history.copy(),
             n_feval=checkpoint.n_feval,
             lbfgs_state=checkpoint.lbfgs_state,
+            signature=checkpoint.signature,
         )
 
     waveform = _initial_waveform(cp, wfm0)
@@ -284,6 +315,7 @@ def _save_optimizer_checkpoint(
     *,
     n_feval: int,
     lbfgs_state: LBFGSState | None = None,
+    signature: str | None = None,
 ) -> None:
     """Persist optimizer state when checkpointing is enabled."""
     if checkpoint_path is None:
@@ -295,6 +327,7 @@ def _save_optimizer_checkpoint(
             history=history,
             n_feval=n_feval,
             lbfgs_state=lbfgs_state,
+            signature=signature,
         ),
     )
 
@@ -395,8 +428,10 @@ def _newton_step(
                 dtype=np.float64,
             )
 
-    step_flat = _rfo_step(curvature, gradient_flat) if rfo else _solve_symmetric_system(
-        curvature, gradient_flat
+    step_flat = (
+        _rfo_step(curvature, gradient_flat)
+        if rfo
+        else _solve_symmetric_system(curvature, gradient_flat)
     )
     step = np.asarray(step_flat.reshape(gradient_arr.shape), dtype=np.float64)
     if not np.all(np.isfinite(step)):
@@ -573,9 +608,7 @@ def line_search_cubic(
     for iteration in range(max_iter):
         phi_alpha = phi(alpha)
         record_best(alpha, phi_alpha)
-        if phi_alpha > phi0 + c1 * alpha * dphi0 or (
-            iteration > 0 and phi_alpha >= previous.phi
-        ):
+        if phi_alpha > phi0 + c1 * alpha * dphi0 or (iteration > 0 and phi_alpha >= previous.phi):
             return zoom(previous, make_point(alpha, phi_alpha), max_iter - iteration)
 
         dphi_alpha = dphi(alpha)
@@ -707,8 +740,7 @@ def _trajectory_for_result(
     from optimalcontrol.analysis import state_trajectory
 
     return [
-        np.asarray(state, dtype=np.complex128).copy()
-        for state in state_trajectory(cp, waveform)
+        np.asarray(state, dtype=np.complex128).copy() for state in state_trajectory(cp, waveform)
     ]
 
 
@@ -749,6 +781,7 @@ def _drive_optimizer(
     tol_g: float,
     max_iter: int,
     checkpoint_path: str | None,
+    optimizer_name: str,
     compute_step: _ComputeStep,
     finalise: _Finalise,
     restore_extra: Callable[[_CheckpointData, RealArray], None] | None = None,
@@ -771,13 +804,12 @@ def _drive_optimizer(
     """
     _validate_optimizer_controls(tol_x, tol_g, max_iter)
     checkpoint_file = _effective_checkpoint_path(cp, checkpoint_path)
-    checkpoint = _restore_checkpoint(cp, wfm0, checkpoint_file)
+    signature = _checkpoint_signature(cp, optimizer_name) if checkpoint_file is not None else None
+    checkpoint = _restore_checkpoint(cp, wfm0, checkpoint_file, signature)
     waveform = checkpoint.wfm
     if restore_extra is not None:
         restore_extra(checkpoint, waveform)
-    objective, gradient_fn, n_feval = _cached_grape_evaluators(
-        cp, initial_count=checkpoint.n_feval
-    )
+    objective, gradient_fn, n_feval = _cached_grape_evaluators(cp, initial_count=checkpoint.n_feval)
 
     history = checkpoint.history.copy()
 
@@ -788,6 +820,7 @@ def _drive_optimizer(
             history,
             n_feval=n_feval(),
             lbfgs_state=None if checkpoint_state is None else checkpoint_state(),
+            signature=signature,
         )
 
     fidelity = float(history[-1]) if history else objective(waveform)
@@ -1025,6 +1058,7 @@ def lbfgs_grape(
         tol_g=tol_g,
         max_iter=max_iter,
         checkpoint_path=checkpoint_path,
+        optimizer_name="lbfgs",
         compute_step=compute_step,
         finalise=finalise,
         restore_extra=restore_extra,
@@ -1094,6 +1128,7 @@ def newton_raphson(
         tol_g=tol_g,
         max_iter=max_iter,
         checkpoint_path=checkpoint_path,
+        optimizer_name="newton",
         compute_step=compute_step,
         finalise=finalise,
         apply_step=apply_step,
@@ -1120,9 +1155,9 @@ def run_grape(
     else:
         raise ValueError("method must be 'lbfgs' or 'newton'")
 
+    from optimalcontrol.io import _hash_control_problem, waveform_from_result
+
+    _hash_control_problem(cp)
     result = optimizer(cp, wfm0, **kwargs)
-
-    from optimalcontrol.io import waveform_from_result
-
     waveform = waveform_from_result(cp, wfm0, result)
     return waveform, result

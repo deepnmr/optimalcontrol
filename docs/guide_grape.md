@@ -136,7 +136,10 @@ print(newton_result.n_iter)
 
 Pass `checkpoint_path` either on the `ControlProblem` or in the optimizer call.
 Optimizer checkpoints store the current waveform, fidelity history, evaluation
-count, and L-BFGS memory where relevant.
+count, L-BFGS memory where relevant, and a signature binding the optimizer,
+control problem, and waveform shape. A checkpoint cannot resume a different
+method or problem. Legacy unsigned checkpoints are treated as waveform-only
+warm starts; their history and optimizer memory are discarded.
 
 ```python
 cp.checkpoint_path = "checkpoints/example-grape.json"

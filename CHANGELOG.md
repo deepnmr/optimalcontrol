@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Close validation and representation gaps across GRAPE entry points: native
+  ensemble acceleration now falls back for invalid freeze/basis metadata,
+  scalar/value-gradient/Hessian/trajectory paths share explicit Hilbert and
+  Liouville state rules, zero-dimensional generators are rejected, RF-power
+  ensembles validate and receive mean Hessians, and direct propagator requests
+  reject ensembles with a clear error.
+- Bind optimizer checkpoints to the optimizer and a canonical control-problem
+  signature, validate waveform shape on resume, and treat unsigned legacy
+  files as waveform-only warm starts. Problem hashes now include penalties and
+  canonical numeric array values; custom callable penalties use an explicit
+  `__optimalcontrol_provenance__` tag for stable checkpoint/export identity.
+- Make explicit `grape_xy_hilbert` and `grape_xy_liouville` calls override the
+  stored basis consistently and subtract penalties exactly once for both
+  single problems and ensembles.
 - Include penalty curvature in `grape_hessian`: when `cp.penalties` is set,
   the penalty Hessian (new `total_penalty_hessian`, central differences of
   the penalty gradient — exact for the quadratic NS/DNS kinds) is subtracted
