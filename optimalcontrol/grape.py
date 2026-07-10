@@ -26,6 +26,13 @@ def _raise_invalid_mode(label: str) -> NoReturn:
     raise ValueError(f"{label} must be one of: {valid}")
 
 
+def _basis_name(basis: object) -> str:
+    """Return a normalised basis name or raise ValueError."""
+    if not isinstance(basis, str) or not basis:
+        raise ValueError("basis must be a non-empty string")
+    return basis.lower()
+
+
 @dataclass
 class ControlProblem:
     """Spinach-style GRAPE optimisation problem description.
@@ -68,8 +75,8 @@ def _has_ensemble_axes(cp: ControlProblem) -> bool:
     )
 
 
-def _validate_state_shape(name: str, state: Array, generator_dim: int) -> None:
-    """Raise ValueError if a state cannot be acted on by the generators."""
+def _validate_state_shape(name: str, state: Array, generator_dim: int) -> Array:
+    """Return a finite state that can be acted on by the generators."""
     array = np.asarray(state, dtype=np.complex128)
     if not np.all(np.isfinite(array)):
         raise ValueError(f"{name} entries must be finite")
@@ -79,19 +86,51 @@ def _validate_state_shape(name: str, state: Array, generator_dim: int) -> None:
                 f"{name} vector length {array.shape[0]} does not match "
                 f"generator dimension {generator_dim}"
             )
-        return
+        return array
 
     if array.ndim == 2 and array.shape[0] == array.shape[1]:
         matrix_dim = int(array.shape[0])
         liouville_dim = int(array.size)
         if matrix_dim == generator_dim or liouville_dim == generator_dim:
-            return
+            return array
         raise ValueError(
             f"{name} matrix shape {array.shape} is incompatible with "
             f"generator dimension {generator_dim}"
         )
 
     raise ValueError(f"{name} must be a vector or square matrix, got shape {array.shape}")
+
+
+def _validate_explicit_state_shape(
+    name: str,
+    state: Array,
+    generator_dim: int,
+    basis: str,
+) -> None:
+    """Validate state shape requirements imposed by an explicit basis."""
+    if basis == "hilbert":
+        if state.ndim != 1:
+            raise ValueError(f"{name} must be a pure-state vector for Hilbert GRAPE")
+        if state.shape[0] != generator_dim:
+            raise ValueError(
+                f"{name} vector length {state.shape[0]} does not match "
+                f"Hilbert generator dimension {generator_dim}"
+            )
+    elif basis == "liouville":
+        if state.ndim == 1:
+            if state.shape[0] != generator_dim:
+                raise ValueError(
+                    f"{name} vector length {state.shape[0]} does not match "
+                    f"Liouville generator dimension {generator_dim}"
+                )
+        elif state.ndim == 2 and state.shape[0] == state.shape[1]:
+            if state.size != generator_dim:
+                raise ValueError(
+                    f"{name} matrix shape {state.shape} does not vectorise to "
+                    f"Liouville generator dimension {generator_dim}"
+                )
+        else:
+            raise ValueError(f"{name} must be a vector or square density matrix")
 
 
 def _validate_freeze_mask(
@@ -107,9 +146,7 @@ def _validate_freeze_mask(
     if mask.ndim != 2:
         raise ValueError(f"freeze mask must be two-dimensional, got shape {mask.shape}")
     if mask.shape[1] != n_channels:
-        raise ValueError(
-            f"freeze mask has {mask.shape[1]} channels, expected {n_channels}"
-        )
+        raise ValueError(f"freeze mask has {mask.shape[1]} channels, expected {n_channels}")
 
 
 def _validate_phase_cycle(phase_cycle: npt.NDArray[np.float64] | None) -> None:
@@ -143,14 +180,14 @@ def validate_control_problem(cp: ControlProblem) -> None:
 
     if cp.fidelity_mode not in VALID_FIDELITY_MODES:
         _raise_invalid_mode("fidelity_mode")
+    basis = _basis_name(cp.basis)
     if cp.pulse_dt <= 0.0 or not math.isfinite(cp.pulse_dt):
         raise ValueError("pulse_dt must be finite and positive")
     if len(cp.rho_init) != len(cp.rho_targ):
         raise ValueError("rho_init and rho_targ must contain the same number of states")
-    if len(cp.pwr_levels) != len(cp.operators):
+    if len(cp.pwr_levels) != len(cp.operators) and not _has_rf_power_ensemble(cp):
         raise ValueError(
-            f"pwr_levels length {len(cp.pwr_levels)} must match "
-            f"operator count {len(cp.operators)}"
+            f"pwr_levels length {len(cp.pwr_levels)} must match operator count {len(cp.operators)}"
         )
 
     _validate_float_list("pwr_levels", cp.pwr_levels)
@@ -162,9 +199,7 @@ def validate_control_problem(cp: ControlProblem) -> None:
     for index, operator in enumerate(cp.operators):
         dim = _validate_square_matrix(f"operators[{index}]", operator)
         if dim != generator_dim:
-            raise ValueError(
-                f"operators[{index}] dimension {dim} does not match {generator_dim}"
-            )
+            raise ValueError(f"operators[{index}] dimension {dim} does not match {generator_dim}")
 
     for index, (rho_init, rho_targ) in enumerate(zip(cp.rho_init, cp.rho_targ)):
         init_shape = np.asarray(rho_init).shape
@@ -174,8 +209,12 @@ def validate_control_problem(cp: ControlProblem) -> None:
                 f"rho_init[{index}] shape {init_shape} does not match "
                 f"rho_targ[{index}] shape {target_shape}"
             )
-        _validate_state_shape(f"rho_init[{index}]", rho_init, generator_dim)
-        _validate_state_shape(f"rho_targ[{index}]", rho_targ, generator_dim)
+        init_name = f"rho_init[{index}]"
+        target_name = f"rho_targ[{index}]"
+        init = _validate_state_shape(init_name, rho_init, generator_dim)
+        target = _validate_state_shape(target_name, rho_targ, generator_dim)
+        _validate_explicit_state_shape(init_name, init, generator_dim, basis)
+        _validate_explicit_state_shape(target_name, target, generator_dim, basis)
 
     if cp.offsets is not None:
         _validate_float_list("offsets", cp.offsets)
@@ -189,9 +228,6 @@ def validate_control_problem(cp: ControlProblem) -> None:
 
     _validate_freeze_mask(cp.freeze, len(cp.operators))
     _validate_phase_cycle(cp.phase_cycle)
-
-    if not cp.basis:
-        raise ValueError("basis must be a non-empty string")
 
 
 def validate_waveform(wfm: RealArray, n_channels: int, n_steps: int) -> None:
@@ -321,8 +357,7 @@ def phase_only_gradient(
         raise ValueError(f"amplitude must be one-dimensional, got shape {amplitude_arr.shape}")
     if amplitude_arr.shape[0] != gradient.shape[0]:
         raise ValueError(
-            f"amplitude length {amplitude_arr.shape[0]} must match "
-            f"grad_xy rows {gradient.shape[0]}"
+            f"amplitude length {amplitude_arr.shape[0]} must match grad_xy rows {gradient.shape[0]}"
         )
     if not np.all(np.isfinite(amplitude_arr)):
         raise ValueError("amplitude entries must be finite")
@@ -379,9 +414,7 @@ def _single_drift(cp: ControlProblem) -> Array:
 
 def _control_direction_stack(cp: ControlProblem) -> Array:
     """Return power-scaled control operators stacked as ``(n_channels, dim, dim)``."""
-    operators = np.stack(
-        [np.asarray(operator, dtype=np.complex128) for operator in cp.operators]
-    )
+    operators = np.stack([np.asarray(operator, dtype=np.complex128) for operator in cp.operators])
     levels = np.asarray(cp.pwr_levels, dtype=np.complex128)
     return np.asarray(levels[:, None, None] * operators, dtype=np.complex128)
 
@@ -472,18 +505,14 @@ def _propagators_and_derivatives(
 ) -> tuple[Array, Array]:
     """Return slice propagators and their control derivatives, fast path first."""
     if _has_hermitian_igenerators(cp):
-        propagators, eigenvalues, eigenvectors = _propagators_via_eigh(
-            generators, cp.pulse_dt
-        )
+        propagators, eigenvalues, eigenvectors = _propagators_via_eigh(generators, cp.pulse_dt)
         d_propagators = _derivative_propagators_via_eigh(
             eigenvalues, eigenvectors, control_directions, cp.pulse_dt
         )
         return propagators, d_propagators
 
     propagators = np.asarray(expm(generators * cp.pulse_dt), dtype=np.complex128)
-    d_propagators = _batched_derivative_propagators(
-        generators, control_directions, cp.pulse_dt
-    )
+    d_propagators = _batched_derivative_propagators(generators, control_directions, cp.pulse_dt)
     return propagators, d_propagators
 
 
@@ -566,13 +595,11 @@ def _second_dir_diff_generator_expm(
     dim = _validate_square_matrix("generator", generator_arr)
     if d_a_arr.shape != generator_arr.shape:
         raise ValueError(
-            f"d_generator_a shape {d_a_arr.shape} must match "
-            f"generator shape {generator_arr.shape}"
+            f"d_generator_a shape {d_a_arr.shape} must match generator shape {generator_arr.shape}"
         )
     if d_b_arr.shape != generator_arr.shape:
         raise ValueError(
-            f"d_generator_b shape {d_b_arr.shape} must match "
-            f"generator shape {generator_arr.shape}"
+            f"d_generator_b shape {d_b_arr.shape} must match generator shape {generator_arr.shape}"
         )
     if not math.isfinite(dt):
         raise ValueError("dt must be finite")
@@ -604,6 +631,8 @@ def _effective_waveform(cp: ControlProblem, wfm: RealArray) -> RealArray:
 
 def forward_propagators(cp: ControlProblem, wfm: RealArray) -> list[Array]:
     """Return per-slice propagators for a waveform under a control problem."""
+    if _has_ensemble_axes(cp):
+        raise ValueError("forward_propagators does not support ensemble control problems")
     effective_waveform = _effective_waveform(cp, wfm)
 
     generators = _slice_generator_stack(cp, effective_waveform)
@@ -624,8 +653,7 @@ def _validate_matches_propagator(name: str, matrix: Array, propagator: Array) ->
     """Raise ValueError if a derivative matrix does not match the propagator shape."""
     if matrix.shape != propagator.shape:
         raise ValueError(
-            f"{name} shape {matrix.shape} must match "
-            f"propagator shape {propagator.shape}"
+            f"{name} shape {matrix.shape} must match propagator shape {propagator.shape}"
         )
 
 
@@ -639,8 +667,7 @@ def _propagator_layout(state: Array, propagator: Array) -> str:
     if state.ndim == 1:
         if propagator.shape != (state.shape[0], state.shape[0]):
             raise ValueError(
-                f"propagator shape {propagator.shape} cannot act on "
-                f"state shape {state.shape}"
+                f"propagator shape {propagator.shape} cannot act on state shape {state.shape}"
             )
         return "vector"
 
@@ -650,8 +677,7 @@ def _propagator_layout(state: Array, propagator: Array) -> str:
         if propagator.shape == (state.size, state.size):
             return "liouville"
         raise ValueError(
-            f"propagator shape {propagator.shape} cannot act on "
-            f"state shape {state.shape}"
+            f"propagator shape {propagator.shape} cannot act on state shape {state.shape}"
         )
 
     raise ValueError(f"state must be a vector or square matrix, got shape {state.shape}")
@@ -779,8 +805,7 @@ def _fidelity_second_directional_derivative(
     ):
         if array.shape != rho_final_arr.shape:
             raise ValueError(
-                f"{name} shape {array.shape} must match "
-                f"rho_final shape {rho_final_arr.shape}"
+                f"{name} shape {array.shape} must match rho_final shape {rho_final_arr.shape}"
             )
 
     dd_overlap = np.complex128(np.vdot(rho_targ_arr, dd_arr))
@@ -789,11 +814,7 @@ def _fidelity_second_directional_derivative(
         d_overlap_a = np.complex128(np.vdot(rho_targ_arr, d_a_arr))
         d_overlap_b = np.complex128(np.vdot(rho_targ_arr, d_b_arr))
         return float(
-            2.0
-            * np.real(
-                d_overlap_b.conjugate() * d_overlap_a
-                + overlap.conjugate() * dd_overlap
-            )
+            2.0 * np.real(d_overlap_b.conjugate() * d_overlap_a + overlap.conjugate() * dd_overlap)
         )
     return _mode_value(dd_overlap, mode)
 
@@ -820,9 +841,7 @@ def _mode_gradient(
     if mode == "imag":
         return np.asarray(np.imag(d_overlaps), dtype=np.float64)
     if mode == "abs2":
-        return np.asarray(
-            2.0 * np.real(np.conjugate(overlap) * d_overlaps), dtype=np.float64
-        )
+        return np.asarray(2.0 * np.real(np.conjugate(overlap) * d_overlaps), dtype=np.float64)
     _raise_invalid_mode("mode")
 
 
@@ -877,9 +896,7 @@ def _hilbert_matrix_value_and_gradient(
         rho = fwd[step_index]
         d_slice = np.einsum(
             "cij,jl,ml->cim", d_propagator, rho, propagator.conj(), optimize=True
-        ) + np.einsum(
-            "ij,jl,cml->cim", propagator, rho, d_propagator.conj(), optimize=True
-        )
+        ) + np.einsum("ij,jl,cml->cim", propagator, rho, d_propagator.conj(), optimize=True)
         d_overlaps[step_index] = np.einsum(
             "im,cim->c", bwd[step_index + 1].conj(), d_slice, optimize=True
         )
@@ -895,6 +912,8 @@ def _single_value_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[floa
     core serves both ``grape_gradient`` and ``grape_xy_and_gradient``.
     """
     effective_waveform = _effective_waveform(cp, wfm)
+    cp = _problem_for_basis(cp)
+
     n_steps, n_channels = effective_waveform.shape
 
     from optimalcontrol._accelerator import vector_value_gradient
@@ -906,32 +925,26 @@ def _single_value_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[floa
         return fidelity, accelerated_gradient
 
     generators = _slice_generator_stack(cp, effective_waveform)
-    dim = generators.shape[1]
     control_directions = _control_direction_stack(cp)
-    propagators, d_propagators = _propagators_and_derivatives(
-        cp, generators, control_directions
-    )
+    propagators, d_propagators = _propagators_and_derivatives(cp, generators, control_directions)
 
     gradient: RealArray = np.zeros((n_steps, n_channels), dtype=np.float64)
     values: list[float] = []
     for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ):
         init = np.asarray(rho_init, dtype=np.complex128)
         targ = np.asarray(rho_targ, dtype=np.complex128)
-        if init.ndim == 1:
-            value, member_gradient = _vector_value_and_gradient(
-                init, targ, propagators, d_propagators, cp.fidelity_mode
-            )
-        elif init.ndim == 2 and init.shape[0] == init.shape[1] and init.size == dim:
-            value, member_gradient = _vector_value_and_gradient(
-                vec(init), vec(targ), propagators, d_propagators, cp.fidelity_mode
-            )
-        elif init.ndim == 2 and init.shape[0] == init.shape[1] and init.shape[0] == dim:
+        layout = _propagator_layout(init, propagators[0])
+        if layout == "hilbert":
             value, member_gradient = _hilbert_matrix_value_and_gradient(
                 init, targ, propagators, d_propagators, cp.fidelity_mode
             )
         else:
-            raise ValueError(
-                f"state shape {init.shape} is incompatible with generator dimension {dim}"
+            value, member_gradient = _vector_value_and_gradient(
+                init if layout == "vector" else vec(init),
+                targ if layout == "vector" else vec(targ),
+                propagators,
+                d_propagators,
+                cp.fidelity_mode,
             )
         values.append(value)
         gradient += member_gradient
@@ -1024,22 +1037,16 @@ def _hessian_state_sweep(
     current = np.asarray(rho_init, dtype=np.complex128).copy()
     zero_state = np.zeros_like(current, dtype=np.complex128)
     first_states = [zero_state.copy() for _ in range(n_params)]
-    second_states = [
-        [zero_state.copy() for _ in range(n_params)] for _ in range(n_params)
-    ]
+    second_states = [[zero_state.copy() for _ in range(n_params)] for _ in range(n_params)]
 
     for step_index in range(len(propagators)):
         propagator = propagators[step_index]
         next_current = _apply_propagator(current, propagator)
         next_first_states = [
-            _apply_propagator(first_state, propagator)
-            for first_state in first_states
+            _apply_propagator(first_state, propagator) for first_state in first_states
         ]
         next_second_states = [
-            [
-                _apply_propagator(second_states[row][col], propagator)
-                for col in range(n_params)
-            ]
+            [_apply_propagator(second_states[row][col], propagator) for col in range(n_params)]
             for row in range(n_params)
         ]
 
@@ -1064,14 +1071,12 @@ def _hessian_state_sweep(
             param_a = step_index * n_channels + channel_a
             for channel_b in range(n_channels):
                 param_b = step_index * n_channels + channel_b
-                next_second_states[param_a][param_b] += (
-                    _apply_second_derivative_propagator(
-                        current,
-                        propagator,
-                        derivative_propagators[step_index][channel_a],
-                        derivative_propagators[step_index][channel_b],
-                        second_derivative_propagators[step_index][channel_a][channel_b],
-                    )
+                next_second_states[param_a][param_b] += _apply_second_derivative_propagator(
+                    current,
+                    propagator,
+                    derivative_propagators[step_index][channel_a],
+                    derivative_propagators[step_index][channel_b],
+                    second_derivative_propagators[step_index][channel_a][channel_b],
                 )
 
         current = next_current
@@ -1088,14 +1093,38 @@ def grape_hessian(cp: ControlProblem, wfm: RealArray) -> RealArray | None:
     ``cp.penalties`` is set, the penalty Hessian is subtracted from the exact
     fidelity Hessian.
     """
+    if _has_ensemble_axes(cp):
+        from optimalcontrol.ensemble import cartesian_product_ensemble
+
+        waveform = np.asarray(wfm, dtype=np.float64)
+        members = cartesian_product_ensemble(replace(cp, penalties=None))
+        member_hessians: list[RealArray] = []
+        for member in members:
+            member_hessian = grape_hessian(member, waveform)
+            if member_hessian is None:
+                return None
+            member_hessians.append(member_hessian)
+        ensemble_hessian = np.asarray(
+            np.mean(np.stack(member_hessians), axis=0),
+            dtype=np.float64,
+        )
+        if cp.penalties is not None:
+            ensemble_hessian -= total_penalty_hessian(waveform, cp.penalties)
+        if cp.freeze is not None:
+            freeze_mask = np.asarray(cp.freeze, dtype=np.bool_).reshape(ensemble_hessian.shape[0])
+            ensemble_hessian[freeze_mask, :] = 0.0
+            ensemble_hessian[:, freeze_mask] = 0.0
+        return ensemble_hessian
+
     effective_waveform = _effective_waveform(cp, wfm)
+    cp = _problem_for_basis(cp)
     n_steps, n_channels = effective_waveform.shape
     n_params = n_steps * n_channels
     if n_params > 50:
         return None
 
-    propagators, derivative_propagators, second_derivative_propagators = (
-        _hessian_slice_propagators(cp, effective_waveform)
+    propagators, derivative_propagators, second_derivative_propagators = _hessian_slice_propagators(
+        cp, effective_waveform
     )
 
     hessian: RealArray = np.zeros((n_params, n_params), dtype=np.float64)
@@ -1157,31 +1186,16 @@ def _grape_xy_core(cp: ControlProblem, wfm: RealArray) -> float:
 def _vectorise_liouville_state(state: Array, generator_dim: int, name: str) -> Array:
     """Return a Liouville vector state, vectorising a density matrix if needed."""
     state_arr = np.asarray(state, dtype=np.complex128)
-    if state_arr.ndim == 1:
-        if state_arr.shape[0] != generator_dim:
-            raise ValueError(
-                f"{name} vector length {state_arr.shape[0]} does not match "
-                f"Liouville generator dimension {generator_dim}"
-            )
-        return state_arr.copy()
-    if state_arr.ndim == 2 and state_arr.shape[0] == state_arr.shape[1]:
-        if state_arr.size != generator_dim:
-            raise ValueError(
-                f"{name} matrix shape {state_arr.shape} does not vectorise to "
-                f"Liouville generator dimension {generator_dim}"
-            )
-        return vec(state_arr)
-    raise ValueError(f"{name} must be a vector or square density matrix")
+    _validate_explicit_state_shape(name, state_arr, generator_dim, "liouville")
+    return state_arr.copy() if state_arr.ndim == 1 else vec(state_arr)
 
 
-def _grape_xy_in_basis(
+def _problem_in_basis(
     cp: ControlProblem,
-    wfm: RealArray,
     convert_fn: Callable[[Array, int, str], Array],
     basis: str,
-) -> float:
-    """Return GRAPE fidelity after converting states with ``convert_fn``."""
-    validate_control_problem(cp)
+) -> ControlProblem:
+    """Return a problem with states converted for an explicit basis."""
     generator_dim = int(np.asarray(cp.drifts[0], dtype=np.complex128).shape[0])
     rho_init = [
         convert_fn(state, generator_dim, f"rho_init[{index}]")
@@ -1191,31 +1205,57 @@ def _grape_xy_in_basis(
         convert_fn(state, generator_dim, f"rho_targ[{index}]")
         for index, state in enumerate(cp.rho_targ)
     ]
-    converted_cp = replace(cp, rho_init=rho_init, rho_targ=rho_targ, basis=basis)
-    return _grape_xy_core(converted_cp, wfm)
+    return replace(cp, rho_init=rho_init, rho_targ=rho_targ, basis=basis)
+
+
+def _problem_for_basis(cp: ControlProblem) -> ControlProblem:
+    """Return a problem whose states follow its explicit basis."""
+    basis = _basis_name(cp.basis)
+    states = cp.rho_init + cp.rho_targ
+    if basis == "liouville" and any(np.asarray(state).ndim == 2 for state in states):
+        return _problem_in_basis(cp, _vectorise_liouville_state, basis)
+    return cp
+
+
+def _grape_xy_in_basis(
+    cp: ControlProblem,
+    wfm: RealArray,
+    convert_fn: Callable[[Array, int, str], Array],
+    basis: str,
+) -> float:
+    """Return GRAPE fidelity after converting states with ``convert_fn``."""
+    basis_cp = replace(cp, basis=basis)
+    validate_control_problem(basis_cp)
+    return _grape_xy_core(_problem_in_basis(basis_cp, convert_fn, basis), wfm)
 
 
 def grape_xy_liouville(cp: ControlProblem, wfm: RealArray) -> float:
     """Return GRAPE fidelity using vectorised-density Liouville propagation."""
-    return _grape_xy_in_basis(cp, wfm, _vectorise_liouville_state, "liouville")
+    if _has_ensemble_axes(cp):
+        return grape_xy(replace(cp, basis="liouville"), wfm)
+    fidelity = _grape_xy_in_basis(cp, wfm, _vectorise_liouville_state, "liouville")
+    if cp.penalties is not None:
+        penalty_value, _ = total_penalty(np.asarray(wfm, dtype=np.float64), cp.penalties)
+        fidelity -= penalty_value
+    return fidelity
 
 
 def _validate_hilbert_state(state: Array, generator_dim: int, name: str) -> Array:
     """Return a pure Hilbert-space vector state or raise ValueError."""
     state_arr = np.asarray(state, dtype=np.complex128)
-    if state_arr.ndim != 1:
-        raise ValueError(f"{name} must be a pure-state vector for Hilbert GRAPE")
-    if state_arr.shape[0] != generator_dim:
-        raise ValueError(
-            f"{name} vector length {state_arr.shape[0]} does not match "
-            f"Hilbert generator dimension {generator_dim}"
-        )
+    _validate_explicit_state_shape(name, state_arr, generator_dim, "hilbert")
     return state_arr.copy()
 
 
 def grape_xy_hilbert(cp: ControlProblem, wfm: RealArray) -> float:
     """Return GRAPE fidelity using pure-state Hilbert-space propagation."""
-    return _grape_xy_in_basis(cp, wfm, _validate_hilbert_state, "hilbert")
+    if _has_ensemble_axes(cp):
+        return grape_xy(replace(cp, basis="hilbert"), wfm)
+    fidelity = _grape_xy_in_basis(cp, wfm, _validate_hilbert_state, "hilbert")
+    if cp.penalties is not None:
+        penalty_value, _ = total_penalty(np.asarray(wfm, dtype=np.float64), cp.penalties)
+        fidelity -= penalty_value
+    return fidelity
 
 
 def grape_xy(cp: ControlProblem, wfm: RealArray) -> float:
@@ -1225,17 +1265,17 @@ def grape_xy(cp: ControlProblem, wfm: RealArray) -> float:
     averaged over the Cartesian ensemble. When ``cp.penalties`` is set, the
     summed penalty value is subtracted from the fidelity before returning.
     """
+    basis = _basis_name(cp.basis)
     if _has_ensemble_axes(cp):
         from optimalcontrol.ensemble import ensemble_fidelity
 
         bare_cp = replace(cp, penalties=None)
         fidelity = ensemble_fidelity(bare_cp, wfm)
     else:
-        basis = cp.basis.lower()
         if basis == "liouville":
-            fidelity = grape_xy_liouville(cp, wfm)
+            return grape_xy_liouville(cp, wfm)
         elif basis == "hilbert":
-            fidelity = grape_xy_hilbert(cp, wfm)
+            return grape_xy_hilbert(cp, wfm)
         else:
             fidelity = _grape_xy_core(cp, wfm)
     if cp.penalties is not None:

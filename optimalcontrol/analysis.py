@@ -7,16 +7,29 @@ import numpy as np
 from scipy.signal import spectrogram
 
 from optimalcontrol._types import Array, RealArray
-from optimalcontrol.grape import ControlProblem, forward_propagators, forward_states, grape_xy
+from optimalcontrol.grape import (
+    ControlProblem,
+    _has_ensemble_axes,
+    _problem_for_basis,
+    forward_propagators,
+    forward_states,
+    grape_xy,
+)
 
 
 def state_trajectory(cp: ControlProblem, wfm: RealArray) -> list[Array]:
     """Return density matrices at each time slice for the first source state.
 
     Returns a list of length n_steps + 1: [rho_0, rho_1, ..., rho_N].
-    For multi-source problems the first source state rho_init[0] is used.
+    For multi-source problems the first source state rho_init[0] is used; for
+    ensemble problems the first Cartesian member is used.
     """
+    if _has_ensemble_axes(cp):
+        from optimalcontrol.ensemble import cartesian_product_ensemble
+
+        cp = cartesian_product_ensemble(cp)[0]
     propagators = forward_propagators(cp, wfm)
+    cp = _problem_for_basis(cp)
     return forward_states(cp.rho_init[0], propagators)
 
 
@@ -160,8 +173,7 @@ def spectrogram_data(
     ch_x, ch_y = channel_pair
     if not (0 <= ch_x < n_channels and 0 <= ch_y < n_channels):
         raise ValueError(
-            f"channel_pair {channel_pair} out of range for waveform with "
-            f"{n_channels} channels"
+            f"channel_pair {channel_pair} out of range for waveform with {n_channels} channels"
         )
     if dt <= 0.0:
         raise ValueError(f"dt must be positive, got {dt}")

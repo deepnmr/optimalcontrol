@@ -1,9 +1,12 @@
 """Tests for waveform import/export helpers."""
 
 import csv
+import functools
 import pathlib
+from dataclasses import replace
 
 import numpy as np
+import pytest
 
 from optimalcontrol.grape import ControlProblem
 from optimalcontrol.io import (
@@ -18,6 +21,7 @@ from optimalcontrol.io import (
     waveform_from_result,
 )
 from optimalcontrol.optimizers import OptimResult
+from optimalcontrol.penalties import PenaltySpec
 
 
 def _io_control_problem() -> ControlProblem:
@@ -69,6 +73,69 @@ def test_waveform_from_result_transposes_internal_grape_layout() -> None:
     np.testing.assert_allclose(waveform.data, final.T)
     assert waveform.metadata["fidelity_final"] == 0.75
     assert len(waveform.problem_hash) == 64
+
+
+def test_problem_hash_includes_penalties() -> None:
+    from optimalcontrol.io import _hash_control_problem
+
+    cp = _io_control_problem()
+    penalized = replace(cp, penalties=[PenaltySpec("NS", 0.25)])
+
+    assert _hash_control_problem(cp) != _hash_control_problem(penalized)
+    assert _hash_control_problem(cp) == _hash_control_problem(replace(cp, basis="HILBERT"))
+    object_drift = np.asarray(cp.drifts[0], dtype=object)
+    assert _hash_control_problem(cp) == _hash_control_problem(
+        replace(cp, drifts=[object_drift.copy()])
+    )
+
+    def penalty(provenance: str):
+        def function(wfm):
+            return 0.0, np.zeros_like(wfm)
+
+        function.__optimalcontrol_provenance__ = provenance
+        return function
+
+    first = _hash_control_problem(replace(cp, penalties=[penalty("zero-v1")]))
+    assert first == _hash_control_problem(replace(cp, penalties=[penalty("zero-v1")]))
+    assert first != _hash_control_problem(replace(cp, penalties=[penalty("zero-v2")]))
+    with pytest.raises(ValueError, match="__optimalcontrol_provenance__"):
+        _hash_control_problem(replace(cp, penalties=[lambda wfm: (0.0, wfm)]))
+
+
+def test_problem_hash_accepts_tagged_callable_forms() -> None:
+    from optimalcontrol.io import _hash_control_problem
+
+    class Penalties:
+        def __call__(self, wfm):
+            return 0.0, np.zeros_like(wfm)
+
+        def method(self, wfm):
+            return 0.0, np.zeros_like(wfm)
+
+    class SlottedPenalty:
+        __slots__ = ("__optimalcontrol_provenance__",)
+
+        def __init__(self) -> None:
+            self.__optimalcontrol_provenance__ = "slotted-v1"
+
+        def __call__(self, wfm):
+            return 0.0, np.zeros_like(wfm)
+
+    Penalties.method.__optimalcontrol_provenance__ = "bound-method-v1"
+    penalties = Penalties()
+    penalties.__optimalcontrol_provenance__ = "instance-v1"
+    partial = functools.partial(penalties.method)
+    partial.__optimalcontrol_provenance__ = "partial-v1"
+
+    cp = _io_control_problem()
+    for penalty in (penalties, penalties.method, partial, SlottedPenalty()):
+        assert len(_hash_control_problem(replace(cp, penalties=[penalty]))) == 64
+
+    other = Penalties()
+    other.__optimalcontrol_provenance__ = "instance-v2"
+    assert _hash_control_problem(replace(cp, penalties=[penalties.method])) != (
+        _hash_control_problem(replace(cp, penalties=[other.method]))
+    )
 
 
 def test_json_export_import_round_trips_waveform(tmp_path: pathlib.Path) -> None:

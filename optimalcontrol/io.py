@@ -2,6 +2,7 @@
 
 import csv
 import hashlib
+import inspect
 import json
 import math
 from collections.abc import Sequence
@@ -12,8 +13,14 @@ from typing import Protocol, cast
 import numpy as np
 
 from optimalcontrol._types import RealArray
-from optimalcontrol.grape import ControlProblem, validate_control_problem, validate_waveform
+from optimalcontrol.grape import (
+    ControlProblem,
+    _basis_name,
+    validate_control_problem,
+    validate_waveform,
+)
 from optimalcontrol.optimizers import OptimResult
+from optimalcontrol.penalties import PenaltySpec
 
 
 class _Hasher(Protocol):
@@ -44,13 +51,9 @@ class Waveform:
         times = _as_real("times", self.times, 1)
         data = _as_real("data", self.data, 2)
         if data.shape[0] != len(channels):
-            raise ValueError(
-                f"data has {data.shape[0]} channels, expected {len(channels)}"
-            )
+            raise ValueError(f"data has {data.shape[0]} channels, expected {len(channels)}")
         if data.shape[1] != times.shape[0]:
-            raise ValueError(
-                f"data has {data.shape[1]} time steps, expected {times.shape[0]}"
-            )
+            raise ValueError(f"data has {data.shape[1]} time steps, expected {times.shape[0]}")
 
         problem_hash = str(self.problem_hash)
         if not problem_hash.strip():
@@ -232,8 +235,7 @@ def _numeric_table(lines: list[str], source_name: str) -> RealArray:
             width = len(values)
         elif len(values) != width:
             raise ValueError(
-                f"{source_name} row {line_number} has {len(values)} columns, "
-                f"expected {width}"
+                f"{source_name} row {line_number} has {len(values)} columns, expected {width}"
             )
         rows.append(values)
 
@@ -297,6 +299,54 @@ def _hash_optional_array(hasher: _Hasher, name: str, value: object | None) -> No
     _hash_array(hasher, name, value)
 
 
+def _own_callable_provenance(value: object) -> str:
+    """Return a provenance tag stored directly on a callable or instance."""
+    try:
+        provenance = vars(value).get("__optimalcontrol_provenance__")
+    except TypeError:
+        provenance = None
+    descriptor = vars(type(value)).get("__optimalcontrol_provenance__")
+    if provenance is None and inspect.ismemberdescriptor(descriptor):
+        provenance = getattr(value, "__optimalcontrol_provenance__", None)
+    if not isinstance(provenance, str) or not provenance.strip():
+        raise ValueError(
+            "callable penalties require a non-empty "
+            "__optimalcontrol_provenance__ attribute for stable problem hashes"
+        )
+    return provenance
+
+
+def _callable_provenance(penalty: object) -> object:
+    """Return stable provenance, including bound-method instance identity."""
+    function = getattr(penalty, "__func__", None)
+    instance = getattr(penalty, "__self__", None)
+    if function is not None and instance is not None:
+        return {
+            "function": _own_callable_provenance(function),
+            "instance": _own_callable_provenance(instance),
+        }
+    return _own_callable_provenance(penalty)
+
+
+def _penalty_hash_payload(cp: ControlProblem) -> list[dict[str, object]] | None:
+    """Return stable penalty provenance for a control-problem hash."""
+    if cp.penalties is None:
+        return None
+    payload: list[dict[str, object]] = []
+    for penalty in cp.penalties:
+        if isinstance(penalty, PenaltySpec):
+            payload.append(
+                {
+                    "kind": penalty.kind.upper(),
+                    "weight": float(penalty.weight),
+                    "limit": None if penalty.limit is None else float(penalty.limit),
+                }
+            )
+        else:
+            payload.append({"callable_provenance": _callable_provenance(penalty)})
+    return payload
+
+
 def _hash_control_problem(cp: ControlProblem) -> str:
     """Return a stable hash of the serialisable control-problem definition."""
     hasher = hashlib.sha256()
@@ -304,16 +354,15 @@ def _hash_control_problem(cp: ControlProblem) -> str:
         "pulse_dt": float(cp.pulse_dt),
         "pwr_levels": [float(level) for level in cp.pwr_levels],
         "fidelity_mode": cp.fidelity_mode,
-        "basis": cp.basis,
+        "basis": _basis_name(cp.basis),
+        "penalties": _penalty_hash_payload(cp),
         "n_drifts": len(cp.drifts),
         "n_operators": len(cp.operators),
         "n_rho_init": len(cp.rho_init),
         "n_rho_targ": len(cp.rho_targ),
         "offsets": None if cp.offsets is None else [float(value) for value in cp.offsets],
     }
-    hasher.update(
-        json.dumps(scalar_payload, sort_keys=True, allow_nan=False).encode("utf-8")
-    )
+    hasher.update(json.dumps(scalar_payload, sort_keys=True, allow_nan=False).encode("utf-8"))
     for field_name, arrays in (
         ("drifts", cp.drifts),
         ("operators", cp.operators),
@@ -321,14 +370,30 @@ def _hash_control_problem(cp: ControlProblem) -> str:
         ("rho_targ", cp.rho_targ),
     ):
         for index, array in enumerate(arrays):
-            _hash_array(hasher, f"{field_name}[{index}]", array)
+            _hash_array(
+                hasher,
+                f"{field_name}[{index}]",
+                np.asarray(array, dtype=np.complex128),
+            )
     if cp.offset_operators is None:
         hasher.update(b"offset_operators:none")
     else:
         for index, array in enumerate(cp.offset_operators):
-            _hash_array(hasher, f"offset_operators[{index}]", array)
-    _hash_optional_array(hasher, "freeze", cp.freeze)
-    _hash_optional_array(hasher, "phase_cycle", cp.phase_cycle)
+            _hash_array(
+                hasher,
+                f"offset_operators[{index}]",
+                np.asarray(array, dtype=np.complex128),
+            )
+    _hash_optional_array(
+        hasher,
+        "freeze",
+        None if cp.freeze is None else np.asarray(cp.freeze, dtype=np.bool_),
+    )
+    _hash_optional_array(
+        hasher,
+        "phase_cycle",
+        None if cp.phase_cycle is None else np.asarray(cp.phase_cycle, dtype=np.float64),
+    )
     return hasher.hexdigest()
 
 
@@ -570,13 +635,11 @@ def _resolve_jcamp_layout(
     times = np.asarray(_split_float_tokens(times_raw), dtype=np.float64)
     if times.shape[0] != n_points:
         raise ValueError(
-            f"JCAMP-DX private time axis has {times.shape[0]} points, "
-            f"expected {n_points}"
+            f"JCAMP-DX private time axis has {times.shape[0]} points, expected {n_points}"
         )
     if table.shape[1] != len(channels):
         raise ValueError(
-            f"JCAMP-DX table has {table.shape[1]} columns, "
-            f"expected {len(channels)} channels"
+            f"JCAMP-DX table has {table.shape[1]} columns, expected {len(channels)} channels"
         )
     data = np.asarray(table.T, dtype=np.float64)
     return channels, times, data
@@ -601,8 +664,7 @@ def import_jcamp_dx(path: str | Path) -> Waveform:
     expected_points_raw = tags.get("NPOINTS")
     if expected_points_raw is not None and int(float(expected_points_raw)) != n_points:
         raise ValueError(
-            f"JCAMP-DX NPOINTS={expected_points_raw} does not match "
-            f"{n_points} parsed rows"
+            f"JCAMP-DX NPOINTS={expected_points_raw} does not match {n_points} parsed rows"
         )
 
     channels, times, data = _resolve_jcamp_layout(tags, table, n_points)

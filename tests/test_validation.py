@@ -12,9 +12,7 @@ from optimalcontrol.states import normalise_2norm
 def _valid_control_problem() -> ControlProblem:
     """Return a minimal one-spin Hilbert-space control problem."""
     rho_init = np.array([1.0, 0.0], dtype=np.complex128)
-    rho_targ = normalise_2norm(
-        np.array([0.35 + 0.15j, 0.88 - 0.28j], dtype=np.complex128)
-    )
+    rho_targ = normalise_2norm(np.array([0.35 + 0.15j, 0.88 - 0.28j], dtype=np.complex128))
     return ControlProblem(
         drifts=[np.complex128(-1j) * 0.2 * Iz()],
         operators=[np.complex128(-1j) * Ix()],
@@ -34,6 +32,24 @@ def test_invalid_operator_dimension_reports_expected_message() -> None:
 
     with pytest.raises(ValueError, match=r"operators\[0\] dimension 3 does not match 2"):
         validate_control_problem(cp)
+
+
+def test_empty_generators_are_rejected_at_validation_boundary() -> None:
+    cp = _valid_control_problem()
+    cp.drifts = [np.zeros((0, 0), dtype=np.complex128)]
+    cp.operators = [np.zeros((0, 0), dtype=np.complex128)]
+    cp.rho_init = [np.empty(0, dtype=np.complex128)]
+    cp.rho_targ = [np.empty(0, dtype=np.complex128)]
+
+    with pytest.raises(ValueError, match="non-empty square matrix"):
+        validate_control_problem(cp)
+
+
+def test_validator_accepts_rf_power_ensemble_axis() -> None:
+    cp = _valid_control_problem()
+    cp.pwr_levels = [0.8, 1.2]
+
+    validate_control_problem(cp)
 
 
 def test_invalid_fidelity_mode_reports_allowed_values() -> None:
