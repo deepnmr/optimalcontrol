@@ -380,8 +380,12 @@ def test_grape_xy_hilbert_rejects_density_matrices() -> None:
         grape_xy_hilbert(cp, waveform)
 
 
-def test_grape_gradient_matches_finite_difference_one_spin_hilbert() -> None:
+@pytest.mark.parametrize("fidelity_mode", ["real", "imag", "abs2"])
+def test_grape_gradient_matches_finite_difference_one_spin_hilbert(
+    fidelity_mode: str,
+) -> None:
     cp = _one_spin_hilbert_gradient_problem()
+    cp.fidelity_mode = fidelity_mode
     waveform = np.array(
         [[0.15, -0.05], [0.07, 0.11], [-0.12, 0.04], [0.09, -0.08]],
         dtype=np.float64,
