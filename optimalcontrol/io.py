@@ -733,6 +733,7 @@ def fapt_import(path: str | Path) -> Waveform:
     input_file = _input_path(path)
     payload = input_file.read_bytes()
     rows: list[list[float]] = []
+    header_skipped = False
     for line_number, line in enumerate(payload.decode("utf-8").splitlines(), start=1):
         cleaned = _strip_inline_comment(line)
         if not cleaned:
@@ -740,8 +741,9 @@ def fapt_import(path: str | Path) -> Waveform:
         try:
             values = _split_float_tokens(cleaned)
         except ValueError:
-            if rows:
+            if rows or header_skipped:
                 raise ValueError(f"invalid FAPT numeric row {line_number}") from None
+            header_skipped = True
             continue
         if len(values) != 4:
             raise ValueError(f"FAPT row {line_number} has {len(values)} columns, expected 4")

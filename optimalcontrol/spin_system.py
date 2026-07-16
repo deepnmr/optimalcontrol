@@ -55,7 +55,13 @@ class Coupling:
 
 @dataclass
 class RelaxationRates:
-    """Relaxation and cross-correlation rates, all stored in rad/s."""
+    """Relaxation and cross-correlation rates, all stored in rad/s.
+
+    Note: the analytical ROPE/CROP helpers (rope_n, crop_zeta, ...) take
+    paper-level rates in the same units as J_hz; do not pass these stored
+    rates directly -- divide by pi first (paper rate = stored rate / pi, per
+    the PNAS 2003 "factor of pi smaller" convention; see rope.py docstrings).
+    """
 
     kDD: float
     kCSA_I: float
