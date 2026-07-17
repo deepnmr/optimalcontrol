@@ -4,6 +4,7 @@ __version__ = "0.4.1"
 
 from optimalcontrol.bloch import propagate_bloch_ensemble
 from optimalcontrol.crop import CROPPulse, crop_eta, crop_waveform
+from optimalcontrol.ocseed import Band, SeedlessSpec
 from optimalcontrol.operators import Ix, Iy, Iz, comm, liouvillian_comm
 from optimalcontrol.optimizers import run_grape
 from optimalcontrol.rope import rope_g, rope_waveform
@@ -35,4 +36,6 @@ __all__ = [
     "CROPPulse",
     "run_grape",
     "propagate_bloch_ensemble",
+    "Band",
+    "SeedlessSpec",
 ]
