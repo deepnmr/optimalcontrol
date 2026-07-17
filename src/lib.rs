@@ -804,10 +804,242 @@ fn bloch_ensemble(
         .collect())
 }
 
+// ---------------------------------------------------------------------------
+// Seedless scaled-unitary spin-1/2 kernel (Buchanan et al. 2025, SI Note 2).
+// ---------------------------------------------------------------------------
+
+type Spin = nalgebra::Matrix2<Complex64>;
+
+/// Return the deviation-density operator `a*Ix + b*Iy + c*Iz` for Bloch [a,b,c].
+fn spin_operator(a: f64, b: f64, c: f64) -> Spin {
+    Spin::new(
+        Complex64::new(0.5 * c, 0.0),
+        Complex64::new(0.5 * a, -0.5 * b),
+        Complex64::new(0.5 * a, 0.5 * b),
+        Complex64::new(-0.5 * c, 0.0),
+    )
+}
+
+/// Analytic constant-element propagator V and its phase derivative G = i[V, Iz].
+fn spin_propagator(ux: f64, uy: f64, offset: f64, scale: f64, rf: f64, dt: f64) -> (Spin, Spin) {
+    let fx = scale * rf * ux;
+    let fy = scale * rf * uy;
+    let fz = offset;
+    let fnorm = (fx * fx + fy * fy + fz * fz).sqrt();
+    if fnorm == 0.0 {
+        return (Spin::identity(), Spin::zeros());
+    }
+    let half = std::f64::consts::PI * fnorm * dt; // theta / 2
+    let (s, c) = half.sin_cos();
+    let (nx, ny, nz) = (fx / fnorm, fy / fnorm, fz / fnorm);
+    let v = Spin::new(
+        Complex64::new(c, -s * nz),
+        Complex64::new(-s * ny, -s * nx),
+        Complex64::new(s * ny, -s * nx),
+        Complex64::new(c, s * nz),
+    );
+    let i = Complex64::new(0.0, 1.0);
+    let g = Spin::new(
+        Complex64::new(0.0, 0.0),
+        -i * v[(0, 1)],
+        i * v[(1, 0)],
+        Complex64::new(0.0, 0.0),
+    );
+    (v, g)
+}
+
+/// Build per-step propagators and derivatives for one ensemble member.
+fn spin_slices(
+    waveform: &[f64],
+    offset: f64,
+    scale: f64,
+    rf: f64,
+    dt: f64,
+) -> (Vec<Spin>, Vec<Spin>) {
+    let n = waveform.len() / 2;
+    let mut vs = Vec::with_capacity(n);
+    let mut gs = Vec::with_capacity(n);
+    for k in 0..n {
+        let (v, g) = spin_propagator(waveform[2 * k], waveform[2 * k + 1], offset, scale, rf, dt);
+        vs.push(v);
+        gs.push(g);
+    }
+    (vs, gs)
+}
+
+fn spin_forward(vs: &[Spin], rho_init: Spin) -> (Vec<Spin>, Spin) {
+    let mut fwd = Vec::with_capacity(vs.len());
+    let mut rho = rho_init;
+    for v in vs {
+        fwd.push(rho);
+        rho = v * rho * v.adjoint();
+    }
+    (fwd, rho)
+}
+
+/// State-to-state fidelity and phase gradient for one member (fidelity = t . Rm).
+fn member_pair(
+    waveform: &[f64],
+    offset: f64,
+    scale: f64,
+    rf: f64,
+    dt: f64,
+    rho_init: Spin,
+    rho_targ: Spin,
+) -> (f64, Vec<f64>) {
+    let n = waveform.len() / 2;
+    let (vs, gs) = spin_slices(waveform, offset, scale, rf, dt);
+    let (fwd, rho_final) = spin_forward(&vs, rho_init);
+    let fidelity = 2.0 * (rho_targ * rho_final).trace().re;
+
+    let mut grad = vec![0.0f64; n];
+    let mut lam = rho_targ;
+    for j in (0..n).rev() {
+        let vjh = vs[j].adjoint();
+        let gjh = gs[j].adjoint();
+        let d_rho = gs[j] * fwd[j] * vjh + vs[j] * fwd[j] * gjh;
+        grad[j] = 2.0 * (lam * d_rho).trace().re;
+        lam = vjh * lam * vs[j];
+    }
+    (fidelity, grad)
+}
+
+/// Per-step (n^2/2) water-hold cost and gradient for one member (Note 2.7).
+fn member_suppress(waveform: &[f64], offset: f64, scale: f64, rf: f64, dt: f64) -> (f64, Vec<f64>) {
+    let n = waveform.len() / 2;
+    let iz = spin_operator(0.0, 0.0, 1.0);
+    let (vs, gs) = spin_slices(waveform, offset, scale, rf, dt);
+    let (fwd, _) = spin_forward(&vs, iz);
+
+    let mut cost = 0.0f64;
+    let mut grad = vec![0.0f64; n];
+    let mut rho_after = iz;
+    for prefix in 1..=n {
+        rho_after = vs[prefix - 1] * rho_after * vs[prefix - 1].adjoint();
+        let mz = 2.0 * (iz * rho_after).trace().re;
+        cost += (1.0 - mz) / n as f64;
+        let mut lam = iz;
+        for j in (0..prefix).rev() {
+            let vjh = vs[j].adjoint();
+            let gjh = gs[j].adjoint();
+            let d_rho = gs[j] * fwd[j] * vjh + vs[j] * fwd[j] * gjh;
+            grad[j] += -(2.0 * (lam * d_rho).trace().re) / n as f64;
+            lam = vjh * lam * vs[j];
+        }
+    }
+    (cost, grad)
+}
+
+/// Borrowed (waveform, offsets, scales, n_steps) from validated kernel inputs.
+type SeedlessInputs<'a> = (&'a [f64], &'a [f64], &'a [f64], usize);
+
+/// Validate shared Seedless-kernel inputs and return (waveform, offsets, scales, n_steps).
+fn seedless_inputs<'a>(
+    waveform_xy: &'a PyReadonlyArray2<'a, f64>,
+    offsets_hz: &'a PyReadonlyArray1<'a, f64>,
+    b1_scales: &'a PyReadonlyArray1<'a, f64>,
+    rf_hz: f64,
+    dt: f64,
+) -> PyResult<SeedlessInputs<'a>> {
+    if !rf_hz.is_finite() || rf_hz < 0.0 {
+        return Err(PyValueError::new_err("rf_hz must be finite and non-negative"));
+    }
+    if !dt.is_finite() || dt <= 0.0 {
+        return Err(PyValueError::new_err("dt must be finite and positive"));
+    }
+    if waveform_xy.shape()[1] != 2 {
+        return Err(PyValueError::new_err("waveform_xy must have shape (steps, 2)"));
+    }
+    let waveform = waveform_xy.as_slice()?;
+    let offsets = offsets_hz.as_slice()?;
+    let scales = b1_scales.as_slice()?;
+    if offsets.is_empty() || scales.is_empty() || waveform.is_empty() {
+        return Err(PyValueError::new_err("ensemble and waveform axes must be non-empty"));
+    }
+    let n_steps = waveform.len() / 2;
+    Ok((waveform, offsets, scales, n_steps))
+}
+
+/// Per-member S2S fidelities and gradients over the offset-major (offset, B1) grid.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn seedless_pair_value_gradient(
+    waveform_xy: PyReadonlyArray2<'_, f64>,
+    offsets_hz: PyReadonlyArray1<'_, f64>,
+    b1_scales: PyReadonlyArray1<'_, f64>,
+    rf_hz: f64,
+    dt: f64,
+    init_bloch: PyReadonlyArray1<'_, f64>,
+    targ_bloch: PyReadonlyArray1<'_, f64>,
+) -> PyResult<(Vec<f64>, Vec<f64>)> {
+    let (waveform, offsets, scales, n_steps) =
+        seedless_inputs(&waveform_xy, &offsets_hz, &b1_scales, rf_hz, dt)?;
+    if init_bloch.shape() != [3] || targ_bloch.shape() != [3] {
+        return Err(PyValueError::new_err("init_bloch and targ_bloch must have shape (3,)"));
+    }
+    let i = init_bloch.as_slice()?;
+    let t = targ_bloch.as_slice()?;
+    let rho_init = spin_operator(i[0], i[1], i[2]);
+    let rho_targ = spin_operator(t[0], t[1], t[2]);
+    let n_b1 = scales.len();
+    let members = offsets.len() * n_b1;
+
+    let results: Vec<(f64, Vec<f64>)> = (0..members)
+        .into_par_iter()
+        .map(|m| {
+            let offset = offsets[m / n_b1];
+            let scale = scales[m % n_b1];
+            member_pair(waveform, offset, scale, rf_hz, dt, rho_init, rho_targ)
+        })
+        .collect();
+
+    let mut fidelity = Vec::with_capacity(members);
+    let mut gradient = Vec::with_capacity(members * n_steps);
+    for (f, g) in results {
+        fidelity.push(f);
+        gradient.extend_from_slice(&g);
+    }
+    Ok((fidelity, gradient))
+}
+
+/// Per-member per-step suppression cost and gradient over the (offset, B1) grid.
+#[pyfunction]
+fn seedless_suppress_perstep(
+    waveform_xy: PyReadonlyArray2<'_, f64>,
+    offsets_hz: PyReadonlyArray1<'_, f64>,
+    b1_scales: PyReadonlyArray1<'_, f64>,
+    rf_hz: f64,
+    dt: f64,
+) -> PyResult<(Vec<f64>, Vec<f64>)> {
+    let (waveform, offsets, scales, n_steps) =
+        seedless_inputs(&waveform_xy, &offsets_hz, &b1_scales, rf_hz, dt)?;
+    let n_b1 = scales.len();
+    let members = offsets.len() * n_b1;
+
+    let results: Vec<(f64, Vec<f64>)> = (0..members)
+        .into_par_iter()
+        .map(|m| {
+            let offset = offsets[m / n_b1];
+            let scale = scales[m % n_b1];
+            member_suppress(waveform, offset, scale, rf_hz, dt)
+        })
+        .collect();
+
+    let mut cost = Vec::with_capacity(members);
+    let mut gradient = Vec::with_capacity(members * n_steps);
+    for (c, g) in results {
+        cost.push(c);
+        gradient.extend_from_slice(&g);
+    }
+    Ok((cost, gradient))
+}
+
 #[pymodule]
 fn _rust(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(grape_fidelity_vectors, module)?)?;
     module.add_function(wrap_pyfunction!(grape_value_gradient_vectors, module)?)?;
     module.add_function(wrap_pyfunction!(bloch_ensemble, module)?)?;
+    module.add_function(wrap_pyfunction!(seedless_pair_value_gradient, module)?)?;
+    module.add_function(wrap_pyfunction!(seedless_suppress_perstep, module)?)?;
     Ok(())
 }

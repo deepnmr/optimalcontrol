@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- Add `ocseed`, a Seedless-style front-end for isolated spin-1/2 pulse design
+  (Buchanan et al., *Nat. Commun.* 16, 7276, 2025). `SeedlessSpec` + `Band`
+  declare chemical-shift bands carrying one of four restraints (`universal`,
+  `s2s`, `xycite`, `suppress`), optimise a constant-amplitude phase-only
+  waveform with weighted B1 averaging, and verify it against the Bloch model.
+  Reproduces the `methyl_water_binary_symmetric_180` example's published
+  worst-case fidelities through the new declarative API.
+- Add a native scaled-unitary spin-1/2 kernel (`_seedless_kernel`, Rust
+  `seedless_pair_value_gradient` / `seedless_suppress_perstep`) implementing the
+  analytic 2x2 propagator and `G = i[V, Iz]` phase gradient of Supplementary
+  Note 2.9/2.11/2.12. It matches the general 4x4 Liouville engine to machine
+  precision while running the full optimiser ~3x faster (and ~40x faster on the
+  per-offset `xycite` restraint); a NumPy fallback covers builds without Rust.
+- Add the paper's per-step (`n^2/2`) water suppression restraint
+  (`Band(..., "suppress", per_step=True)`, Supplementary Note 2.7): holds `Iz`
+  after every prefix of the pulse, bounding transverse build-up that the
+  cheaper end-of-pulse hold ignores.
+
 ## v0.4.1 - 2026-07-10
 
 - Close validation and representation gaps across GRAPE entry points: native
