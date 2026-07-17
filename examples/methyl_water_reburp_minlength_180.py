@@ -36,6 +36,11 @@ the minimum-length point: 10 kHz at 1.80 ms -- the shortest passing duration on
 the frontier, and 0.15 ms shorter than the smooth ``methyl_water_reburp_180``
 sibling at the same peak field.
 
+Pushing below this floor fails: re-optimizing a 1.40 ms pulse at the 10 kHz cap
+(warm-started from the cached 1.80 ms shape) reaches only ~0.39 percent worst
+Kay sideband -- above the 0.1 percent target -- which is why 1.80 ms is the
+shortest feasible length. See ``refine_pulse`` and the corresponding test.
+
 Design specification (identical to the sibling pulses)
 ------------------------------------------------------
 

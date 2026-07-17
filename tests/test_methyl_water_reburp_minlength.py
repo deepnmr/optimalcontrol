@@ -16,8 +16,10 @@ from examples.methyl_water_reburp_minlength_180 import (
     DURATION_US,
     FRONTIER,
     N_STEPS,
+    OPTIMIZED_HALF_AMPLITUDE,
     RF_MAX_HZ,
     amplitude_phase,
+    refine_pulse,
     signed_amplitude,
 )
 from examples.methyl_water_reburp_minpower_180 import DURATION_US as MINPOWER_US
@@ -81,3 +83,17 @@ def test_frontier_minimum_length_matches_the_cached_point() -> None:
     # The cached pulse sits at the shortest duration on the mapped frontier.
     assert min(durations) == DURATION_US
     assert dict(FRONTIER)[RF_MAX_HZ] == DURATION_US
+
+
+def test_below_minimum_length_fails_the_artifact_threshold() -> None:
+    """Re-optimizing below the 1.8 ms floor cannot meet the 0.1% Kay-sideband
+    target: a 1.4 ms pulse at the 10 kHz cap (warm-started from the cached
+    shape) lands near 0.39%, above the target. This is the manuscript's reason
+    for choosing 1.8 ms as the shortest feasible length.
+    """
+    _, metrics = refine_pulse(1400.0, RF_MAX_HZ, OPTIMIZED_HALF_AMPLITUDE)
+
+    assert not metrics.passes
+    assert metrics.artifact_max_percent > MAX_ARTIFACT_PERCENT  # above 0.1%
+    # Reproduces ~0.39% (deterministic warm start); bracket loosely.
+    assert 0.30 < metrics.artifact_max_percent < 0.50
