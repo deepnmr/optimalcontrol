@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "optimalcontrol"
 version = "0.4.1"
-description = "Python optimal control package for NMR spin dynamics (ROPE, CROP, GRAPE)"
+description = "Python optimal control package for NMR spin dynamics (ROPE, CROP, GRAPE, Seedless)"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
