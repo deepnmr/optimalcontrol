@@ -135,6 +135,7 @@ def robustness_histogram(
 
     for idx in itertools.product(*(range(n) for n in shape)):
         cp_mod = copy.copy(cp_template)
+        cp_mod.penalties = None  # report raw fidelity, not the penalised objective
         for i, key in enumerate(keys):
             setattr(cp_mod, key, value_lists[i][idx[i]])
         fidelities[idx] = grape_xy(cp_mod, wfm)
@@ -187,7 +188,7 @@ def spectrogram_data(
         fs=fs,
         nperseg=nperseg,
         return_onesided=False,
-        detrend=False,
+        detrend=False,  # keep the DC/carrier component of the envelope
     )
 
     freqs: RealArray = np.asarray(freqs_raw, dtype=np.float64)

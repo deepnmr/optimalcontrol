@@ -1099,6 +1099,9 @@ def newton_raphson(
             step_direction = step_direction.copy()
             step_direction[freeze_mask] = 0.0
         alpha = line_search_cubic(objective, gradient_fn, waveform, step_direction, alpha0=1.0)
+        if alpha <= 0.0 and not np.array_equal(step_direction, gradient):
+            step_direction = gradient.copy()
+            alpha = line_search_cubic(objective, gradient_fn, waveform, step_direction)
         return alpha, step_direction
 
     def apply_step(waveform: RealArray, step: RealArray) -> RealArray:

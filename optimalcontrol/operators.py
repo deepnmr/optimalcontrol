@@ -51,6 +51,8 @@ def place_operator(
     op: npt.NDArray[np.complex128], spin_index: int, n_spins: int
 ) -> npt.NDArray[np.complex128]:
     """Place op at spin_index in an n_spins Hilbert space, identity at all other sites."""
+    if not 0 <= spin_index < n_spins:
+        raise ValueError(f"spin_index {spin_index} out of range for {n_spins} spins")
     ops: list[npt.NDArray[np.complex128]] = [
         op if i == spin_index else E() for i in range(n_spins)
     ]
