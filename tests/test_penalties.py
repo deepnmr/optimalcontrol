@@ -168,3 +168,15 @@ def test_distortion_tanh_deriv_matches_finite_difference() -> None:
     ) / (2.0 * eps)
 
     np.testing.assert_allclose(derivative, finite_difference, rtol=1e-6, atol=1e-9)
+
+
+def test_total_penalty_hessian_holds_for_large_waveform_entries() -> None:
+    # Regression: a fixed 1e-6 finite-difference step was absorbed by float64
+    # rounding for large entries, corrupting (or zeroing) the Hessian. The
+    # relative step must keep the NS Hessian exact at any magnitude.
+    from optimalcontrol.penalties import total_penalty_hessian
+
+    for magnitude in (0.5, 1e5, 1e10):
+        waveform = np.full((2, 2), magnitude, dtype=np.float64)
+        hessian = total_penalty_hessian(waveform, [PenaltySpec("NS", weight=0.3)])
+        np.testing.assert_allclose(np.diag(hessian), 0.6, rtol=1e-6)

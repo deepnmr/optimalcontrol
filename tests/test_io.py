@@ -277,3 +277,44 @@ def test_fapt_import_parses_frequency_amplitude_phase_time_table(
         rtol=1e-12,
     )
     assert str(loaded.problem_hash).startswith("fapt:")
+
+
+def test_export_bruker_rejects_more_than_two_channels() -> None:
+    # Regression: a 3-channel x/y/z waveform used to export silently, dropping z.
+    wfm = Waveform(
+        channels=["x", "y", "z"],
+        units="a.u.",
+        times=np.array([0.0, 1.0]),
+        data=np.array([[1.0, 0.0], [0.0, 1.0], [5.0, 5.0]]),
+        metadata={},
+        problem_hash="h",
+    )
+    with pytest.raises(ValueError, match="1 or 2"):
+        export_bruker(wfm, pathlib.Path("/tmp/oc_reject_3ch.jdx"))
+
+
+def test_import_jcamp_strips_inline_dollar_comments(tmp_path: pathlib.Path) -> None:
+    # Regression: inline '$$' comments leaked into tag values, corrupting
+    # CHANNELS labels and crashing the NPOINTS float parse.
+    text = (
+        "##TITLE= t\n##JCAMP-DX= 5.00\n##DATA TYPE= Shape Data\n"
+        "##CHANNELS= x,y $$ cartesian pair\n"
+        "##$OPTIMALCONTROL_TIMES= 0.0 1.0 $$ seconds\n"
+        "##NPOINTS= 2 $$ points\n##XYPOINTS= (XY..XY)\n"
+        "1.0, 0.0\n0.0, 1.0\n##END=\n"
+    )
+    path = tmp_path / "inline.jdx"
+    path.write_text(text)
+    wfm = import_jcamp_dx(path)
+    assert list(wfm.channels) == ["x", "y"]
+
+
+def test_fapt_import_allows_only_one_header_row(tmp_path: pathlib.Path) -> None:
+    # Regression: unlimited leading non-numeric lines were skipped silently.
+    two_headers = tmp_path / "two.fapt"
+    two_headers.write_text("header one\nsecond garbage\n1 2 3 4\n5 6 7 8\n")
+    with pytest.raises(ValueError, match="invalid FAPT numeric row"):
+        fapt_import(two_headers)
+    one_header = tmp_path / "one.fapt"
+    one_header.write_text("freq amp phase time\n1 2 3 4\n5 6 7 8\n")
+    assert fapt_import(one_header).times.shape[0] == 2

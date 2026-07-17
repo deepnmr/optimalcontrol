@@ -176,7 +176,7 @@ def spectrogram_data(
         raise ValueError(
             f"channel_pair {channel_pair} out of range for waveform with {n_channels} channels"
         )
-    if dt <= 0.0:
+    if not np.isfinite(dt) or dt <= 0.0:
         raise ValueError(f"dt must be positive, got {dt}")
 
     fs = 1.0 / dt

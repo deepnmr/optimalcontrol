@@ -259,6 +259,10 @@ def _bruker_amplitude_phase_deg(wfm: Waveform) -> tuple[RealArray, RealArray]:
         phase_deg = np.zeros_like(amplitude, dtype=np.float64)
         return amplitude, phase_deg
 
+    if len(wfm.channels) != 2:
+        raise ValueError(
+            f"Bruker amplitude/phase export supports 1 or 2 (x/y) channels, got {len(wfm.channels)}"
+        )
     x_index, y_index = _xy_channel_indices(wfm)
     x_values = np.asarray(wfm.data[x_index, :], dtype=np.float64)
     y_values = np.asarray(wfm.data[y_index, :], dtype=np.float64)
@@ -603,6 +607,12 @@ def _parse_jcamp(text: str) -> tuple[dict[str, str], list[str]]:
             key_raw, value = body.split("=", 1)
             key = key_raw.strip().upper()
             value = value.strip()
+            # JCAMP-DX: '$$' always starts a comment; strip it from the value
+            # (not _strip_inline_comment, which also cuts at '#' and would
+            # corrupt legitimate '#'-bearing values such as TITLE).
+            comment_index = value.find("$$")
+            if comment_index != -1:
+                value = value[:comment_index].rstrip()
             if key == "END":
                 break
             tags[key] = value

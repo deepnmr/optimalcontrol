@@ -63,3 +63,16 @@ def test_invalid_fidelity_mode_reports_allowed_values() -> None:
 def test_negative_j_reports_positive_requirement() -> None:
     with pytest.raises(ValueError, match="J_hz must be positive"):
         rope_waveform(T=0.01, n=1.0, J_hz=-100.0, dt=0.001)
+
+
+def test_scalar_validators_reject_non_finite() -> None:
+    # Regression: NaN passed value<0 / value<=0 comparisons and propagated.
+    from optimalcontrol._validation import validate_nonnegative, validate_positive
+
+    for bad in (float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="must be finite"):
+            validate_nonnegative("x", bad)
+        with pytest.raises(ValueError, match="must be finite"):
+            validate_positive("x", bad)
+    validate_nonnegative("x", 0.0)
+    validate_positive("x", 1.0)

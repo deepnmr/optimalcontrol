@@ -68,9 +68,7 @@ def penalty_SNS(wfm: RealArray, limit: float, weight: float) -> tuple[float, Rea
     value = penalty_weight * float(np.sum(spillout * spillout))
     gradient = np.zeros_like(waveform, dtype=np.float64)
     active = absolute > spillout_limit
-    gradient[active] = (
-        2.0 * penalty_weight * spillout[active] * np.sign(waveform[active])
-    )
+    gradient[active] = 2.0 * penalty_weight * spillout[active] * np.sign(waveform[active])
     return value, gradient
 
 
@@ -188,10 +186,13 @@ def total_penalty_hessian(
 
     flat = waveform.reshape(-1)
     for index in range(n_params):
+        # Scale the step to the entry so it is not lost to float64 rounding for
+        # large waveform values; unchanged (== step) for |entry| <= 1.
+        local_step = step * max(1.0, abs(float(flat[index])))
         shifted = flat.copy()
-        shifted[index] = flat[index] + step
+        shifted[index] = flat[index] + local_step
         _, grad_plus = total_penalty(shifted.reshape(waveform.shape), penalty_list)
-        shifted[index] = flat[index] - step
+        shifted[index] = flat[index] - local_step
         _, grad_minus = total_penalty(shifted.reshape(waveform.shape), penalty_list)
-        hessian[:, index] = (grad_plus - grad_minus).reshape(-1) / (2.0 * step)
+        hessian[:, index] = (grad_plus - grad_minus).reshape(-1) / (2.0 * local_step)
     return np.asarray(0.5 * (hessian + hessian.T), dtype=np.float64)

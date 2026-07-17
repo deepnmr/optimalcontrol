@@ -176,9 +176,14 @@ def rope_switching_time(T: float, n: float, J_hz: float) -> float:
         h1, h2 = _rope_finite_angles_from_scaled_switch(s_scaled, n)
         return 2.0 * s_scaled + h2 - h1 - total_scaled
 
+    upper = 0.5 * total_scaled
+    if residual(upper) <= 0.0:
+        # j(s) saturates to g(n)^2 for long T, so the endpoint residual h2 - h1
+        # collapses to float noise; the root is T/2 to machine precision.
+        return upper / (math.pi * J_hz)
     root_scaled = cast(
         float,
-        brentq(residual, 0.0, 0.5 * total_scaled, xtol=1e-14, rtol=1e-14, maxiter=100),
+        brentq(residual, 0.0, upper, xtol=1e-14, rtol=1e-14, maxiter=100),
     )
     return root_scaled / (math.pi * J_hz)
 
@@ -298,9 +303,7 @@ def _rope_rf_amplitude(u: float, t_scaled: float, n: float, J_hz: float) -> floa
     )
 
 
-def rope_waveform(
-    T: float, n: float, J_hz: float, dt: float
-) -> dict[str, npt.NDArray[np.float64]]:
+def rope_waveform(T: float, n: float, J_hz: float, dt: float) -> dict[str, npt.NDArray[np.float64]]:
     """Sample the finite-time ROPE controls and RF waveform.
 
     Returns arrays with keys ``times``, ``u1``, ``u2``, ``amplitude``, and

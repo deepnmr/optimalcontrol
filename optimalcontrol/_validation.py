@@ -22,12 +22,16 @@ def validate_nonempty(name: str, values: Sequence[object]) -> None:
 
 def validate_nonnegative(name: str, value: float) -> None:
     """Raise ValueError if a scalar parameter is outside its physical domain."""
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite")
     if value < 0.0:
         raise ValueError(f"{name} must be non-negative")
 
 
 def validate_positive(name: str, value: float) -> None:
     """Raise ValueError if a scalar parameter is not strictly positive."""
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite")
     if value <= 0.0:
         raise ValueError(f"{name} must be positive")
 
