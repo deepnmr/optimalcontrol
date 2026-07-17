@@ -78,3 +78,16 @@ def test_rope_switching_time_rejects_duration_at_or_below_Tcrit() -> None:
 
     with pytest.raises(ValueError, match="T must be greater than T_crit"):
         rope_switching_time(T=Tcrit * 0.5, n=1.0, J_hz=100.0)
+
+
+def test_rope_finite_efficiency_survives_j_saturation() -> None:
+    # Regression: for large T*J the Appendix-B j(s) saturates to g(n)^2, so the
+    # brentq bracket endpoint residual collapses to float noise. The solver used
+    # to raise "f(a) and f(b) must have different signs"; it must now return the
+    # unconstrained limit g(n) and the mid-pulse switch T/2.
+    for n, T in ((0.8, 0.08817953747992106), (0.1, 0.40530719738064586), (1.3, 0.1014)):
+        value = rope_finite_efficiency(T, n, 100.0)
+        npt.assert_allclose(value, rope_g(n), atol=2e-4)
+        switch = rope_switching_time(T, n, 100.0)
+        npt.assert_allclose(switch, 0.5 * T, rtol=1e-6)
+        rope_waveform(T, n, 100.0, 1e-5)  # must not raise

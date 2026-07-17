@@ -3,6 +3,7 @@
 import hashlib
 import json
 import math
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -220,10 +221,14 @@ def _write_checkpoint(checkpoint_path: Path, checkpoint: _CheckpointData) -> Non
         payload["signature"] = checkpoint.signature
 
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-    checkpoint_path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
+    # Atomic write: fsync a temp file then os.replace, so an interrupted write
+    # (Ctrl-C, OOM, power loss) cannot destroy the previous good checkpoint.
+    tmp_path = checkpoint_path.with_name(checkpoint_path.name + ".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp_path, checkpoint_path)
 
 
 def _read_checkpoint(path: str | Path) -> _CheckpointData:
