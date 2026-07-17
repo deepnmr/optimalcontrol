@@ -277,3 +277,24 @@ def test_invalid_specs_are_rejected() -> None:
             b1_scales=(1.0,),
             b1_weights=(0.5,),
         )  # weights do not sum to 1
+
+
+def test_kernel_rejects_non_finite_inputs() -> None:
+    # The native kernel previously returned silent NaN on non-finite input,
+    # unlike the rest of the library. The pre-dispatch guard now raises on both
+    # the Rust and NumPy paths (it runs before the accelerator dispatch).
+    from optimalcontrol import _seedless_kernel as kernel
+
+    offsets = np.array([100.0])
+    scales = np.array([1.0])
+    z = np.array([0.0, 0.0, 1.0])
+    nan_wfm = np.array([[np.nan, 0.0], [0.1, 0.2]])
+    inf_wfm = np.array([[0.1, 0.2], [np.inf, 0.0]])
+    for bad in (nan_wfm, inf_wfm):
+        with pytest.raises(ValueError, match="finite"):
+            kernel.s2s_value_grad(bad, offsets, scales, 1e4, 1e-6, z, z)
+        with pytest.raises(ValueError, match="finite"):
+            kernel.suppress_perstep_value_grad(bad, offsets, scales, 1e4, 1e-6)
+    good_wfm = np.array([[0.1, 0.2], [0.3, 0.4]])
+    with pytest.raises(ValueError, match="finite"):
+        kernel.s2s_value_grad(good_wfm, np.array([np.inf]), scales, 1e4, 1e-6, z, z)

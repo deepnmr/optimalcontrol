@@ -27,6 +27,23 @@ from optimalcontrol._accelerator import _enabled, _rust
 from optimalcontrol._types import Array, RealArray
 
 
+def _check_finite(
+    waveform: RealArray, offsets: RealArray, scales: RealArray, rf_hz: float, dt: float
+) -> None:
+    """Reject non-finite inputs before dispatch (matches ``propagate_bloch_ensemble``).
+
+    Guards both the Rust and NumPy paths in one place; without it the native
+    kernel silently returns NaN instead of raising, unlike the rest of the library.
+    """
+    for name, array in (("waveform", waveform), ("offsets", offsets), ("b1_scales", scales)):
+        if not np.all(np.isfinite(array)):
+            raise ValueError(f"{name} entries must be finite")
+    if not math.isfinite(rf_hz) or rf_hz < 0.0:
+        raise ValueError("rf_hz must be finite and non-negative")
+    if not math.isfinite(dt) or dt <= 0.0:
+        raise ValueError("dt must be finite and positive")
+
+
 def bloch_operator(vector: RealArray) -> Array:
     """Return the 2x2 deviation density ``a*Ix + b*Iy + c*Iz`` for Bloch ``[a,b,c]``."""
     a, b, c = (float(x) for x in vector)
@@ -52,6 +69,7 @@ def s2s_value_grad(
     init = np.ascontiguousarray(init_bloch, dtype=np.float64)
     targ = np.ascontiguousarray(targ_bloch, dtype=np.float64)
     n_steps = waveform.shape[0]
+    _check_finite(waveform, offsets, scales, rf_hz, dt)
 
     if _enabled() and _rust is not None:
         fidelity, flat = _rust.seedless_pair_value_gradient(
@@ -82,6 +100,7 @@ def suppress_perstep_value_grad(
     offsets = np.ascontiguousarray(offsets_hz, dtype=np.float64)
     scales = np.ascontiguousarray(b1_scales, dtype=np.float64)
     n_steps = waveform.shape[0]
+    _check_finite(waveform, offsets, scales, rf_hz, dt)
 
     if _enabled() and _rust is not None:
         cost, flat = _rust.seedless_suppress_perstep(

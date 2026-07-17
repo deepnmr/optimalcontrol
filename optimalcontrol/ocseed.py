@@ -11,18 +11,18 @@ described by a set of chemical-shift *bands* (in ppm), each carrying one of four
 * ``"s2s"`` -- a single state-to-state transfer, e.g. ``z -> -z`` (Note 2.2/2.3).
 * ``"xycite"`` -- take ``Iz`` into the transverse plane without caring where,
   minimising the squared residual ``Iz`` component (Note 2.6).
-* ``"suppress"`` -- keep ``Iz`` on ``Iz`` (water hold). This is the *end-of-pulse*
-  form; the paper's per-step ``n^2/2`` suppression (Note 2.7) is not yet built.
+* ``"suppress"`` -- keep ``Iz`` on ``Iz`` (water hold). Defaults to the
+  *end-of-pulse* form; set ``per_step=True`` on the band for the paper's per-step
+  ``n^2/2`` suppression (hold ``Iz`` after every prefix, Note 2.7).
 
 The optimisation variable is a single constant-amplitude, phase-only waveform
 (the paper's preferred mode). B1 inhomogeneity is handled by a weighted average
-over ``b1_scales`` (Note 2.8). Values and exact gradients come from the existing
-GRAPE core (:func:`grape_xy_and_gradient`); an independent Bloch forward model
-(:func:`propagate_bloch_ensemble`) is used for worst-case verification.
-
-ponytail: forward values/gradients reuse the general GRAPE core rather than the
-paper's scaled-unitary 2x2 fast path. Correct and already Rust-accelerated;
-add the analytic spin-1/2 kernel only if calculation time becomes the ceiling.
+over ``b1_scales`` (Note 2.8). By default (``fast=True``) values and exact
+gradients come from the analytic scaled-unitary spin-1/2 kernel
+(:mod:`optimalcontrol._seedless_kernel`, SI Note 2.9/2.11/2.12); ``fast=False``
+routes them through the general 4x4 Liouville GRAPE core
+(:func:`grape_xy_and_gradient`) as a cross-check. An independent Bloch forward
+model (:func:`propagate_bloch_ensemble`) is used for worst-case verification.
 """
 
 from __future__ import annotations
