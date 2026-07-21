@@ -1,9 +1,11 @@
 # optimalcontrol
 
-Python/Rust package for NMR spin dynamics implementing analytical ROPE/CROP theories and
-numerical GRAPE optimisation, with a Spinach-compatible Python API, ensemble support, and
-paper-reproduction examples. GRAPE propagation, exact coherent gradients, and Bloch
-ensemble profiles run in a parallel native Rust extension.
+Python/Rust package for NMR spin dynamics implementing analytical ROPE/CROP theories,
+numerical GRAPE optimisation, and the Seedless band/restraint front-end for isolated
+spin-1/2 pulse design, with a Spinach-compatible Python API, ensemble support, and
+paper-reproduction examples. GRAPE propagation, exact coherent gradients, Bloch ensemble
+profiles, and the analytic spin-1/2 Seedless kernel run in a parallel native Rust
+extension.
 
 ## Installation
 
@@ -17,14 +19,16 @@ need a stable Rust toolchain so `pip` can compile the native extension from the 
 ## Getting started
 
 New to the package? Follow the step-by-step beginner manual in
-[`docs/user_manual.md`](docs/user_manual.md): install, build your first GRAPE pulse,
-read the result, and export it to Bruker in a few minutes. The topic-specific
-`docs/guide_*.md` files cover each subsystem in depth.
+[`docs/user_manual.md`](docs/user_manual.md): install, design a pulse by two different
+routes (GRAPE and Seedless), read the result, verify it against an independent Bloch
+model, and write a shape file. The topic-specific `docs/guide_*.md` files cover each
+subsystem in depth.
 
 ## Source references
 
 - **JMR 2003 (ROPE)**: Unterbeck & Glaser, *Journal of Magnetic Resonance* 160 (2003) 88–101 — analytical optimal control for heteronuclear transfer under relaxation.
 - **PNAS 2003 (CROP)**: Unterbeck & Glaser, *Proc. Natl. Acad. Sci. USA* 100 (2003) 5172–5177 — cross-correlated relaxation-optimised pulses.
+- **Nat. Commun. 2025 (Seedless)**: Buchanan et al., *Nature Communications* 16, 7276 (2025) — ["Seedless: on-the-fly pulse calculation for NMR experiments"](https://doi.org/10.1038/s41467-025-61663-8); the band/restraint formalism implemented by `optimalcontrol.ocseed`.
 - **Spinach**: [https://spindynamics.org/wiki/index.php?title=Main_Page](https://spindynamics.org/wiki/index.php?title=Main_Page) — MATLAB spin dynamics library whose `grape_xy` / `control` struct API this package mirrors.
 
 ## Local development commands
