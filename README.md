@@ -24,6 +24,29 @@ routes (GRAPE and Seedless), read the result, verify it against an independent B
 model, and write a shape file. The topic-specific `docs/guide_*.md` files cover each
 subsystem in depth.
 
+## MCP server (use from Claude and other LLM clients)
+
+The package ships an [MCP](https://modelcontextprotocol.io/) server exposing the
+Seedless route, so an LLM client can design and verify pulses conversationally:
+
+```bash
+pip install "optimalcontrol[mcp]"
+claude mcp add optimalcontrol -- optimalcontrol-mcp   # Claude Code
+```
+
+No standing server is involved — the client launches `optimalcontrol-mcp` on
+demand and talks to it over stdio. Two tools are exposed:
+
+- `design_seedless_pulse` — declarative band/restraint input; runs a multi-seed
+  phase-only optimisation, verifies the winner against the independent Bloch
+  model, and writes a Bruker `.shape` file plus a design JSON. Returns file
+  paths and summary numbers only.
+- `bloch_offset_profile` — reloads a design JSON and computes the mx/my/mz
+  offset response with the independent Bloch model.
+
+Any MCP-capable client works; for others, register the same
+`optimalcontrol-mcp` command in that client's server configuration.
+
 ## Source references
 
 - **JMR 2003 (ROPE)**: Unterbeck & Glaser, *Journal of Magnetic Resonance* 160 (2003) 88–101 — analytical optimal control for heteronuclear transfer under relaxation.
