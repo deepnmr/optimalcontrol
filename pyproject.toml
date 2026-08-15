@@ -13,7 +13,13 @@ dependencies = [
     "scipy",
 ]
 
+[project.scripts]
+optimalcontrol-mcp = "optimalcontrol.mcp_server:main"
+
 [project.optional-dependencies]
+mcp = [
+    "mcp",
+]
 dev = [
     "pytest",
     "ruff",
