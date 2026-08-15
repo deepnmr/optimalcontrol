@@ -1,7 +1,12 @@
 # Changelog
 
-## Unreleased
+## v0.5.0 - 2026-08-15
 
+- Add an MCP server (`optimalcontrol-mcp`, optional `mcp` dependency) exposing
+  the Seedless route to LLM clients over stdio: `design_seedless_pulse`
+  (multi-seed optimisation, independent Bloch verification, Bruker `.shape` +
+  design-JSON output) and `bloch_offset_profile` (offset response from a
+  design JSON).
 - Add `ocseed`, a Seedless-style front-end for isolated spin-1/2 pulse design
   (Buchanan et al., *Nat. Commun.* 16, 7276, 2025). `SeedlessSpec` + `Band`
   declare chemical-shift bands carrying one of four restraints (`universal`,
