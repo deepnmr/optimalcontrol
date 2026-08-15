@@ -83,7 +83,7 @@ are only `numpy` and `scipy`.
 Regular use, from PyPI:
 
 ```bash
-pip install optimalcontrol
+pip install optimalcontrol-nmr
 ```
 
 Working from a clone of this repository:

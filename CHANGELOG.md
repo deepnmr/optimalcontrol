@@ -2,6 +2,8 @@
 
 ## v0.5.0 - 2026-08-15
 
+- Publish on PyPI as `optimalcontrol-nmr` (the bare `optimalcontrol` name is
+  blocked by an existing similar project); the import name is unchanged.
 - Add an MCP server (`optimalcontrol-mcp`, optional `mcp` dependency) exposing
   the Seedless route to LLM clients over stdio: `design_seedless_pulse`
   (multi-seed optimisation, independent Bloch verification, Bruker `.shape` +

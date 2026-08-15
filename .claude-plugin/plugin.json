@@ -9,7 +9,7 @@
   "mcpServers": {
     "optimalcontrol": {
       "command": "uvx",
-      "args": ["--from", "optimalcontrol[mcp]>=0.5.0", "optimalcontrol-mcp"]
+      "args": ["--from", "optimalcontrol-nmr[mcp]>=0.5.0", "optimalcontrol-mcp"]
     }
   }
 }
