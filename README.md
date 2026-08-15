@@ -27,7 +27,18 @@ subsystem in depth.
 ## MCP server (use from Claude and other LLM clients)
 
 The package ships an [MCP](https://modelcontextprotocol.io/) server exposing the
-Seedless route, so an LLM client can design and verify pulses conversationally:
+Seedless route, so an LLM client can design and verify pulses conversationally.
+
+**Easiest — install as a Claude Code plugin** (this repository is its own
+plugin marketplace; requires [uv](https://docs.astral.sh/uv/), no `pip install`
+needed — the server is fetched from PyPI automatically):
+
+```
+/plugin marketplace add deepnmr/optimalcontrol
+/plugin install optimalcontrol@optimalcontrol
+```
+
+**Or register the MCP server directly:**
 
 ```bash
 pip install "optimalcontrol[mcp]"

@@ -1,0 +1,16 @@
+{
+  "name": "optimalcontrol",
+  "owner": {
+    "name": "deepnmr",
+    "url": "https://github.com/deepnmr"
+  },
+  "description": "Marketplace for the optimalcontrol NMR pulse-design plugin.",
+  "plugins": [
+    {
+      "name": "optimalcontrol",
+      "source": "./",
+      "description": "Design and verify NMR pulses (Seedless band/restraint route) via MCP tools.",
+      "version": "0.5.0"
+    }
+  ]
+}
