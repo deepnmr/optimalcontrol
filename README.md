@@ -10,8 +10,11 @@ extension.
 ## Installation
 
 ```bash
-pip install optimalcontrol
+pip install optimalcontrol-nmr
 ```
+
+The import name is still `optimalcontrol` — only the PyPI distribution is named
+`optimalcontrol-nmr` (the bare name is blocked by an existing similar project).
 
 Python 3.10 or newer is required. Environments without a compatible prebuilt wheel also
 need a stable Rust toolchain so `pip` can compile the native extension from the sdist.
@@ -41,7 +44,7 @@ needed — the server is fetched from PyPI automatically):
 **Or register the MCP server directly:**
 
 ```bash
-pip install "optimalcontrol[mcp]"
+pip install "optimalcontrol-nmr[mcp]"
 claude mcp add optimalcontrol -- optimalcontrol-mcp   # Claude Code
 ```
 

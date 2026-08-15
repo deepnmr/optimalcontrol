@@ -2,7 +2,7 @@
 
 Run with ``optimalcontrol-mcp`` (or ``python -m optimalcontrol.mcp_server``);
 speaks MCP over stdio. Requires the optional ``mcp`` dependency
-(``pip install "optimalcontrol[mcp]"``).
+(``pip install "optimalcontrol-nmr[mcp]"``).
 
 Large arrays never cross the MCP boundary: ``design_seedless_pulse`` writes a
 Bruker ``.shape`` file plus a design JSON (spec + phases) and returns paths and
@@ -26,7 +26,7 @@ try:
     from mcp.server import MCPServer
 except ImportError as exc:  # pragma: no cover
     raise ImportError(
-        'MCP support requires the optional "mcp" dependency: pip install "optimalcontrol[mcp]"'
+        'MCP support requires the optional "mcp" dependency: pip install "optimalcontrol-nmr[mcp]"'
     ) from exc
 
 server = MCPServer(
