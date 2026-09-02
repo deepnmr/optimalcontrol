@@ -205,11 +205,7 @@ def rope_finite_efficiency(T: float, n: float, J_hz: float) -> float:
     if n == 0.0:
         return 1.0
 
-    h1, h2 = rope_finite_angles(T, n, J_hz)
-    denominator = math.sin(h1 + h2)
-    if denominator == 0.0:
-        raise ValueError("finite-time ROPE angle denominator is zero")
-    return math.exp(n * (h1 - h2)) * (1.0 - n * math.sin(2.0 * h2)) / denominator
+    return _rope_finite_efficiency_from_angles(*rope_finite_angles(T, n, J_hz), n)
 
 
 def _rope_finite_efficiency_from_angles(h1: float, h2: float, n: float) -> float:

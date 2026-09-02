@@ -1,10 +1,7 @@
 """Spin-1/2 single-spin operators, tensor-product helpers, and Liouville-space utilities."""
 
-from typing import Union
-
 import numpy as np
 import numpy.typing as npt
-from scipy.sparse import csr_matrix
 
 
 def Ix() -> npt.NDArray[np.complex128]:
@@ -94,24 +91,6 @@ def unvec(v: npt.NDArray[np.complex128], dim: int) -> npt.NDArray[np.complex128]
 
 
 # ---------------------------------------------------------------------------
-# Validation helpers
-# ---------------------------------------------------------------------------
-
-
-def assert_square(A: npt.NDArray[np.complex128]) -> None:
-    """Raise ValueError if A is not a 2-D square matrix."""
-    if A.ndim != 2 or A.shape[0] != A.shape[1]:
-        raise ValueError(f"Expected square matrix, got shape {A.shape}")
-
-
-def assert_hermitian(A: npt.NDArray[np.complex128], tol: float = 1e-10) -> None:
-    """Raise ValueError if A is not Hermitian within absolute tolerance tol."""
-    assert_square(A)
-    if not np.allclose(A, A.conj().T, atol=tol, rtol=0.0):
-        raise ValueError("Matrix is not Hermitian within tolerance")
-
-
-# ---------------------------------------------------------------------------
 # Superoperators (column-major / Fortran-order vec convention)
 # ---------------------------------------------------------------------------
 # For column-major vec: vec(A @ X @ B) = (B^T ⊗ A) @ vec(X)
@@ -148,18 +127,6 @@ def liouvillian_comm(A: npt.NDArray[np.complex128]) -> npt.NDArray[np.complex128
     return -1j * (L_op(A) - R_op(A))
 
 
-def double_comm(
-    F: npt.NDArray[np.complex128], rho_vec: npt.NDArray[np.complex128]
-) -> npt.NDArray[np.complex128]:
-    """Compute the action of [F, [F, ·]] on a vectorised density matrix.
-
-    Returns vec([F, [F, rho]]).
-    """
-    dim = int(round(rho_vec.size**0.5))
-    rho = unvec(rho_vec.astype(np.complex128), dim)
-    return vec(comm(F, comm(F, rho)))
-
-
 def lindblad_dissipator(
     Fk_list: list[npt.NDArray[np.complex128]],
     a_kl: npt.NDArray[np.complex128],
@@ -191,20 +158,3 @@ def lindblad_dissipator(
     return D
 
 
-# ---------------------------------------------------------------------------
-# Dense / sparse dispatch
-# ---------------------------------------------------------------------------
-
-
-def dense_or_sparse(
-    A: npt.NDArray[np.complex128], sparse: bool = False
-) -> Union[npt.NDArray[np.complex128], csr_matrix]:
-    """Return A as a dense ndarray or a scipy CSR sparse matrix.
-
-    Args:
-        A: input matrix.
-        sparse: if True, return scipy.sparse.csr_matrix; otherwise return A unchanged.
-    """
-    if sparse:
-        return csr_matrix(A)
-    return A

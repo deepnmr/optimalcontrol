@@ -240,6 +240,14 @@ def _problem_inputs(problem: Any, wfm: RealArray) -> _KernelInputs | None:
     )
 
 
+def _is_anti_hermitian(matrix: Any) -> bool:
+    """Return True when ``matrix + matrix^H`` vanishes to the Rust kernel's tolerance."""
+    array = np.asarray(matrix, dtype=np.complex128)
+    deviation = float(np.abs(array + array.conj().T).max())
+    scale = max(1.0, float(np.abs(array).max()))
+    return bool(deviation <= 1e-12 * scale)
+
+
 def _generators_coherent(problem: Any) -> bool:
     """Return True when every generator is anti-Hermitian (coherent dynamics).
 
@@ -260,16 +268,12 @@ def _generators_coherent(problem: Any) -> bool:
             return False
         if array.ndim != 2 or array.shape[0] != array.shape[1] or array.size == 0:
             return False
-        deviation = float(np.abs(array + array.conj().T).max())
-        scale = max(1.0, float(np.abs(array).max()))
-        if not deviation <= 1e-12 * scale:
+        if not _is_anti_hermitian(array):
             return False
     return True
 
 
-def problem_vector_fidelity(problem: Any, wfm: RealArray) -> float | None:
-    """Return Rust fidelity computed straight from an unexpanded problem."""
-    inputs = _problem_inputs(problem, wfm)
+def _call_fidelity(inputs: _KernelInputs | None) -> float | None:
     if inputs is None:
         return None
     assert _rust is not None
@@ -279,11 +283,7 @@ def problem_vector_fidelity(problem: Any, wfm: RealArray) -> float | None:
         return None
 
 
-def problem_vector_value_gradient(problem: Any, wfm: RealArray) -> tuple[float, RealArray] | None:
-    """Return Rust fidelity/gradient computed straight from an unexpanded problem."""
-    if not _enabled() or not _generators_coherent(problem):
-        return None
-    inputs = _problem_inputs(problem, wfm)
+def _call_value_gradient(inputs: _KernelInputs | None) -> tuple[float, RealArray] | None:
     if inputs is None:
         return None
     assert _rust is not None
@@ -294,16 +294,21 @@ def problem_vector_value_gradient(problem: Any, wfm: RealArray) -> tuple[float, 
     return float(value), np.asarray(gradient, dtype=np.float64)
 
 
+def problem_vector_fidelity(problem: Any, wfm: RealArray) -> float | None:
+    """Return Rust fidelity computed straight from an unexpanded problem."""
+    return _call_fidelity(_problem_inputs(problem, wfm))
+
+
+def problem_vector_value_gradient(problem: Any, wfm: RealArray) -> tuple[float, RealArray] | None:
+    """Return Rust fidelity/gradient computed straight from an unexpanded problem."""
+    if not _enabled() or not _generators_coherent(problem):
+        return None
+    return _call_value_gradient(_problem_inputs(problem, wfm))
+
+
 def vector_fidelity(problems: Sequence[Any], wfm: RealArray) -> float | None:
     """Return Rust-accelerated fidelity, or ``None`` for an unsupported problem."""
-    inputs = _vector_inputs(problems, wfm)
-    if inputs is None:
-        return None
-    assert _rust is not None
-    try:
-        return float(_rust.grape_fidelity_vectors(*inputs))
-    except ValueError:
-        return None
+    return _call_fidelity(_vector_inputs(problems, wfm))
 
 
 def vector_value_gradient(
@@ -312,12 +317,4 @@ def vector_value_gradient(
     """Return Rust-accelerated coherent fidelity/gradient when supported."""
     if not _enabled() or not all(_generators_coherent(problem) for problem in problems):
         return None
-    inputs = _vector_inputs(problems, wfm)
-    if inputs is None:
-        return None
-    assert _rust is not None
-    try:
-        value, gradient = _rust.grape_value_gradient_vectors(*inputs)
-    except ValueError:
-        return None
-    return float(value), np.asarray(gradient, dtype=np.float64)
+    return _call_value_gradient(_vector_inputs(problems, wfm))

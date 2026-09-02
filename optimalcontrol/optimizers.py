@@ -1,5 +1,6 @@
 """Shared optimizer result types and line-search utilities."""
 
+import functools
 import hashlib
 import json
 import math
@@ -7,7 +8,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TYPE_CHECKING, TypedDict
 
 import numpy as np
 
@@ -59,15 +60,6 @@ class _LinePoint:
     alpha: float
     phi: float
     dphi: float
-
-
-class _SerialisedLBFGSState(TypedDict):
-    """JSON-compatible representation of an ``LBFGSState``."""
-
-    m: int
-    s_history: list[list[list[float]]]
-    y_history: list[list[list[float]]]
-    rho_history: list[float]
 
 
 @dataclass(frozen=True)
@@ -142,7 +134,7 @@ def _checkpoint_signature(cp: ControlProblem, optimizer_name: str) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _serialise_lbfgs_state(state: LBFGSState) -> _SerialisedLBFGSState:
+def _serialise_lbfgs_state(state: LBFGSState) -> dict[str, object]:
     """Return a JSON-compatible snapshot of an L-BFGS state."""
     memory = _copy_lbfgs_state(state)
     return {
@@ -652,14 +644,12 @@ def _cached_grape_evaluators(
     max_entries = 32
     value_cache: dict[bytes, float] = {}
     grad_cache: dict[bytes, RealArray] = {}
-    insertion_order: list[bytes] = []
 
     def _remember(key: bytes) -> None:
-        if key not in insertion_order:
-            insertion_order.append(key)
-        while len(insertion_order) > max_entries:
-            stale = insertion_order.pop(0)
-            value_cache.pop(stale, None)
+        # value_cache is insertion-ordered and always holds every grad_cache key.
+        while len(value_cache) > max_entries:
+            stale = next(iter(value_cache))
+            del value_cache[stale]
             grad_cache.pop(stale, None)
 
     def objective(wfm: RealArray) -> float:
@@ -708,31 +698,6 @@ def _grape_hessian(cp: ControlProblem) -> Callable[[RealArray], RealArray]:
     return hessian
 
 
-def _result(
-    wfm: RealArray,
-    fidelity: float,
-    n_iter: int,
-    n_feval: int,
-    converged: bool,
-    reason: str,
-    history: list[float],
-    trajectory: list[Array] | None = None,
-) -> OptimResult:
-    """Build an optimizer result with copied mutable fields."""
-    return OptimResult(
-        wfm_final=np.asarray(wfm, dtype=np.float64).copy(),
-        fidelity_final=float(fidelity),
-        n_iter=n_iter,
-        n_feval=n_feval,
-        converged=converged,
-        reason=reason,
-        history=history.copy(),
-        trajectory=None
-        if trajectory is None
-        else [np.asarray(state, dtype=np.complex128).copy() for state in trajectory],
-    )
-
-
 def _trajectory_for_result(
     cp: ControlProblem,
     waveform: RealArray,
@@ -761,15 +726,15 @@ def _grape_result(
     *,
     produce_trajectory: bool,
 ) -> OptimResult:
-    """Build a GRAPE optimizer result with optional trajectory diagnostics."""
-    return _result(
-        wfm,
-        fidelity,
-        n_iter,
-        n_feval,
-        converged,
-        reason,
-        history,
+    """Build a GRAPE optimizer result with copied fields and optional trajectory."""
+    return OptimResult(
+        wfm_final=np.asarray(wfm, dtype=np.float64).copy(),
+        fidelity_final=float(fidelity),
+        n_iter=n_iter,
+        n_feval=n_feval,
+        converged=converged,
+        reason=reason,
+        history=history.copy(),
         trajectory=_trajectory_for_result(cp, wfm, produce_trajectory),
     )
 
@@ -1035,27 +1000,6 @@ def lbfgs_grape(
         nonlocal state
         state = lbfgs_update(state, waveform - previous_waveform, previous_gradient - gradient)
 
-    def finalise(
-        waveform: RealArray,
-        fidelity: float,
-        n_iter: int,
-        n_feval: int,
-        converged: bool,
-        reason: str,
-        history: list[float],
-    ) -> OptimResult:
-        return _grape_result(
-            cp,
-            waveform,
-            fidelity,
-            n_iter,
-            n_feval,
-            converged,
-            reason,
-            history,
-            produce_trajectory=produce_trajectory,
-        )
-
     return _drive_optimizer(
         cp,
         wfm0,
@@ -1065,7 +1009,7 @@ def lbfgs_grape(
         checkpoint_path=checkpoint_path,
         optimizer_name="lbfgs",
         compute_step=compute_step,
-        finalise=finalise,
+        finalise=functools.partial(_grape_result, cp, produce_trajectory=produce_trajectory),
         restore_extra=restore_extra,
         on_accept=on_accept,
         checkpoint_state=lambda: state,
@@ -1108,27 +1052,6 @@ def newton_raphson(
         candidate = np.asarray(waveform + step, dtype=np.float64)
         return apply_freeze(candidate, freeze_mask, waveform)
 
-    def finalise(
-        waveform: RealArray,
-        fidelity: float,
-        n_iter: int,
-        n_feval: int,
-        converged: bool,
-        reason: str,
-        history: list[float],
-    ) -> OptimResult:
-        return _grape_result(
-            cp,
-            waveform,
-            fidelity,
-            n_iter,
-            n_feval,
-            converged,
-            reason,
-            history,
-            produce_trajectory=produce_trajectory,
-        )
-
     return _drive_optimizer(
         cp,
         wfm0,
@@ -1138,7 +1061,7 @@ def newton_raphson(
         checkpoint_path=checkpoint_path,
         optimizer_name="newton",
         compute_step=compute_step,
-        finalise=finalise,
+        finalise=functools.partial(_grape_result, cp, produce_trajectory=produce_trajectory),
         apply_step=apply_step,
     )
 
@@ -1155,12 +1078,15 @@ def run_grape(
     ``"newton"``/``"newton_raphson"``. Keyword arguments are passed directly to
     the selected optimizer.
     """
-    method_key = method.lower().replace("-", "_")
-    if method_key in {"lbfgs", "l_bfgs", "lbfgs_grape"}:
-        optimizer = cast(Callable[..., OptimResult], lbfgs_grape)
-    elif method_key in {"newton", "newton_raphson"}:
-        optimizer = cast(Callable[..., OptimResult], newton_raphson)
-    else:
+    optimizers: dict[str, Callable[..., OptimResult]] = {
+        "lbfgs": lbfgs_grape,
+        "l_bfgs": lbfgs_grape,
+        "lbfgs_grape": lbfgs_grape,
+        "newton": newton_raphson,
+        "newton_raphson": newton_raphson,
+    }
+    optimizer = optimizers.get(method.lower().replace("-", "_"))
+    if optimizer is None:
         raise ValueError("method must be 'lbfgs' or 'newton'")
 
     from optimalcontrol.io import _hash_control_problem, waveform_from_result
