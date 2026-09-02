@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- Remove unused, untested, undocumented helpers: `plotting.plot_ampl_phase`,
+  `plotting.plot_crop_robustness`, `plotting.plot_trajectory`,
+  `analysis.expectation_values`, `analysis.robustness_histogram`, the
+  `analysis.coherence_order_populations` / `correlation_order_populations`
+  stubs, `states.apply_prefix` / `apply_suffix`, `operators.assert_square` /
+  `assert_hermitian` / `double_comm` / `dense_or_sparse`,
+  `spin_system.validate_onresonance`, and the never-wired distortion models
+  `distortion_root`, `distortion_single_zero`, `lower_upper_clip` and the
+  `*_deriv` variants of `noop` / `single_pole`. `distortion_noop`, `distortion_tanh`
+  (+ deriv) and `distortion_single_pole` are unchanged.
+- Internal cleanup with no behaviour change: shared scalar validation through
+  `_validation`, one anti-Hermitian check shared by `grape` and `_accelerator`,
+  one adjoint step in `_seedless_kernel`, the Bloch fallback uses
+  `scipy.spatial.transform.Rotation`, and `ocseed.Band.state_pairs` derives from
+  `bloch_pairs`.
+
 ## v0.5.0 - 2026-08-15
 
 - Publish on PyPI as `optimalcontrol-nmr` (the bare `optimalcontrol` name is

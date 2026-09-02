@@ -8,7 +8,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, cast
+from typing import cast
 
 import numpy as np
 
@@ -21,13 +21,6 @@ from optimalcontrol.grape import (
 )
 from optimalcontrol.optimizers import OptimResult
 from optimalcontrol.penalties import PenaltySpec
-
-
-class _Hasher(Protocol):
-    """Small protocol for hashlib objects used by problem hashing."""
-
-    def update(self, data: bytes) -> None:
-        """Update the hash state."""
 
 
 @dataclass
@@ -286,7 +279,7 @@ def _payload_string(payload: dict[str, object], key: str) -> str:
     return value
 
 
-def _hash_array(hasher: _Hasher, name: str, value: object) -> None:
+def _hash_array(hasher: "hashlib._Hash", name: str, value: object) -> None:
     """Add an array payload to a problem hash."""
     array = np.asarray(value)
     hasher.update(name.encode("utf-8"))
@@ -295,7 +288,7 @@ def _hash_array(hasher: _Hasher, name: str, value: object) -> None:
     hasher.update(np.ascontiguousarray(array).tobytes())
 
 
-def _hash_optional_array(hasher: _Hasher, name: str, value: object | None) -> None:
+def _hash_optional_array(hasher: "hashlib._Hash", name: str, value: object | None) -> None:
     """Add an optional array payload to a problem hash."""
     if value is None:
         hasher.update(f"{name}:none".encode("utf-8"))

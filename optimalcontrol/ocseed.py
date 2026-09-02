@@ -121,21 +121,7 @@ class Band:
 
     def state_pairs(self) -> list[tuple[ComplexArray, ComplexArray]]:
         """Return (init, targ) operator pairs describing this band's transfers."""
-        if self.restraint == "universal":
-            assert self.rotation is not None
-            rot = _rotation_matrix(*self.rotation)
-            return [
-                (_bloch_operator(_CARDINAL[axis]), _bloch_operator(rot @ _CARDINAL[axis]))
-                for axis in ("x", "y", "z")
-            ]
-        if self.restraint == "s2s":
-            assert self.init is not None and self.targ is not None
-            return [
-                (_bloch_operator(_axis_bloch(self.init)), _bloch_operator(_axis_bloch(self.targ)))
-            ]
-        # suppress and xycite both start from Iz; targ is used only by suppress.
-        iz = _bloch_operator(_CARDINAL["z"])
-        return [(iz, iz)]
+        return [(_bloch_operator(i), _bloch_operator(t)) for i, t in self.bloch_pairs()]
 
     def bloch_pairs(self) -> list[tuple[RealArray, RealArray]]:
         """Return (init, targ) Bloch vectors for the fast kernel path."""
@@ -146,6 +132,7 @@ class Band:
         if self.restraint == "s2s":
             assert self.init is not None and self.targ is not None
             return [(_axis_bloch(self.init), _axis_bloch(self.targ))]
+        # suppress and xycite both start from Iz; targ is used only by suppress.
         return [(_CARDINAL["z"], _CARDINAL["z"])]
 
 
@@ -377,9 +364,7 @@ class SeedlessSpec:
                 results[key] = worst_hold
                 continue
             worst = 1.0
-            for init_op, targ_op in band.state_pairs():
-                init_vec = _operator_bloch(init_op)
-                targ_vec = _operator_bloch(targ_op)
+            for init_vec, targ_vec in band.bloch_pairs():
                 final = propagate_bloch_ensemble(
                     init_vec, waveform, offsets, scales, self.rf_max_hz, self.dt
                 )[0]
@@ -405,17 +390,6 @@ class SeedlessSpec:
                 f"##$OCSEED_CARRIER_PPM= {self.carrier_ppm:.6f}",
             ],
         )
-
-
-def _operator_bloch(operator: ComplexArray) -> RealArray:
-    """Return the Bloch vector ``[<Ix>,<Iy>,<Iz>]`` scaled to unit length."""
-    op = np.asarray(operator, dtype=np.complex128)
-    vector = np.array(
-        [np.real(np.trace(op @ Ix())), np.real(np.trace(op @ Iy())), np.real(np.trace(op @ Iz()))],
-        dtype=np.float64,
-    )
-    norm = float(np.linalg.norm(vector))
-    return vector if norm == 0.0 else vector / norm
 
 
 def demo() -> None:

@@ -187,15 +187,16 @@ def _np_pair_value_grad(
     grad = np.empty((v.shape[0], n), dtype=np.float64)
     lam = np.broadcast_to(rho_targ, (v.shape[0], 2, 2)).copy()
     for j in range(n - 1, -1, -1):
-        vj = v[:, j]
-        gj = g[:, j]
-        rho_before = fwd[j]
-        vj_h = np.conj(np.swapaxes(vj, -1, -2))
-        gj_h = np.conj(np.swapaxes(gj, -1, -2))
-        d_rho = gj @ rho_before @ vj_h + vj @ rho_before @ gj_h
-        grad[:, j] = 2.0 * np.real(_trace(lam, d_rho))
-        lam = vj_h @ lam @ vj
+        grad[:, j], lam = _adjoint_step(v[:, j], g[:, j], fwd[j], lam)
     return np.asarray(fidelity, dtype=np.float64), grad
+
+
+def _adjoint_step(vj: Array, gj: Array, rho_before: Array, lam: Array) -> tuple[RealArray, Array]:
+    """One backward adjoint step: return ``2 Re Tr(lam d_rho)`` and the propagated ``lam``."""
+    vj_h = np.conj(np.swapaxes(vj, -1, -2))
+    gj_h = np.conj(np.swapaxes(gj, -1, -2))
+    d_rho = gj @ rho_before @ vj_h + vj @ rho_before @ gj_h
+    return 2.0 * np.real(_trace(lam, d_rho)), vj_h @ lam @ vj
 
 
 def _np_suppress_perstep(v: Array, g: Array, rho_iz: Array) -> tuple[RealArray, RealArray]:
@@ -215,12 +216,6 @@ def _np_suppress_perstep(v: Array, g: Array, rho_iz: Array) -> tuple[RealArray, 
         cost += (1.0 - mz) / n
         lam = np.broadcast_to(rho_iz, (k_members, 2, 2)).copy()
         for j in range(prefix - 1, -1, -1):
-            vj = v[:, j]
-            gj = g[:, j]
-            rho_before = fwd[j]
-            vj_h = np.conj(np.swapaxes(vj, -1, -2))
-            gj_h = np.conj(np.swapaxes(gj, -1, -2))
-            d_rho = gj @ rho_before @ vj_h + vj @ rho_before @ gj_h
-            grad[:, j] += -(2.0 * np.real(_trace(lam, d_rho))) / n
-            lam = vj_h @ lam @ vj
+            sensitivity, lam = _adjoint_step(v[:, j], g[:, j], fwd[j], lam)
+            grad[:, j] -= sensitivity / n
     return cost, grad

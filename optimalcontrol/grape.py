@@ -9,6 +9,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.linalg import expm
 
+from optimalcontrol._accelerator import _is_anti_hermitian
 from optimalcontrol._types import Array, BoolArray, RealArray
 from optimalcontrol._validation import validate_finite_floats as _validate_float_list
 from optimalcontrol._validation import validate_nonempty as _validate_nonempty
@@ -440,12 +441,7 @@ def _has_hermitian_igenerators(cp: ControlProblem) -> bool:
     same propagator algorithm.
     """
     candidates = [_single_drift(cp)] + list(_control_direction_stack(cp))
-    for matrix in candidates:
-        deviation = float(np.abs(matrix + matrix.conj().T).max())
-        scale = max(1.0, float(np.abs(matrix).max()))
-        if deviation > 1e-12 * scale:
-            return False
-    return True
+    return all(_is_anti_hermitian(matrix) for matrix in candidates)
 
 
 def _propagators_via_eigh(generators: Array, dt: float) -> tuple[Array, RealArray, Array]:

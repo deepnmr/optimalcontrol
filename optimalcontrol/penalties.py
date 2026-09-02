@@ -8,6 +8,7 @@ import numpy as np
 
 from optimalcontrol._types import RealArray
 from optimalcontrol._validation import as_finite_waveform as _as_waveform
+from optimalcontrol._validation import validate_nonnegative as _validate_nonnegative
 
 
 @dataclass(frozen=True)
@@ -23,24 +24,6 @@ PenaltyFunction = Callable[[RealArray], tuple[float, RealArray]]
 PenaltyInput = PenaltySpec | PenaltyFunction
 
 
-def _validate_weight(weight: float) -> float:
-    """Return a finite non-negative penalty weight."""
-    if not math.isfinite(weight):
-        raise ValueError("weight must be finite")
-    if weight < 0.0:
-        raise ValueError("weight must be non-negative")
-    return float(weight)
-
-
-def _validate_limit(limit: float) -> float:
-    """Return a finite non-negative penalty limit."""
-    if not math.isfinite(limit):
-        raise ValueError("limit must be finite")
-    if limit < 0.0:
-        raise ValueError("limit must be non-negative")
-    return float(limit)
-
-
 def penalty_NS(wfm: RealArray, weight: float) -> tuple[float, RealArray]:
     """Return norm-square penalty value and gradient.
 
@@ -48,7 +31,8 @@ def penalty_NS(wfm: RealArray, weight: float) -> tuple[float, RealArray]:
     the waveform.
     """
     waveform = _as_waveform(wfm)
-    penalty_weight = _validate_weight(weight)
+    _validate_nonnegative("weight", weight)
+    penalty_weight = float(weight)
     value = penalty_weight * float(np.sum(waveform * waveform))
     gradient = np.asarray(2.0 * penalty_weight * waveform, dtype=np.float64)
     return value, gradient
@@ -60,8 +44,10 @@ def penalty_SNS(wfm: RealArray, limit: float, weight: float) -> tuple[float, Rea
     Each waveform sample is penalised only when ``abs(sample) > limit``.
     """
     waveform = _as_waveform(wfm)
-    spillout_limit = _validate_limit(limit)
-    penalty_weight = _validate_weight(weight)
+    _validate_nonnegative("limit", limit)
+    spillout_limit = float(limit)
+    _validate_nonnegative("weight", weight)
+    penalty_weight = float(weight)
 
     absolute = np.abs(waveform)
     spillout = np.maximum(absolute - spillout_limit, 0.0)
@@ -79,8 +65,10 @@ def penalty_SNSA(wfm: RealArray, limit: float, weight: float) -> tuple[float, Re
     Rows with amplitude below ``limit`` do not contribute to the penalty.
     """
     waveform = _as_waveform(wfm)
-    spillout_limit = _validate_limit(limit)
-    penalty_weight = _validate_weight(weight)
+    _validate_nonnegative("limit", limit)
+    spillout_limit = float(limit)
+    _validate_nonnegative("weight", weight)
+    penalty_weight = float(weight)
 
     amplitude = np.linalg.norm(waveform, axis=1)
     spillout = np.maximum(amplitude - spillout_limit, 0.0)
@@ -101,7 +89,8 @@ def penalty_DNS(wfm: RealArray, weight: float) -> tuple[float, RealArray]:
     axis. A one-row waveform has zero derivative penalty.
     """
     waveform = _as_waveform(wfm)
-    penalty_weight = _validate_weight(weight)
+    _validate_nonnegative("weight", weight)
+    penalty_weight = float(weight)
     if waveform.shape[0] < 2:
         return 0.0, np.zeros_like(waveform, dtype=np.float64)
 

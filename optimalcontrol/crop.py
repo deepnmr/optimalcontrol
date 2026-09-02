@@ -9,7 +9,7 @@ import numpy.typing as npt
 
 from optimalcontrol._validation import validate_nonnegative as _validate_nonnegative
 from optimalcontrol._validation import validate_positive as _validate_positive
-from optimalcontrol.rope import rope_g, rope_n
+from optimalcontrol.rope import rope_g
 from optimalcontrol.spin_system import SpinSystem
 
 
@@ -23,13 +23,6 @@ class CROPPulse:
     amplitude: float
     irradiation_freq_hz: float
     truncation_window: float
-
-
-def _validate_finite_positive(name: str, value: float) -> None:
-    """Raise ValueError if a scalar parameter is not finite and positive."""
-    _validate_positive(name, value)
-    if not math.isfinite(value):
-        raise ValueError(f"{name} must be finite")
 
 
 def _as_float_array(values: Iterable[float], name: str) -> npt.NDArray[np.float64]:
@@ -57,8 +50,7 @@ def crop_zeta(ka: float, kc: float, J_hz: float) -> float:
 
 def crop_eta(ka: float, kc: float, J_hz: float) -> float:
     """Return the CROP Iz -> 2IzSz transfer efficiency eta."""
-    zeta = crop_zeta(ka, kc, J_hz)
-    return math.sqrt(1.0 + zeta * zeta) - zeta
+    return rope_g(crop_zeta(ka, kc, J_hz))
 
 
 def crop_eta_prime(ka_prime: float, kc_prime: float, J_hz: float) -> float:
@@ -93,16 +85,8 @@ def crop_limit_single_transition(eta: float, eta_prime: float) -> float:
 
 
 def crop_kc0_limit(ka: float, J_hz: float) -> float:
-    """Return the ``kc = 0`` CROP efficiency and verify the ROPE reduction.
-
-    In the absence of cross-correlated relaxation, the PNAS CROP expression
-    reduces to the JMR ROPE efficiency ``g(n=ka/J)``.
-    """
-    eta = crop_eta(ka, 0.0, J_hz)
-    expected = rope_g(rope_n(ka, J_hz))
-    if abs(eta - expected) > 1e-10:
-        raise ValueError("CROP kc=0 limit does not match ROPE efficiency")
-    return eta
+    """Return the ``kc = 0`` CROP efficiency, which is the JMR ROPE ``g(n=ka/J)``."""
+    return crop_eta(ka, 0.0, J_hz)
 
 
 def crop_lossless_limit(ka: float, J_hz: float) -> float:
@@ -164,8 +148,8 @@ def crop_waveform(
     frequency use the same Hz convention as ``crop_pulse_params()`` and the
     PNAS figure labels.
     """
-    _validate_finite_positive("dt", dt)
-    _validate_finite_positive("truncation_window", truncation_window)
+    _validate_positive("dt", dt)
+    _validate_positive("truncation_window", truncation_window)
     params = crop_pulse_params(ka, kc, J_hz)
 
     n_steps = max(1, math.ceil(truncation_window / dt))

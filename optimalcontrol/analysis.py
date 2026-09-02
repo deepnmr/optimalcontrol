@@ -1,8 +1,5 @@
 """Trajectory analysis helpers for GRAPE optimised pulses."""
 
-import copy
-import itertools
-
 import numpy as np
 from scipy.signal import spectrogram
 
@@ -13,7 +10,6 @@ from optimalcontrol.grape import (
     _problem_for_basis,
     forward_propagators,
     forward_states,
-    grape_xy,
 )
 
 
@@ -31,116 +27,6 @@ def state_trajectory(cp: ControlProblem, wfm: RealArray) -> list[Array]:
     propagators = forward_propagators(cp, wfm)
     cp = _problem_for_basis(cp)
     return forward_states(cp.rho_init[0], propagators)
-
-
-def expectation_values(
-    trajectory: list[Array],
-    ops: dict[str, Array],
-) -> dict[str, RealArray]:
-    """Return expectation value of each operator at each time step.
-
-    For a density matrix rho, the expectation value of operator O is
-    Re(Tr(O @ rho)).  The returned dict maps each operator name to a
-    1-D real array of length len(trajectory).
-
-    Parameters
-    ----------
-    trajectory:
-        List of density matrices or state vectors as returned by
-        state_trajectory().
-    ops:
-        Mapping from label to operator matrix.
-    """
-    if not trajectory:
-        raise ValueError("trajectory must be non-empty")
-
-    result: dict[str, RealArray] = {}
-    for name, op in ops.items():
-        op_arr = np.asarray(op, dtype=np.complex128)
-        values: list[float] = []
-        for state in trajectory:
-            state_arr = np.asarray(state, dtype=np.complex128)
-            if state_arr.ndim == 1:
-                ev = float(np.real(np.vdot(state_arr, op_arr @ state_arr)))
-            else:
-                ev = float(np.real(np.trace(op_arr @ state_arr)))
-            values.append(ev)
-        result[name] = np.array(values, dtype=np.float64)
-    return result
-
-
-def coherence_order_populations(trajectory: list[Array]) -> RealArray:
-    """Return coherence-order populations at each time step.
-
-    Not implemented for the current basis; raises NotImplementedError.
-    A future implementation would require explicit product-operator basis
-    metadata to decompose density matrices into coherence orders p = -N..N.
-    """
-    raise NotImplementedError(
-        "coherence_order_populations requires explicit product-operator basis "
-        "metadata, which is not currently stored in the trajectory."
-    )
-
-
-def correlation_order_populations(trajectory: list[Array]) -> RealArray:
-    """Return correlation-order populations at each time step.
-
-    Not implemented for the current basis; raises NotImplementedError.
-    A future implementation would require explicit product-operator basis
-    metadata to decompose density matrices into spin-correlation orders.
-    """
-    raise NotImplementedError(
-        "correlation_order_populations requires explicit product-operator basis "
-        "metadata, which is not currently stored in the trajectory."
-    )
-
-
-def robustness_histogram(
-    cp_template: ControlProblem,
-    wfm: RealArray,
-    param_grid: dict[str, list[object]],
-) -> RealArray:
-    """Evaluate fidelity for each combination of parameters in the grid.
-
-    Parameters
-    ----------
-    cp_template:
-        Base ControlProblem to modify for each parameter combination.
-    wfm:
-        Fixed waveform to evaluate, shaped (n_steps, n_channels).
-    param_grid:
-        Dict mapping ControlProblem field names to lists of replacement values.
-        All lists are combined as a Cartesian product.  For a single parameter
-        with N values the output is a 1-D array of length N; for K parameters
-        with N_1, ..., N_K values the output has shape (N_1, ..., N_K).
-
-    Returns
-    -------
-    ndarray of float64 fidelity values shaped by the parameter grid.
-
-    Examples
-    --------
-    Sweep over two offset values::
-
-        grid = {"offsets": [[-100.0], [0.0], [100.0]]}
-        hist = robustness_histogram(cp, wfm, grid)  # shape (3,)
-    """
-    if not param_grid:
-        raise ValueError("param_grid must not be empty")
-
-    keys = list(param_grid.keys())
-    value_lists = [param_grid[k] for k in keys]
-    shape = tuple(len(v) for v in value_lists)
-    fidelities = np.zeros(shape, dtype=np.float64)
-
-    for idx in itertools.product(*(range(n) for n in shape)):
-        cp_mod = copy.copy(cp_template)
-        cp_mod.penalties = None  # report raw fidelity, not the penalised objective
-        for i, key in enumerate(keys):
-            setattr(cp_mod, key, value_lists[i][idx[i]])
-        fidelities[idx] = grape_xy(cp_mod, wfm)
-
-    return fidelities
 
 
 def spectrogram_data(

@@ -146,13 +146,6 @@ def _zero_hamiltonian(n_spins: int) -> npt.NDArray[np.complex128]:
     return np.zeros((dim, dim), dtype=np.complex128)
 
 
-def _zero_liouvillian(n_spins: int) -> npt.NDArray[np.complex128]:
-    """Return a zero Liouville-space operator for an n-spin-1/2 system."""
-    dim = 2**n_spins
-    dim2 = dim * dim
-    return np.zeros((dim2, dim2), dtype=np.complex128)
-
-
 def _two_spin_z_operators(
     sys: SpinSystem,
 ) -> tuple[
@@ -236,7 +229,7 @@ def relaxation_liouvillian(sys: SpinSystem) -> npt.NDArray[np.complex128]:
     decay with kI and S-spin transverse terms decay with kS.
     """
     if len(sys.spins) == 0:
-        return _zero_liouvillian(0)
+        return np.zeros((1, 1), dtype=np.complex128)
     Iz_i, Sz_s, _ = _two_spin_z_operators(sys)
     rates = np.array(
         [
@@ -259,7 +252,7 @@ def relaxation_liouvillian_crosscorr(sys: SpinSystem) -> npt.NDArray[np.complex1
     ka_prime +/- kc_prime.
     """
     if len(sys.spins) == 0:
-        return _zero_liouvillian(0)
+        return np.zeros((1, 1), dtype=np.complex128)
     Iz_i, Sz_s, two_IzSz = _two_spin_z_operators(sys)
     relaxation = sys.relaxation
     rate_i = relaxation.ka if relaxation.ka != 0.0 else relaxation.kI
@@ -307,14 +300,3 @@ def total_generator(sys: SpinSystem, controls: dict[str, float]) -> npt.NDArray[
             raise ValueError(f"Unknown control {name!r}; expected one of: {available}")
         generator += amplitude * liouvillian_comm(available_controls[name])
     return generator
-
-
-def validate_onresonance(sys: SpinSystem) -> None:
-    """Raise ValueError if any chemical shift is non-zero for an on-resonance model."""
-    for spin_index, shift_hz in sys.shifts_hz.items():
-        _validate_spin_index(spin_index, len(sys.spins))
-        if shift_hz != 0.0:
-            raise ValueError(
-                f"spin {spin_index} has non-zero chemical shift {shift_hz} Hz; "
-                "on-resonance model requires all shifts to be zero"
-            )

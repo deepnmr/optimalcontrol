@@ -16,17 +16,6 @@ def _validate_n_spins(n_spins: int) -> None:
         raise ValueError("n_spins must be at least 1")
 
 
-def _single_spin_op(label: str) -> npt.NDArray[np.complex128]:
-    """Return the elementary spin operator for axis labels x, y, or z."""
-    if label == "x":
-        return Ix()
-    if label == "y":
-        return Iy()
-    if label == "z":
-        return Iz()
-    raise ValueError(f"Unknown spin axis {label!r}")
-
-
 def _operator_on_spin(
     op: npt.NDArray[np.complex128], spin_index: int, n_spins: int
 ) -> npt.NDArray[np.complex128]:
@@ -58,16 +47,15 @@ def state_from_label(label: str, n_spins: int) -> npt.NDArray[np.complex128]:
         return _operator_on_spin(op, spin_index, n_spins)
 
     product_labels = {
-        "2IxSz": ("x", "z"),
-        "2IySz": ("y", "z"),
-        "2IzSx": ("z", "x"),
-        "2IzSy": ("z", "y"),
-        "2IzSz": ("z", "z"),
+        "2IxSz": (Ix(), Iz()),
+        "2IySz": (Iy(), Iz()),
+        "2IzSx": (Iz(), Ix()),
+        "2IzSy": (Iz(), Iy()),
+        "2IzSz": (Iz(), Iz()),
     }
     if label in product_labels:
-        i_axis, s_axis = product_labels[label]
-        i_op = _operator_on_spin(_single_spin_op(i_axis), 0, n_spins)
-        s_op = _operator_on_spin(_single_spin_op(s_axis), 1, n_spins)
+        i_op = _operator_on_spin(product_labels[label][0], 0, n_spins)
+        s_op = _operator_on_spin(product_labels[label][1], 1, n_spins)
         return np.complex128(2.0) * (i_op @ s_op)
 
     supported = ", ".join(sorted([*single_spin_labels, *product_labels]))
@@ -161,53 +149,6 @@ def _apply_liouville_propagator(
     if rho.ndim == 1:
         return propagator @ rho
     return unvec(propagator @ vec(rho), rho.shape[0])
-
-
-def _apply_state_propagator(
-    rho: npt.NDArray[np.complex128],
-    propagator: npt.NDArray[np.complex128],
-    name: str,
-) -> npt.NDArray[np.complex128]:
-    """Apply either a Hilbert-space rotation or Liouville-space propagator."""
-    rho_arr = np.asarray(rho, dtype=np.complex128)
-    propagator_arr = np.asarray(propagator, dtype=np.complex128)
-    _validate_square_array(name, propagator_arr)
-
-    if rho_arr.ndim == 2 and rho_arr.shape[0] == rho_arr.shape[1]:
-        if propagator_arr.shape == rho_arr.shape:
-            return propagator_arr @ rho_arr @ propagator_arr.conj().T
-        return _apply_liouville_propagator(rho_arr, propagator_arr, name)
-
-    if rho_arr.ndim == 1:
-        return _apply_liouville_propagator(rho_arr, propagator_arr, name)
-
-    raise ValueError(f"rho must be a vectorised state or square matrix, got shape {rho_arr.shape}")
-
-
-def apply_prefix(
-    rho: npt.NDArray[np.complex128],
-    prefix_propagator: npt.NDArray[np.complex128],
-) -> npt.NDArray[np.complex128]:
-    """Apply a fixed prefix transformation to an initial state.
-
-    Matrix states accept either a Hilbert-space propagator ``U`` with
-    ``U @ rho @ U.conj().T`` semantics, or a Liouville-space propagator acting
-    on ``vec(rho)``. Vectorised states require a Liouville-space propagator.
-    """
-    return _apply_state_propagator(rho, prefix_propagator, "prefix_propagator")
-
-
-def apply_suffix(
-    rho: npt.NDArray[np.complex128],
-    suffix_propagator: npt.NDArray[np.complex128],
-) -> npt.NDArray[np.complex128]:
-    """Apply a fixed suffix transformation before fidelity evaluation.
-
-    Matrix states accept either a Hilbert-space propagator ``U`` with
-    ``U @ rho @ U.conj().T`` semantics, or a Liouville-space propagator acting
-    on ``vec(rho)``. Vectorised states require a Liouville-space propagator.
-    """
-    return _apply_state_propagator(rho, suffix_propagator, "suffix_propagator")
 
 
 def dead_time_propagation(

@@ -16,7 +16,6 @@ from optimalcontrol.grape import (
     _validate_phase_cycle,
     _validate_same_drift_dimensions,
     _zero_frozen,
-    grape_gradient,
     grape_xy,
     grape_xy_and_gradient,
 )
@@ -196,28 +195,6 @@ def expand_phase_cycle(cp: ControlProblem) -> list[ControlProblem]:
     return expanded
 
 
-def _expand_optional_offsets(problems: list[ControlProblem]) -> list[ControlProblem]:
-    """Expand the optional offset axis on every problem."""
-    expanded: list[ControlProblem] = []
-    for problem in problems:
-        if problem.offsets is None and problem.offset_operators is None:
-            expanded.append(problem)
-        else:
-            expanded.extend(expand_offsets(problem))
-    return expanded
-
-
-def _expand_optional_phase_cycle(problems: list[ControlProblem]) -> list[ControlProblem]:
-    """Expand the optional phase-cycle axis on every problem."""
-    expanded: list[ControlProblem] = []
-    for problem in problems:
-        if problem.phase_cycle is None:
-            expanded.append(problem)
-        else:
-            expanded.extend(expand_phase_cycle(problem))
-    return expanded
-
-
 def cartesian_product_ensemble(cp: ControlProblem) -> list[ControlProblem]:
     """Return the full Cartesian product over active ensemble dimensions."""
     problems: list[ControlProblem] = []
@@ -226,9 +203,8 @@ def cartesian_product_ensemble(cp: ControlProblem) -> list[ControlProblem]:
             problems.extend(expand_power_levels(drift_problem))
         else:
             problems.append(drift_problem)
-    problems = _expand_optional_offsets(problems)
-    problems = _expand_optional_phase_cycle(problems)
-    return problems
+    problems = [member for problem in problems for member in expand_offsets(problem)]
+    return [member for problem in problems for member in expand_phase_cycle(problem)]
 
 
 def correlated_rho_match(cp: ControlProblem) -> list[ControlProblem]:
@@ -300,24 +276,7 @@ def ensemble_gradient(cp: ControlProblem, wfm: RealArray) -> RealArray:
     When ``cp.penalties`` is set, the penalty gradient is subtracted once from
     the ensemble mean, matching ``ensemble_xy_and_gradient`` on every path.
     """
-    waveform = np.asarray(wfm, dtype=np.float64)
-    if cp.penalties is not None:
-        gradient = ensemble_gradient(replace(cp, penalties=None), waveform)
-        _, penalty_gradient = total_penalty(waveform, cp.penalties)
-        gradient = np.asarray(gradient - penalty_gradient, dtype=np.float64)
-        _zero_frozen(gradient, cp.freeze)
-        return gradient
-    problems = cartesian_product_ensemble(cp)
-    gradient = np.zeros_like(waveform, dtype=np.float64)
-    for problem in problems:
-        member_gradient = np.asarray(grape_gradient(problem, waveform), dtype=np.float64)
-        if member_gradient.shape != gradient.shape:
-            raise ValueError(
-                f"member gradient shape {member_gradient.shape} does not match "
-                f"waveform shape {gradient.shape}"
-            )
-        gradient += member_gradient
-    return np.asarray(gradient / float(len(problems)), dtype=np.float64)
+    return ensemble_xy_and_gradient(cp, wfm)[1]
 
 
 def ensemble_xy_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[float, RealArray]:

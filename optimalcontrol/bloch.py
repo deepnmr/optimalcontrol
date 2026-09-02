@@ -3,6 +3,7 @@
 import math
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 from optimalcontrol._accelerator import _enabled, _rust
 from optimalcontrol._types import RealArray
@@ -10,17 +11,8 @@ from optimalcontrol._types import RealArray
 
 def _rotate(state: RealArray, field: RealArray, dt: float) -> RealArray:
     """Apply one Rodrigues rotation in the NumPy fallback path."""
-    norm = float(np.linalg.norm(field))
-    if norm == 0.0:
-        return state
-    axis = field / norm
-    angle = 2.0 * math.pi * norm * dt
-    return np.asarray(
-        math.cos(angle) * state
-        + math.sin(angle) * np.cross(axis, state)
-        + (1.0 - math.cos(angle)) * axis * np.dot(axis, state),
-        dtype=np.float64,
-    )
+    rotated = Rotation.from_rotvec(2.0 * math.pi * dt * field).apply(state)
+    return np.asarray(rotated, dtype=np.float64)
 
 
 def propagate_bloch_ensemble(
