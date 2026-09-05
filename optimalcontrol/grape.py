@@ -890,12 +890,10 @@ def _hilbert_matrix_value_and_gradient(
         propagator = propagators[step_index]
         d_propagator = d_propagators[step_index]
         rho = fwd[step_index]
-        d_slice = np.einsum(
-            "cij,jl,ml->cim", d_propagator, rho, propagator.conj(), optimize=True
-        ) + np.einsum("ij,jl,cml->cim", propagator, rho, d_propagator.conj(), optimize=True)
-        d_overlaps[step_index] = np.einsum(
-            "im,cim->c", bwd[step_index + 1].conj(), d_slice, optimize=True
-        )
+        d_slice = (d_propagator @ rho) @ propagator.conj().T + (
+            propagator @ rho
+        ) @ d_propagator.conj().swapaxes(-1, -2)
+        d_overlaps[step_index] = np.sum(bwd[step_index + 1].conj() * d_slice, axis=(-2, -1))
 
     overlap = np.complex128(np.vdot(rho_targ, fwd[-1]))
     return _mode_value(overlap, mode), _mode_gradient(overlap, d_overlaps, mode)

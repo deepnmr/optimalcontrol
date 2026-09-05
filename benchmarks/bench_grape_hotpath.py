@@ -5,7 +5,9 @@ Run from the repository root with:
     python benchmarks/bench_grape_hotpath.py
 """
 
-import time
+from collections.abc import Callable
+from statistics import median
+from timeit import repeat
 
 import numpy as np
 import numpy.typing as npt
@@ -56,24 +58,33 @@ def _waveform() -> RealArray:
     return np.asarray(0.5 * rng.standard_normal((N_STEPS, 2)), dtype=np.float64)
 
 
-def _time_call(fn, repeats: int) -> float:
+def _density_problem() -> ControlProblem:
+    cp = _single_problem()
+    cp.drifts = [-1j * 2.0 * np.pi * 1000.0 * Iz()]
+    cp.operators = [-1j * Ix(), -1j * Iy()]
+    cp.rho_init = [normalise_hs(-Iy())]
+    cp.rho_targ = [normalise_hs(Iy())]
+    return cp
+
+
+def _time_call(fn: Callable[[], float | RealArray], repeats: int) -> float:
     fn()
-    start = time.perf_counter()
-    for _ in range(repeats):
-        fn()
-    return (time.perf_counter() - start) / repeats
+    return median(repeat(fn, number=repeats, repeat=5)) / repeats
 
 
 def main() -> None:
     wfm = _waveform()
     single = _single_problem()
     ens = _ensemble_problem()
+    density = _density_problem()
 
     print("case,seconds_per_call")
     print(f"single_fidelity,{_time_call(lambda: grape_xy(single, wfm), 20):.6e}")
     print(f"single_gradient,{_time_call(lambda: grape_gradient(single, wfm), 3):.6e}")
     print(f"ensemble_fidelity,{_time_call(lambda: grape_xy(ens, wfm), 5):.6e}")
     print(f"ensemble_gradient,{_time_call(lambda: grape_gradient(ens, wfm), 1):.6e}")
+    print(f"density_fidelity,{_time_call(lambda: grape_xy(density, wfm), 20):.6e}")
+    print(f"density_gradient,{_time_call(lambda: grape_gradient(density, wfm), 3):.6e}")
 
 
 if __name__ == "__main__":
