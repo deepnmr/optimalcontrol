@@ -258,6 +258,8 @@ inhomogeneity is handled by a weighted average over several B1 scalings.
 `"suppress"` defaults to an end-of-pulse hold. Set `per_step=True` for the
 paper's per-step `n²/2` form, which holds `Iz` after *every* prefix of the pulse
 and therefore bounds transverse build-up during the pulse, not just at its end.
+The Rust and NumPy kernels evaluate this same all-prefix objective and its
+gradient in linear time using a cumulative adjoint sweep.
 
 ### 4-2. A single-band inversion
 

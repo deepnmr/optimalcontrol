@@ -93,8 +93,8 @@ def suppress_perstep_value_grad(
 
     Implements the Supplementary Note 2.7 "suppression" restraint: hold ``Iz`` on
     ``Iz`` after *every* prefix of the pulse. The cost is the mean over steps of
-    ``1 - mz_k`` (residual z after ``k`` propagators). Its gradient scales as
-    ``n^2/2`` because a change at step ``j`` affects every later hold.
+    ``1 - mz_k`` (residual z after ``k`` propagators). A cumulative adjoint
+    includes every later hold in one backward sweep, giving linear step scaling.
     """
     waveform = np.ascontiguousarray(wfm_xy, dtype=np.float64)
     offsets = np.ascontiguousarray(offsets_hz, dtype=np.float64)
@@ -200,22 +200,22 @@ def _adjoint_step(vj: Array, gj: Array, rho_before: Array, lam: Array) -> tuple[
 
 
 def _np_suppress_perstep(v: Array, g: Array, rho_iz: Array) -> tuple[RealArray, RealArray]:
-    """NumPy per-member per-step suppression cost and gradient (``n^2/2`` scaling)."""
+    """Per-step hold with cumulative adjoints: ``lam_j = Iz + V^H lam_{j+1} V``."""
     n = v.shape[1]
     k_members = v.shape[0]
-    fwd, _ = _forward_states(v, rho_iz)
+    fwd, rho_final = _forward_states(v, rho_iz)
 
     cost = np.zeros(k_members, dtype=np.float64)
     grad = np.zeros((k_members, n), dtype=np.float64)
     rho_targ = np.broadcast_to(rho_iz, (k_members, 2, 2))
-    rho_after = np.broadcast_to(rho_iz, (k_members, 2, 2)).copy()
     for prefix in range(1, n + 1):
-        v_last = v[:, prefix - 1]
-        rho_after = v_last @ rho_after @ np.conj(np.swapaxes(v_last, -1, -2))
+        rho_after = fwd[prefix] if prefix < n else rho_final
         mz = 2.0 * np.real(_trace(rho_targ, rho_after))
         cost += (1.0 - mz) / n
-        lam = np.broadcast_to(rho_iz, (k_members, 2, 2)).copy()
-        for j in range(prefix - 1, -1, -1):
-            sensitivity, lam = _adjoint_step(v[:, j], g[:, j], fwd[j], lam)
-            grad[:, j] -= sensitivity / n
+
+    lam = np.zeros_like(rho_final)
+    for j in range(n - 1, -1, -1):
+        lam += rho_targ
+        sensitivity, lam = _adjoint_step(v[:, j], g[:, j], fwd[j], lam)
+        grad[:, j] = -sensitivity / n
     return cost, grad

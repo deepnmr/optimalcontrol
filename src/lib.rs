@@ -904,28 +904,28 @@ fn member_pair(
     (fidelity, grad)
 }
 
-/// Per-step (n^2/2) water-hold cost and gradient for one member (Note 2.7).
+/// Per-step water hold (Note 2.7), using a cumulative adjoint for O(n) work.
 fn member_suppress(waveform: &[f64], offset: f64, scale: f64, rf: f64, dt: f64) -> (f64, Vec<f64>) {
     let n = waveform.len() / 2;
     let iz = spin_operator(0.0, 0.0, 1.0);
     let (vs, gs) = spin_slices(waveform, offset, scale, rf, dt);
-    let (fwd, _) = spin_forward(&vs, iz);
+    let (fwd, rho_final) = spin_forward(&vs, iz);
 
     let mut cost = 0.0f64;
     let mut grad = vec![0.0f64; n];
-    let mut rho_after = iz;
-    for prefix in 1..=n {
-        rho_after = vs[prefix - 1] * rho_after * vs[prefix - 1].adjoint();
+    for rho_after in fwd.iter().skip(1).chain(std::iter::once(&rho_final)) {
         let mz = 2.0 * (iz * rho_after).trace().re;
         cost += (1.0 - mz) / n as f64;
-        let mut lam = iz;
-        for j in (0..prefix).rev() {
-            let vjh = vs[j].adjoint();
-            let gjh = gs[j].adjoint();
-            let d_rho = gs[j] * fwd[j] * vjh + vs[j] * fwd[j] * gjh;
-            grad[j] += -(2.0 * (lam * d_rho).trace().re) / n as f64;
-            lam = vjh * lam * vs[j];
-        }
+    }
+
+    let mut lam = Spin::zeros();
+    for j in (0..n).rev() {
+        lam += iz;
+        let vjh = vs[j].adjoint();
+        let gjh = gs[j].adjoint();
+        let d_rho = gs[j] * fwd[j] * vjh + vs[j] * fwd[j] * gjh;
+        grad[j] = -(2.0 * (lam * d_rho).trace().re) / n as f64;
+        lam = vjh * lam * vs[j];
     }
     (cost, grad)
 }
