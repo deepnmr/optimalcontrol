@@ -101,6 +101,26 @@ improved single-member gradient evaluation by 2.2x and five-member ensemble grad
 evaluation by 3.4x. Run `python benchmarks/bench_grape_hotpath.py` and
 `pytest tests/test_examples.py` to measure the local machine.
 
+Seedless per-step suppression now uses one cumulative adjoint sweep, making its
+gradient linear in pulse length while preserving the hold objective at every
+prefix. Run `.venv/bin/python benchmarks/bench_seedless.py` for 32-, 128-, and
+512-step cases; add `OPTIMALCONTROL_DISABLE_RUST=1` to measure the NumPy fallback.
+The GRAPE benchmark also includes density-matrix gradients, which now use batched
+matrix products to avoid repeated tensor-contraction planning.
+
+Measured before/after on Apple M4 (Python 3.14.6, NumPy 2.5.0, SciPy 1.18.0;
+median of five timing runs, seconds per objective-plus-gradient call):
+
+| Case | Before | After | Speedup |
+| --- | ---: | ---: | ---: |
+| Seedless suppression, Rust, 512 steps, 21 members | 0.01562 | 0.0004694 | 33.3x |
+| Seedless suppression, NumPy, 512 steps, 21 members | 1.333 | 0.008141 | 163.8x |
+| Density GRAPE, NumPy, 72 steps, 2x2 state | 0.003084 | 0.0006324 | 4.9x |
+
+These are focused workload measurements, not end-to-end optimizer speedups.
+In these comparisons, objective values matched exactly and the maximum absolute
+gradient difference was 1.2e-16 or less. Timings vary with hardware and workload.
+
 ## Symmetric methyl 180 pulse with water preservation
 
 `python -m examples.methyl_water_binary_symmetric_180` writes a Bruker shape and a

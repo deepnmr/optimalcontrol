@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Evaluate Seedless per-step water suppression with one cumulative adjoint
+  sweep in both Rust and NumPy, reducing gradient work from quadratic to linear
+  in pulse length while preserving the all-prefix hold objective.
+- Speed up density-matrix GRAPE gradients with direct batched matrix products
+  instead of planning tensor contractions at every pulse step.
 - Remove unused, untested, undocumented helpers: `plotting.plot_ampl_phase`,
   `plotting.plot_crop_robustness`, `plotting.plot_trajectory`,
   `analysis.expectation_values`, `analysis.robustness_histogram`, the
