@@ -29,11 +29,15 @@ OPTIMALCONTROL_DISABLE_RUST=1 .venv/bin/python -m pytest -q tests/test_ocseed.py
 
 - `tests/test_rust_accelerator.py` fails under `OPTIMALCONTROL_DISABLE_RUST=1` by design (it
   tests the Rust path). Everything else must pass on both paths.
-- `tests/test_examples.py` imports every `examples/*.py`, calls its `run()`, and compares to
-  `examples/expected/<name>.npz` (key `"output"`, rtol 1e-4). A numerical change to an
-  example is a snapshot change; regenerate deliberately, don't loosen the tolerance.
+- `tests/test_examples.py` calls each listed example's `run()` once, checks that it returns
+  a result, and compares to `examples/expected/<name>.npz` (key `"output"`, rtol 1e-4,
+  atol 1e-12). A numerical change to an example is a snapshot change; regenerate
+  deliberately, don't loosen the tolerance.
 - Error message strings are tested (`tests/test_validation.py` etc.); `_validation.py` says
   keep them stable.
+- `.github/workflows/ci.yml` runs on pull requests and pushes to `master`: Ubuntu,
+  Python 3.12, stable Rust, the full native suite, targeted NumPy fallback tests
+  (including MCP), Ruff, mypy, and Clippy with warnings denied.
 
 ## Architecture
 
@@ -85,7 +89,8 @@ version must match `pyproject.toml` and `optimalcontrol/__init__.py`). Exposed f
 
 - Semantic versioning (see README "Versioning policy"). Bump `pyproject.toml`,
   `Cargo.toml`, `Cargo.lock`, `optimalcontrol/__init__.py`; promote CHANGELOG `Unreleased`;
-  tag `vX.Y.Z`; `maturin build --release --sdist -o dist`; `twine upload`. No CI exists.
+  tag `vX.Y.Z`; `maturin build --release --sdist -o dist`; `twine upload`. CI checks changes;
+  publishing remains manual.
 - `.claude-plugin/plugin.json` pins `>=0.5.0` and carries its own `version`.
 - Pushing to `deepnmr/optimalcontrol` needs `gh auth switch -u deepnmr`; switch back to
   `dleess` afterwards.

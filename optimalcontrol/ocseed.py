@@ -38,7 +38,8 @@ from optimalcontrol import _seedless_kernel as kernel
 from optimalcontrol._seedless_kernel import bloch_operator as _bloch_operator
 from optimalcontrol._types import Array as ComplexArray
 from optimalcontrol._types import RealArray
-from optimalcontrol.bloch import propagate_bloch_ensemble
+from optimalcontrol._validation import as_finite_waveform
+from optimalcontrol.bloch import _rotate, propagate_bloch_ensemble
 from optimalcontrol.grape import (
     ControlProblem,
     ampl_phase_to_xy,
@@ -187,9 +188,18 @@ class SeedlessSpec:
             ppm = np.linspace(band.ppm_lo, band.ppm_hi, points, dtype=np.float64)
         return np.asarray((ppm - self.carrier_ppm) * self.spectrometer_mhz, dtype=np.float64)
 
+    def _validated_phases(self, phases: RealArray) -> RealArray:
+        """Require one finite phase per declared pulse step."""
+        phase = np.asarray(phases, dtype=np.float64)
+        if phase.shape != (self.n_steps,):
+            raise ValueError(f"phases must have shape ({self.n_steps},), got {phase.shape}")
+        if not np.all(np.isfinite(phase)):
+            raise ValueError("phases entries must be finite")
+        return phase
+
     def waveform_xy(self, phases: RealArray) -> RealArray:
         """Return the constant-amplitude XY waveform (fractions of rf_max) for phases."""
-        phase = np.asarray(phases, dtype=np.float64)
+        phase = self._validated_phases(phases)
         return ampl_phase_to_xy(np.ones_like(phase), phase)
 
     def _control_problem(
@@ -317,7 +327,7 @@ class SeedlessSpec:
         if phases0 is None:
             rng = np.random.default_rng(seed)
             phases0 = rng.uniform(-math.pi, math.pi, size=self.n_steps)
-        phases0 = np.asarray(phases0, dtype=np.float64)
+        phases0 = self._validated_phases(phases0)
         result = minimize(
             self.objective,
             phases0,
@@ -342,7 +352,9 @@ class SeedlessSpec:
         ``"suppress"`` band the reported value is the worst ``Iz`` hold across
         *all* prefixes of the pulse, not just its end.
         """
-        waveform = np.asarray(wfm_xy, dtype=np.float64)
+        waveform = as_finite_waveform(wfm_xy)
+        if waveform.shape != (self.n_steps, 2):
+            raise ValueError(f"waveform must have shape ({self.n_steps}, 2), got {waveform.shape}")
         scales = np.array([b1_scale], dtype=np.float64)
         results: dict[str, float] = {}
         for index, band in enumerate(self.bands):
@@ -355,11 +367,16 @@ class SeedlessSpec:
                 results[key] = float(np.max(np.abs(final[:, 2])))
                 continue
             if band.restraint == "suppress" and band.per_step:
-                worst_hold = 1.0
-                for prefix in range(1, waveform.shape[0] + 1):
-                    final = propagate_bloch_ensemble(
-                        _CARDINAL["z"], waveform[:prefix], offsets, scales, self.rf_max_hz, self.dt
-                    )[0]
+                final = propagate_bloch_ensemble(
+                    _CARDINAL["z"], waveform[:1], offsets, scales, self.rf_max_hz, self.dt
+                )[0]
+                worst_hold = min(1.0, float(np.min(final[:, 2])))
+                field = np.empty((offsets.size, 3), dtype=np.float64)
+                field[:, 2] = offsets
+                # Carry each offset's Bloch vector forward once, retaining only its current state.
+                for xy in waveform[1:]:
+                    field[:, :2] = b1_scale * self.rf_max_hz * xy
+                    final = _rotate(final, field, self.dt)
                     worst_hold = min(worst_hold, float(np.min(final[:, 2])))
                 results[key] = worst_hold
                 continue
@@ -374,7 +391,7 @@ class SeedlessSpec:
 
     def export_shape(self, phases: RealArray, path: str | Path, title: str = "ocseed") -> Path:
         """Write a Bruker phase-only shape (amplitude 100%, phase in degrees)."""
-        phase = np.asarray(phases, dtype=np.float64)
+        phase = self._validated_phases(phases)
         amplitude = np.full(phase.size, 100.0, dtype=np.float64)
         phase_deg = np.mod(np.degrees(phase), 360.0)
         return export_bruker_shape(

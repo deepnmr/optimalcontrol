@@ -808,9 +808,14 @@ def _drive_optimizer(
 
     for iteration in range(completed_iter + 1, max_iter + 1):
         alpha, direction = compute_step(objective, gradient_fn, waveform, gradient)
+        if alpha <= 0.0:
+            save()
+            return finalise(
+                waveform, fidelity, iteration - 1, n_feval(), False, "line_search_failed", history
+            )
         step = np.asarray(alpha * direction, dtype=np.float64)
         step_norm = _array_norm(step)
-        if alpha <= 0.0 or step_norm <= tol_x:
+        if step_norm <= tol_x:
             save()
             return finalise(waveform, fidelity, iteration - 1, n_feval(), True, "step_tol", history)
 

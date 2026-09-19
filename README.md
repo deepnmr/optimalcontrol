@@ -77,11 +77,11 @@ brew install rust
 ```
 
 ```bash
-# Install in editable mode with dev dependencies
-pip install -e ".[dev]"
+# Install in editable mode with dev and MCP dependencies
+python3 -m pip install -e ".[dev,mcp]"
 
 # Lint
-ruff check .
+ruff check optimalcontrol/ tests/
 
 # Typecheck
 mypy optimalcontrol
@@ -92,6 +92,10 @@ python3 -m pytest
 
 Set `OPTIMALCONTROL_DISABLE_RUST=1` to run the NumPy/SciPy fallback for numerical
 comparisons. Normal installations build and use the Rust extension automatically.
+GitHub Actions runs the full native suite, targeted fallback tests (including MCP),
+Ruff, mypy, and Clippy on Ubuntu with Python 3.12 and stable Rust for pull requests
+and pushes to `master`. See [the CI workflow](.github/workflows/ci.yml) for the exact
+commands; Rust accelerator tests only run in the native suite.
 
 ## Performance
 

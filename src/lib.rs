@@ -791,7 +791,7 @@ fn bloch_ensemble(
             let scale = scales[index / offsets.len()];
             let offset = offsets[index % offsets.len()];
             let mut state = initial_state;
-            for slice in waveform.chunks_exact(2) {
+            for slice in waveform.as_chunks::<2>().0 {
                 let field = [scale * rf_hz * slice[0], scale * rf_hz * slice[1], offset];
                 state = rotate_bloch(state, field, dt);
             }

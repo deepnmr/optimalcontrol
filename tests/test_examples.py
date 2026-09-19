@@ -1,7 +1,7 @@
 """Headless regression tests for all example scripts.
 
-Each test imports an example module, calls run(), and asserts the output
-matches the stored .npz snapshot within rtol=1e-4.
+Each example runs once, returns a result, and matches the stored .npz
+snapshot within rtol=1e-4 and atol=1e-12.
 """
 
 import os
@@ -58,18 +58,11 @@ def _import_example(name: str) -> object:
 
 
 @pytest.mark.parametrize("name", _EXAMPLE_NAMES)
-def test_example_runs_without_exception(name: str) -> None:
-    mod = _import_example(name)
-    run = getattr(mod, "run")
-    result = run()
-    assert result is not None
-
-
-@pytest.mark.parametrize("name", _EXAMPLE_NAMES)
 def test_example_matches_snapshot(name: str) -> None:
     mod = _import_example(name)
     run = getattr(mod, "run")
     result = run()
+    assert result is not None
     expected = _load_snapshot(name)
     npt.assert_allclose(
         result,

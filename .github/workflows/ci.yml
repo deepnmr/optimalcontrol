@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install stable Rust and Clippy
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+      - name: Install package and test dependencies
+        run: python -m pip install -e ".[dev,mcp]"
+      - name: Ruff
+        run: ruff check optimalcontrol/ tests/
+      - name: Mypy
+        run: mypy optimalcontrol
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Native tests
+        run: python -m pytest -q
+      - name: NumPy fallback tests
+        env:
+          OPTIMALCONTROL_DISABLE_RUST: "1"
+        run: >-
+          python -m pytest -q
+          tests/test_grape.py
+          tests/test_grape_density_gradient.py
+          tests/test_ocseed.py
+          tests/test_seedless_kernel.py
+          tests/test_bloch.py
+          tests/test_ensemble.py
+          tests/test_optimizers.py
+          tests/test_mcp_server.py
