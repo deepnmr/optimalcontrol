@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Report exhausted GRAPE line searches as `line_search_failed`, without marking
+  the unchanged waveform as converged.
+- Verify MCP pulse designs across every configured B1 scale when reporting and
+  saving worst-case fidelity (maximum residual magnetisation for `xycite`).
+- Reject Seedless phase arrays and XY waveforms whose lengths disagree with
+  `n_steps`, including optimisation inputs and shape exports.
+- Evaluate per-step suppression with a single cumulative Bloch pass over the
+  offset grid instead of re-propagating every pulse prefix.
+- Add pull-request CI for native and NumPy fallback tests, Ruff, mypy, and
+  Clippy; run each example only once during snapshot regression checks.
 - Evaluate Seedless per-step water suppression with one cumulative adjoint
   sweep in both Rust and NumPy, reducing gradient work from quadratic to linear
   in pulse length while preserving the all-prefix hold objective.

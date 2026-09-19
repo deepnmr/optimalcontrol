@@ -83,14 +83,15 @@ def design_seedless_pulse(
     needs nothing extra.
 
     Runs ``n_seeds`` random starts and keeps the best (the cost is non-convex),
-    verifies the winner on a dense grid with an independent Bloch model, and
-    writes ``<out_dir>/<name>.shape`` (Bruker) plus ``<out_dir>/<name>.json``
-    (spec + phases, input for bloch_offset_profile).
+    verifies the winner on a dense offset grid across all ``b1_scales`` with an
+    independent Bloch model, and writes ``<out_dir>/<name>.shape`` (Bruker) plus
+    ``<out_dir>/<name>.json`` (spec + phases, input for bloch_offset_profile).
 
-    In the returned ``worst_case`` dict, 1.0 is perfect — except ``xycite``
-    entries, which report leftover |mz| where 0.0 is perfect. A negative value
-    means a wrong-sign local minimum: retry with more n_seeds, or give the
-    problem more duration_s / n_steps / rf_max_hz.
+    The returned ``worst_case`` dict takes the worst value over the full B1
+    ensemble, regardless of ``b1_weights``. 1.0 is perfect — except ``xycite``
+    entries, which report maximum leftover |mz| where 0.0 is perfect. A negative
+    value means a wrong-sign local minimum: retry with more n_seeds, or give
+    the problem more duration_s / n_steps / rf_max_hz.
     """
     spec_dict: dict[str, Any] = {
         "spectrometer_mhz": spectrometer_mhz,
@@ -113,7 +114,12 @@ def design_seedless_pulse(
             best_phases, best_infidelity = phases, infidelity
     assert best_phases is not None
 
-    worst_case = spec.evaluate(spec.waveform_xy(best_phases))
+    waveform = spec.waveform_xy(best_phases)
+    evaluations = [spec.evaluate(waveform, b1_scale=scale) for scale in spec.b1_scales]
+    worst_case = {
+        key: (max if key.endswith(":xycite") else min)(values[key] for values in evaluations)
+        for key in evaluations[0]
+    }
 
     out = Path(out_dir).expanduser()
     out.mkdir(parents=True, exist_ok=True)

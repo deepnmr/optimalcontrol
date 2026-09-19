@@ -12,6 +12,7 @@ import optimalcontrol
 import optimalcontrol.optimizers as optimizers
 from optimalcontrol.grape import ControlProblem, grape_xy
 from optimalcontrol.operators import Ix, Iy, Iz
+from optimalcontrol.penalties import PenaltySpec
 from optimalcontrol.states import normalise_hs
 
 
@@ -131,6 +132,51 @@ def test_lbfgs_grape_improves_one_spin_iz_to_ix_transfer() -> None:
     assert result.n_iter <= 20
     assert result.fidelity_final > initial_fidelity + 0.9
     assert result.fidelity_final > 0.999
+
+
+def test_lbfgs_line_search_exhaustion_does_not_report_convergence() -> None:
+    cp = _optimizer_control_problem(n_steps=1, n_channels=1)
+    cp.pulse_dt = 0.001
+    cp.fidelity_mode = "real"
+    cp.penalties = [PenaltySpec("NS", 1e8)]
+    wfm0 = np.ones((1, 1), dtype=np.float64)
+
+    result = optimizers.lbfgs_grape(cp, wfm0)
+
+    assert result.converged is False
+    assert result.reason == "line_search_failed"
+    assert result.n_iter == 0
+    assert result.fidelity_final == pytest.approx(1.0 - 1e8)
+    np.testing.assert_array_equal(result.wfm_final, wfm0)
+
+
+@pytest.mark.parametrize("optimizer", [optimizers.lbfgs_grape, optimizers.newton_raphson])
+@pytest.mark.parametrize(
+    ("alpha", "converged", "reason"),
+    [
+        (0.0, False, "line_search_failed"),
+        (-1.0, False, "line_search_failed"),
+        (1e-9, True, "step_tol"),
+    ],
+)
+def test_optimizer_distinguishes_failed_search_from_small_positive_step(
+    monkeypatch: pytest.MonkeyPatch,
+    optimizer: Callable[..., optimizers.OptimResult],
+    alpha: float,
+    converged: bool,
+    reason: str,
+) -> None:
+    cp = _optimizer_control_problem(n_steps=1, n_channels=1)
+    cp.penalties = [PenaltySpec("NS", 1.0)]
+    wfm0 = np.ones((1, 1), dtype=np.float64)
+    monkeypatch.setattr(optimizers, "line_search_cubic", lambda *_args, **_kwargs: alpha)
+
+    result = optimizer(cp, wfm0)
+
+    assert result.converged is converged
+    assert result.reason == reason
+    assert result.n_iter == 0
+    np.testing.assert_array_equal(result.wfm_final, wfm0)
 
 
 def test_lbfgs_checkpoint_resume_five_plus_five_matches_ten_iterations(

@@ -298,3 +298,78 @@ def test_kernel_rejects_non_finite_inputs() -> None:
     good_wfm = np.array([[0.1, 0.2], [0.3, 0.4]])
     with pytest.raises(ValueError, match="finite"):
         kernel.s2s_value_grad(good_wfm, np.array([np.inf]), scales, 1e4, 1e-6, z, z)
+
+
+@pytest.mark.parametrize("phases", [np.zeros(1), np.zeros(0), np.zeros((4, 1)), np.full(4, np.nan)])
+def test_phase_entry_points_reject_invalid_shape_or_values(phases, tmp_path) -> None:
+    spec = SeedlessSpec(600.0, 0.0, 1000.0, 0.0005, 4, bands=[Band(0.0, 0.0, "xycite")])
+    shape_path = tmp_path / "invalid.shape"
+    for call in (
+        lambda: spec.waveform_xy(phases),
+        lambda: spec.objective(phases),
+        lambda: spec.optimize(phases, max_iter=1),
+        lambda: spec.export_shape(phases, shape_path),
+    ):
+        with pytest.raises(ValueError, match="phases"):
+            call()
+    assert not shape_path.exists()
+
+
+@pytest.mark.parametrize("shape", [(1, 2), (0, 2), (4, 1), (4, 3), (4,)])
+def test_evaluate_rejects_waveform_shape_mismatch(shape) -> None:
+    spec = SeedlessSpec(600.0, 0.0, 1000.0, 0.0005, 4, bands=[Band(0.0, 0.0, "xycite")])
+    with pytest.raises(ValueError, match="waveform"):
+        spec.evaluate(np.zeros(shape), dense=1)
+
+
+@pytest.mark.parametrize("disable_rust", ["0", "1"])
+@pytest.mark.parametrize("steps", [1, 32])
+def test_per_step_evaluation_matches_prefix_reference_with_linear_work(
+    monkeypatch, disable_rust, steps
+):
+    import optimalcontrol.bloch as bloch
+    import optimalcontrol.ocseed as ocseed
+
+    monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", disable_rust)
+    spec = SeedlessSpec(
+        600.0,
+        0.0,
+        2500.0,
+        0.001,
+        steps,
+        bands=[Band(-1.0, 1.0, "suppress", per_step=True)],
+    )
+    waveform = spec.waveform_xy(np.random.default_rng(7).uniform(-math.pi, math.pi, steps))
+    offsets = spec.band_offsets_hz(spec.bands[0], n=5)
+    scale = 0.85
+    propagate = bloch.propagate_bloch_ensemble
+    expected = min(
+        float(
+            propagate(
+                np.array([0.0, 0.0, 1.0]),
+                waveform[:k],
+                offsets,
+                np.array([scale]),
+                spec.rf_max_hz,
+                spec.dt,
+            )[..., 2].min()
+        )
+        for k in range(1, steps + 1)
+    )
+    propagated_steps = 0
+
+    def counted(initial, wfm, *args):
+        nonlocal propagated_steps
+        propagated_steps += wfm.shape[0]
+        return propagate(initial, wfm, *args)
+
+    def counted_rotation(*args):
+        nonlocal propagated_steps
+        propagated_steps += 1
+        return bloch._rotate(*args)
+
+    monkeypatch.setattr(ocseed, "propagate_bloch_ensemble", counted)
+    monkeypatch.setattr(ocseed, "_rotate", counted_rotation, raising=False)
+    actual = spec.evaluate(waveform, dense=5, b1_scale=scale)["band0:suppress"]
+    assert actual == pytest.approx(expected, abs=1e-12)
+    assert propagated_steps == steps
