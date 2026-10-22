@@ -260,13 +260,13 @@ def _trajectory_min_mz(spec: SeedlessSpec, phases: np.ndarray) -> float:
 
 
 def test_invalid_specs_are_rejected() -> None:
-    with pytest.raises(ValueError):
-        Band(1.0, 0.0, "s2s", init="z", targ="z")  # ppm_hi < ppm_lo
-    with pytest.raises(ValueError):
-        Band(-1.0, 1.0, "s2s")  # missing init/targ
-    with pytest.raises(ValueError):
-        Band(-1.0, 1.0, "bogus")  # unknown restraint
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="ppm_hi must be >= ppm_lo"):
+        Band(1.0, 0.0, "s2s", init="z", targ="z")
+    with pytest.raises(ValueError, match="s2s restraint requires init and targ"):
+        Band(-1.0, 1.0, "s2s")
+    with pytest.raises(ValueError, match="restraint must be one of"):
+        Band(-1.0, 1.0, "bogus")
+    with pytest.raises(ValueError, match="b1_weights must sum to 1"):
         SeedlessSpec(
             600.0,
             0.0,
@@ -276,7 +276,7 @@ def test_invalid_specs_are_rejected() -> None:
             bands=[Band(-1.0, 1.0, "xycite")],
             b1_scales=(1.0,),
             b1_weights=(0.5,),
-        )  # weights do not sum to 1
+        )
 
 
 def test_kernel_rejects_non_finite_inputs() -> None:

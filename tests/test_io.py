@@ -279,7 +279,7 @@ def test_fapt_import_parses_frequency_amplitude_phase_time_table(
     assert str(loaded.problem_hash).startswith("fapt:")
 
 
-def test_export_bruker_rejects_more_than_two_channels() -> None:
+def test_export_bruker_rejects_more_than_two_channels(tmp_path: pathlib.Path) -> None:
     # Regression: a 3-channel x/y/z waveform used to export silently, dropping z.
     wfm = Waveform(
         channels=["x", "y", "z"],
@@ -290,7 +290,7 @@ def test_export_bruker_rejects_more_than_two_channels() -> None:
         problem_hash="h",
     )
     with pytest.raises(ValueError, match="1 or 2"):
-        export_bruker(wfm, pathlib.Path("/tmp/oc_reject_3ch.jdx"))
+        export_bruker(wfm, tmp_path / "oc_reject_3ch.jdx")
 
 
 def test_import_jcamp_strips_inline_dollar_comments(tmp_path: pathlib.Path) -> None:

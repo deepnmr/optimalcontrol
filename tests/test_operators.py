@@ -71,6 +71,6 @@ def test_kron_product_two_elements() -> None:
 def test_kron_product_empty_raises() -> None:
     try:
         kron_product([])
-        assert False, "Expected ValueError"
+        raise AssertionError("Expected ValueError")
     except ValueError:
         pass
