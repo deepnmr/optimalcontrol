@@ -69,6 +69,16 @@
 - Add `benchmarks/bench_bloch.py`.
 - Add `tests/test_bloch_fallback_shape.py` and `tests/test_figures.py`, plus five
   parity and edge-case tests in `tests/test_bloch.py`.
+- Add a batched closed-form spin-1/2 ensemble kernel to the NumPy fallback. GRAPE
+  ensembles built from single-spin Liouville commutators are evaluated for all members
+  in one pass, so an 81-offset methyl gradient drops from 58 ms to 13 ms (about 5x)
+  and the methyl/water refine objective from 177 ms to 37 ms. Results agree with the
+  per-member path to 1e-13 and with Rust to 1e-12; the native path is unchanged.
+- The methyl hub example propagates its time evolution incrementally, giving
+  identical trajectories and PNGs.
+- Add the `methyl_ensemble_*` rows to `benchmarks/bench_grape_hotpath.py`, plus
+  `tests/test_ensemble_kernel.py`, `tests/test_ensemble_dispatch.py` and
+  `tests/test_methyl_time_evolution.py`.
 
 ## v0.5.0 - 2026-08-15
 

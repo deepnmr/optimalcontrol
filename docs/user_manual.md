@@ -714,12 +714,15 @@ bit-for-bit — expect agreement in the first several digits, not the last. The 
 fallback uses the same Rodrigues formula as the Rust kernel and agrees to ~1e-13.
 Bloch-vector verification (`propagate_bloch_ensemble`, `SeedlessSpec.evaluate`, the
 MCP profile tool) is vectorised on the NumPy path, so a 512-step x 801-offset
-ensemble takes about 20 ms in fallback versus about 1 ms native. GRAPE ensemble
-optimisation is still roughly 15-20x slower in fallback, because members are
-propagated one by one with NumPy eigendecompositions (the [§4-3](#4-3-two-bands-invert-the-methyls-keep-the-water)
-optimisation takes ~0.8 s native versus ~10 s in fallback on one development
-machine). If a result *only* reproduces on one path, that is a bug worth
-reporting.
+ensemble takes about 20 ms in fallback versus about 1 ms native. Spin-1/2 GRAPE
+ensembles (every problem built from `liouvillian_comm` of single-spin operators, which
+covers all the examples and `ocseed`) are evaluated for all members in one batched
+closed-form pass on the NumPy path. On the `methyl_ensemble` benchmark row (81 offsets x
+200 steps, one channel) value+gradient takes about 1.8 ms native versus 13 ms in
+fallback (about 7x), and the value alone 1.0 ms versus 7.6 ms. Two-spin, density-matrix
+and relaxation problems still propagate member by member with eigendecompositions or
+`expm`, so expect a larger gap there. If a result *only* reproduces on one path, that is
+a bug worth reporting.
 
 **Lint and type checks.**
 
