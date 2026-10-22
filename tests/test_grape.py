@@ -745,3 +745,11 @@ def test_dir_diff_expm_matches_central_finite_difference() -> None:
     np.testing.assert_allclose(
         dir_diff_expm(hamiltonian, perturbation, dt), finite_difference, atol=1e-6
     )
+
+
+@pytest.mark.parametrize("dt", [-1.0, 0.0, float("nan")])
+def test_dir_diff_expm_rejects_non_positive_or_non_finite_dt(dt: float) -> None:
+    identity = np.eye(2, dtype=np.complex128)
+
+    with pytest.raises(ValueError, match="dt must be finite and positive"):
+        dir_diff_expm(identity, identity, dt)

@@ -77,6 +77,14 @@ def test_expand_drifts_returns_one_problem_per_drift() -> None:
         np.testing.assert_allclose(problem.drifts[0], cp.drifts[index], rtol=1e-12)
 
 
+def test_expand_power_levels_rejects_negative_level_with_unified_message() -> None:
+    cp = _ensemble_control_problem()
+    cp.pwr_levels = [0.8, -1.2]
+
+    with pytest.raises(ValueError, match="pwr_levels entries must be non-negative"):
+        expand_power_levels(cp)
+
+
 def test_expand_power_levels_scales_operators_and_resets_channel_power() -> None:
     cp = _ensemble_control_problem()
     cp.drifts = [cp.drifts[0]]

@@ -171,8 +171,8 @@ def dir_diff_expm(H: Array, dH: Array, dt: float) -> Array:
     dim = _validate_square_matrix("H", H_arr)
     if dH_arr.shape != H_arr.shape:
         raise ValueError(f"dH shape {dH_arr.shape} must match H shape {H_arr.shape}")
-    if not math.isfinite(dt):
-        raise ValueError("dt must be finite")
+    if not math.isfinite(dt) or dt <= 0.0:
+        raise ValueError("dt must be finite and positive")
 
     A = np.complex128(-1j * dt) * H_arr
     dA = np.complex128(-1j * dt) * dH_arr
@@ -216,8 +216,8 @@ def _second_dir_diff_generator_expm(
         raise ValueError(
             f"d_generator_b shape {d_b_arr.shape} must match generator shape {generator_arr.shape}"
         )
-    if not math.isfinite(dt):
-        raise ValueError("dt must be finite")
+    if not math.isfinite(dt) or dt <= 0.0:
+        raise ValueError("dt must be finite and positive")
 
     A = np.complex128(dt) * generator_arr
     d_a = np.complex128(dt) * d_a_arr

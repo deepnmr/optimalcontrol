@@ -57,9 +57,9 @@ def _validate_power_levels(pwr_levels: list[float]) -> None:
     """Raise ValueError if RF ensemble power levels are invalid."""
     _validate_nonempty("pwr_levels", pwr_levels)
     _validate_float_values("pwr_levels", pwr_levels)
-    for index, level in enumerate(pwr_levels):
+    for level in pwr_levels:
         if level < 0.0:
-            raise ValueError(f"pwr_levels[{index}] must be non-negative")
+            raise ValueError("pwr_levels entries must be non-negative")
 
 
 def expand_drifts(cp: ControlProblem) -> list[ControlProblem]:
