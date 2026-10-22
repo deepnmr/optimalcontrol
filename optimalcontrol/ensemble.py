@@ -6,19 +6,17 @@ from typing import TypeVar
 
 import numpy as np
 
+from optimalcontrol._problem import ControlProblem
+from optimalcontrol._problem import _has_rf_power_ensemble as _has_rf_power_ensemble
+from optimalcontrol._problem import _validate_offset_operators as _validate_offset_operators
+from optimalcontrol._problem import _validate_phase_cycle as _validate_phase_cycle
+from optimalcontrol._problem import (
+    _validate_same_drift_dimensions as _validate_same_drift_dimensions,
+)
 from optimalcontrol._types import Array, RealArray
 from optimalcontrol._validation import validate_finite_floats as _validate_float_values
 from optimalcontrol._validation import validate_nonempty as _validate_nonempty
-from optimalcontrol._validation import validate_square_matrix as _validate_square_matrix
-from optimalcontrol.grape import (
-    ControlProblem,
-    _has_rf_power_ensemble,
-    _validate_phase_cycle,
-    _validate_same_drift_dimensions,
-    _zero_frozen,
-    grape_xy,
-    grape_xy_and_gradient,
-)
+from optimalcontrol.grape import _zero_frozen, grape_xy, grape_xy_and_gradient
 from optimalcontrol.penalties import total_penalty
 
 ProblemT = TypeVar("ProblemT")
@@ -59,9 +57,9 @@ def _validate_power_levels(pwr_levels: list[float]) -> None:
     """Raise ValueError if RF ensemble power levels are invalid."""
     _validate_nonempty("pwr_levels", pwr_levels)
     _validate_float_values("pwr_levels", pwr_levels)
-    for index, level in enumerate(pwr_levels):
+    for level in pwr_levels:
         if level < 0.0:
-            raise ValueError(f"pwr_levels[{index}] must be non-negative")
+            raise ValueError("pwr_levels entries must be non-negative")
 
 
 def expand_drifts(cp: ControlProblem) -> list[ControlProblem]:
@@ -116,13 +114,9 @@ def expand_offsets(cp: ControlProblem) -> list[ControlProblem]:
     _validate_nonempty("offset_operators", cp.offset_operators)
     generator_dim = _validate_same_drift_dimensions(cp.drifts)
 
+    _validate_offset_operators(cp.offset_operators, generator_dim)
     offset_generator = np.zeros((generator_dim, generator_dim), dtype=np.complex128)
-    for index, operator in enumerate(cp.offset_operators):
-        dim = _validate_square_matrix(f"offset_operators[{index}]", operator)
-        if dim != generator_dim:
-            raise ValueError(
-                f"offset_operators[{index}] dimension {dim} does not match {generator_dim}"
-            )
+    for operator in cp.offset_operators:
         offset_generator += np.asarray(operator, dtype=np.complex128)
 
     expanded: list[ControlProblem] = []
@@ -189,7 +183,7 @@ def expand_phase_cycle(cp: ControlProblem) -> list[ControlProblem]:
         factors = _phase_factors(row, len(cp.rho_init))
         rho_init = [
             np.asarray(factor * np.asarray(state, dtype=np.complex128), dtype=np.complex128)
-            for factor, state in zip(factors, cp.rho_init)
+            for factor, state in zip(factors, cp.rho_init, strict=True)
         ]
         expanded.append(replace(cp, rho_init=rho_init, phase_cycle=None))
     return expanded
@@ -220,7 +214,7 @@ def correlated_rho_match(cp: ControlProblem) -> list[ControlProblem]:
             rho_init=[np.asarray(rho_init, dtype=np.complex128).copy()],
             rho_targ=[np.asarray(rho_targ, dtype=np.complex128).copy()],
         )
-        for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ)
+        for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ, strict=True)
     ]
 
 
@@ -241,7 +235,7 @@ def correlated_rho_drift(cp: ControlProblem) -> list[ControlProblem]:
             rho_init=[np.asarray(rho_init, dtype=np.complex128).copy()],
             rho_targ=[np.asarray(rho_targ, dtype=np.complex128).copy()],
         )
-        for drift, rho_init, rho_targ in zip(cp.drifts, cp.rho_init, cp.rho_targ)
+        for drift, rho_init, rho_targ in zip(cp.drifts, cp.rho_init, cp.rho_targ, strict=True)
     ]
 
 

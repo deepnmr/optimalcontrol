@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from optimalcontrol._accelerator import RUST_ACCELERATOR_AVAILABLE
 from optimalcontrol.ensemble import (
     cartesian_product_ensemble,
     correlated_rho_drift,
@@ -27,9 +28,7 @@ from optimalcontrol.states import normalise_2norm
 
 def _ensemble_control_problem() -> ControlProblem:
     rho_init = np.array([1.0, 0.0], dtype=np.complex128)
-    rho_targ = normalise_2norm(
-        np.array([0.35 + 0.15j, 0.88 - 0.28j], dtype=np.complex128)
-    )
+    rho_targ = normalise_2norm(np.array([0.35 + 0.15j, 0.88 - 0.28j], dtype=np.complex128))
     return ControlProblem(
         drifts=[
             np.complex128(-1j) * 0.2 * Iz(),
@@ -78,6 +77,14 @@ def test_expand_drifts_returns_one_problem_per_drift() -> None:
         np.testing.assert_allclose(problem.drifts[0], cp.drifts[index], rtol=1e-12)
 
 
+def test_expand_power_levels_rejects_negative_level_with_unified_message() -> None:
+    cp = _ensemble_control_problem()
+    cp.pwr_levels = [0.8, -1.2]
+
+    with pytest.raises(ValueError, match="pwr_levels entries must be non-negative"):
+        expand_power_levels(cp)
+
+
 def test_expand_power_levels_scales_operators_and_resets_channel_power() -> None:
     cp = _ensemble_control_problem()
     cp.drifts = [cp.drifts[0]]
@@ -85,7 +92,7 @@ def test_expand_power_levels_scales_operators_and_resets_channel_power() -> None
     problems = expand_power_levels(cp)
 
     assert len(problems) == 2
-    for level, problem in zip(cp.pwr_levels, problems):
+    for level, problem in zip(cp.pwr_levels, problems, strict=True):
         assert problem.pwr_levels == [1.0]
         np.testing.assert_allclose(
             problem.operators[0],
@@ -103,7 +110,7 @@ def test_expand_offsets_adds_offset_operator_to_each_drift() -> None:
     problems = expand_offsets(cp)
 
     assert len(problems) == 2
-    for offset, problem in zip(cp.offsets, problems):
+    for offset, problem in zip(cp.offsets, problems, strict=True):
         assert problem.offsets is None
         assert problem.offset_operators is None
         expected = np.complex128(offset) * cp.offset_operators[0]
@@ -226,9 +233,7 @@ def test_ensemble_fidelity_single_member_matches_grape_xy() -> None:
 def test_ensemble_gradient_averages_expanded_problem_gradients() -> None:
     cp = _ensemble_control_problem()
     waveform = np.array([[0.12], [-0.04], [0.08]], dtype=np.float64)
-    member_gradients = [
-        grape_gradient(problem, waveform) for problem in _drift_power_product(cp)
-    ]
+    member_gradients = [grape_gradient(problem, waveform) for problem in _drift_power_product(cp)]
     expected = np.mean(np.asarray(member_gradients, dtype=np.float64), axis=0)
 
     gradient = ensemble_gradient(cp, waveform)
@@ -247,6 +252,7 @@ def test_ensemble_penalties_applied_once_on_every_path(
     penalty_value, penalty_gradient = total_penalty(waveform, cp.penalties)
     bare = replace(cp, penalties=None)
 
+    assert RUST_ACCELERATOR_AVAILABLE
     results = {}
     for disable_rust in ("0", "1"):
         monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", disable_rust)
@@ -257,9 +263,7 @@ def test_ensemble_penalties_applied_once_on_every_path(
         np.testing.assert_allclose(value, expected_value, rtol=1e-12)
         np.testing.assert_allclose(gradient, expected_gradient, rtol=1e-9, atol=1e-14)
         np.testing.assert_allclose(ensemble_fidelity(cp, waveform), expected_value, rtol=1e-12)
-        np.testing.assert_allclose(
-            ensemble_gradient(cp, waveform), gradient, rtol=1e-9, atol=1e-14
-        )
+        np.testing.assert_allclose(ensemble_gradient(cp, waveform), gradient, rtol=1e-9, atol=1e-14)
         results[disable_rust] = (value, gradient)
 
     np.testing.assert_allclose(results["0"][0], results["1"][0], rtol=1e-12)

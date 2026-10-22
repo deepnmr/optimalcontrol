@@ -58,6 +58,12 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize
 
+from examples import _methyl_water_common as reburp_helpers
+from examples._figures import save_figure
+from examples._methyl_water_common import _constraint_score as _constraint_score
+from examples._methyl_water_common import _smoothness as _smoothness
+from examples._methyl_water_common import write_bruker_shape as write_bruker_shape
+
 # The sibling module owns the dense physical evaluation, the constraint
 # constants, and the wide/time profile computations; all are step-count and
 # duration agnostic, so they are reused here rather than duplicated.
@@ -85,7 +91,6 @@ from examples.methyl_water_binary_symmetric_180 import (
     wide_transfer_profile,
 )
 from optimalcontrol.grape import ControlProblem, grape_xy_and_gradient
-from optimalcontrol.io import export_bruker_shape as write_bruker_shape
 from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm, vec
 from optimalcontrol.states import normalise_hs
 
@@ -106,52 +111,113 @@ SEARCH_STEP_US = 25.0
 # its reverse. Values are fractions of RF_MAX_HZ and lie in [-1, 1].
 OPTIMIZED_HALF_AMPLITUDE: RealArray = np.array(
     [
-        0.00791228901980791, 0.023363150634418052, 0.02337514693473912,
-        0.006194031210964428, -0.021222419431978987, -0.047234133756759986,
-        -0.05927762889767678, -0.045618642492576404, -0.007989481467720851,
-        0.04180688703414207, 0.0816768606321306, 0.09163138058431024,
-        0.05897827868189659, -0.006894285373223169, -0.08895887549018035,
-        -0.16035523760718245, -0.1996599186775729, -0.18852959564765384,
-        -0.13090540677126752, -0.04162706394423894, 0.050263424530701616,
-        0.11931939522089041, 0.13939416691879178, 0.09771651352455978,
-        -0.009595379377086056, -0.16328043713673773, -0.32958433116375824,
-        -0.4632662527765346, -0.5260126794752676, -0.4923732635821417,
-        -0.3620015082897069, -0.15945438688347174, 0.06318880180099758,
-        0.2399442304897217, 0.31046852190863206, 0.2426276310317286,
-        0.04152922362132415, -0.2471662257785505, -0.5441870717730304,
-        -0.7558959755761151, -0.8048827081564246, -0.6614827493633816,
-        -0.35934484947577694, 0.013663929381864556, 0.3487812725757621,
-        0.5514679477552941, 0.5728499808597232, 0.42469229546987347,
-        0.1782253874890559, -0.0669189665503394, -0.21864275370348654,
-        -0.227566299739227, -0.09573178100697025, 0.12598729084660076,
-        0.3646709946209379, 0.5484232101431725, 0.6376533023844949,
-        0.6309053635781247, 0.5637134598559308, 0.48613387136292796,
-        0.4410718526029824, 0.43655203964219785, 0.44373018779660217,
-        0.4194234640552976, 0.33592251131129214, 0.18424890019587825,
-        -0.0134989472007315, -0.204819093234904, -0.31647238862468974,
-        -0.30045230009296453, -0.1530593215474061, 0.07596414070800524,
-        0.3082014750029438, 0.45112938255384644, 0.43660517481257605,
-        0.23102613482513498, -0.10984250347669179, -0.4807332555429161,
-        -0.7605495889980334, -0.8761149902113966, -0.790862132392648,
-        -0.5370009593973355, -0.19516866014863887, 0.1185187917496854,
-        0.322105928436273, 0.3728170132057104, 0.2930729663643911,
-        0.11227076567031113, -0.1209021925856861, -0.3496399233356125,
-        -0.5204785011310874, -0.6068066223707045, -0.5877650693301122,
-        -0.46362910697739484, -0.23885903933106742, 0.05975468874861916,
-        0.39059508784189817, 0.686710560070611, 0.8960721784552923, 1.0,
+        0.00791228901980791,
+        0.023363150634418052,
+        0.02337514693473912,
+        0.006194031210964428,
+        -0.021222419431978987,
+        -0.047234133756759986,
+        -0.05927762889767678,
+        -0.045618642492576404,
+        -0.007989481467720851,
+        0.04180688703414207,
+        0.0816768606321306,
+        0.09163138058431024,
+        0.05897827868189659,
+        -0.006894285373223169,
+        -0.08895887549018035,
+        -0.16035523760718245,
+        -0.1996599186775729,
+        -0.18852959564765384,
+        -0.13090540677126752,
+        -0.04162706394423894,
+        0.050263424530701616,
+        0.11931939522089041,
+        0.13939416691879178,
+        0.09771651352455978,
+        -0.009595379377086056,
+        -0.16328043713673773,
+        -0.32958433116375824,
+        -0.4632662527765346,
+        -0.5260126794752676,
+        -0.4923732635821417,
+        -0.3620015082897069,
+        -0.15945438688347174,
+        0.06318880180099758,
+        0.2399442304897217,
+        0.31046852190863206,
+        0.2426276310317286,
+        0.04152922362132415,
+        -0.2471662257785505,
+        -0.5441870717730304,
+        -0.7558959755761151,
+        -0.8048827081564246,
+        -0.6614827493633816,
+        -0.35934484947577694,
+        0.013663929381864556,
+        0.3487812725757621,
+        0.5514679477552941,
+        0.5728499808597232,
+        0.42469229546987347,
+        0.1782253874890559,
+        -0.0669189665503394,
+        -0.21864275370348654,
+        -0.227566299739227,
+        -0.09573178100697025,
+        0.12598729084660076,
+        0.3646709946209379,
+        0.5484232101431725,
+        0.6376533023844949,
+        0.6309053635781247,
+        0.5637134598559308,
+        0.48613387136292796,
+        0.4410718526029824,
+        0.43655203964219785,
+        0.44373018779660217,
+        0.4194234640552976,
+        0.33592251131129214,
+        0.18424890019587825,
+        -0.0134989472007315,
+        -0.204819093234904,
+        -0.31647238862468974,
+        -0.30045230009296453,
+        -0.1530593215474061,
+        0.07596414070800524,
+        0.3082014750029438,
+        0.45112938255384644,
+        0.43660517481257605,
+        0.23102613482513498,
+        -0.10984250347669179,
+        -0.4807332555429161,
+        -0.7605495889980334,
+        -0.8761149902113966,
+        -0.790862132392648,
+        -0.5370009593973355,
+        -0.19516866014863887,
+        0.1185187917496854,
+        0.322105928436273,
+        0.3728170132057104,
+        0.2930729663643911,
+        0.11227076567031113,
+        -0.1209021925856861,
+        -0.3496399233356125,
+        -0.5204785011310874,
+        -0.6068066223707045,
+        -0.5877650693301122,
+        -0.46362910697739484,
+        -0.23885903933106742,
+        0.05975468874861916,
+        0.39059508784189817,
+        0.686710560070611,
+        0.8960721784552923,
+        1.0,
     ],
     dtype=np.float64,
 )
 
 
 def signed_amplitude(half: RealArray = OPTIMIZED_HALF_AMPLITUDE) -> RealArray:
-    """Return the exactly symmetric signed RF-amplitude waveform."""
-    half_array = np.asarray(half, dtype=np.float64)
-    if half_array.shape != (N_STEPS // 2,):
-        raise ValueError(f"half waveform must have shape ({N_STEPS // 2},)")
-    if np.max(np.abs(half_array)) > 1.0 + 1e-12:
-        raise ValueError("signed amplitude exceeds the 10 kHz RF limit")
-    return np.asarray(np.concatenate((half_array, half_array[::-1])), dtype=np.float64)
+    return reburp_helpers.signed_amplitude_10khz(half, N_STEPS=N_STEPS)
 
 
 def _control_problem(
@@ -176,32 +242,8 @@ def _control_problem(
     )
 
 
-def _smoothness(signed: RealArray) -> tuple[float, RealArray]:
-    """Return the second-difference roughness and its gradient w.r.t. steps."""
-    d2 = np.diff(signed, 2)
-    value = float(np.sum(d2**2))
-    gradient = np.zeros(signed.size, dtype=np.float64)
-    gradient[:-2] += 2.0 * d2
-    gradient[1:-1] += -4.0 * d2
-    gradient[2:] += 2.0 * d2
-    return value, gradient
-
-
 def _collapse_symmetric_gradient(gradient: RealArray) -> RealArray:
-    """Apply the mirror-parameterization chain rule to a full step gradient."""
-    half = N_STEPS // 2
-    return np.asarray(gradient[:half] + gradient[half:][::-1], dtype=np.float64)
-
-
-def _constraint_score(metrics: PulseMetrics) -> float:
-    """Return the worst normalized constraint, with 0.999 as the pass boundary."""
-    return min(
-        metrics.methyl_x_min,
-        metrics.methyl_y_min,
-        metrics.methyl_z_min,
-        metrics.water_z_min,
-        1.0 - metrics.artifact_max_percent / 100.0,
-    )
+    return reburp_helpers._collapse_symmetric_gradient(gradient, N_STEPS=N_STEPS)
 
 
 def refine_duration(
@@ -212,9 +254,7 @@ def refine_duration(
 ) -> tuple[RealArray, PulseMetrics]:
     """Refine one duration with a smoothness-regularized four-state objective."""
     duration_s = duration_us * 1e-6
-    methyl_offsets = np.linspace(
-        METHYL_OFFSET_LO_HZ, METHYL_OFFSET_HI_HZ, 81, dtype=np.float64
-    )
+    methyl_offsets = np.linspace(METHYL_OFFSET_LO_HZ, METHYL_OFFSET_HI_HZ, 81, dtype=np.float64)
     water_offsets = np.linspace(
         -WATER_WINDOW_HZ, WATER_WINDOW_HZ, VALIDATION_WATER_POINTS, dtype=np.float64
     )
@@ -270,16 +310,10 @@ def search_minimum_duration() -> tuple[float, RealArray, list[tuple[float, Pulse
 
 
 def export_bruker_shape(signed: RealArray, output_dir: Path) -> Path:
-    """Write the variable-amplitude, binary-phase Bruker shape file."""
-    amplitude, phase_deg = amplitude_phase(signed)
-    return write_bruker_shape(
-        output_dir / f"{PULSE_NAME}.shape",
-        PULSE_NAME,
-        100.0 * amplitude,
-        phase_deg,
-        maxy=180.0,
-        bwfac=None,
-        integfac=float(np.mean(amplitude)),
+    return reburp_helpers.export_bruker_shape(
+        signed,
+        output_dir,
+        PULSE_NAME=PULSE_NAME,
         extra_tags=[
             f"##$OPTIMALCONTROL_TOTAL_DURATION_S= {DURATION_S:.12e}",
             f"##$OPTIMALCONTROL_STEP_DURATION_S= {DT:.12e}",
@@ -291,6 +325,7 @@ def export_bruker_shape(signed: RealArray, output_dir: Path) -> Path:
             "##$OPTIMALCONTROL_SYMMETRIC= yes",
             "##$OPTIMALCONTROL_STYLE= reburp",
         ],
+        amplitude_phase=amplitude_phase,
     )
 
 
@@ -312,9 +347,7 @@ def plot_diagnostics(
     axes[0].set_ylabel("Amplitude (%)")
     phase_axis.set_ylabel("Phase (deg)")
     phase_axis.set_yticks([0.0, 180.0])
-    axes[0].set_title(
-        f"REBURP-style binary-phase methyl 180: {DURATION_US:.0f} us, 10 kHz max"
-    )
+    axes[0].set_title(f"REBURP-style binary-phase methyl 180: {DURATION_US:.0f} us, 10 kHz max")
 
     axes[1].plot(methyl_ppm, profiles["methyl_x"], label="Ix -> Ix")
     axes[1].plot(methyl_ppm, profiles["methyl_y"], label="-Iy -> Iy")
@@ -344,59 +377,34 @@ def plot_diagnostics(
     )
 
     figure_path = output_dir / f"{PULSE_NAME}.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 
 def plot_wide_profile(wide_profile: dict[str, RealArray], output_dir: Path) -> Path:
-    """Write Ix, -Iy, Iz transfer profiles over the full -6..6 ppm window."""
-    ppm = wide_profile["ppm"]
-    figure, axis = plt.subplots(1, 1, figsize=(9.0, 4.5), constrained_layout=True)
-    axis.plot(ppm, wide_profile["x"], label="Ix -> Ix")
-    axis.plot(ppm, wide_profile["y"], label="Iy -> -Iy")
-    axis.plot(ppm, wide_profile["z"], label="Iz -> -Iz")
-    axis.axvline(METHYL_PPM_LO, color="black", linestyle=":", linewidth=0.8)
-    axis.axvline(METHYL_PPM_HI, color="black", linestyle=":", linewidth=0.8)
-    axis.axvline(WATER_PPM, color="tab:gray", linestyle="--", linewidth=0.8)
-    axis.set_xlim(WIDE_PPM_LO, WIDE_PPM_HI)
-    axis.set_xlabel("1H shift (ppm)")
-    axis.set_ylabel("Transfer fidelity")
-    axis.set_title("Wide-offset transfer profile (dotted: methyl band, dashed: water)")
-    axis.legend()
-
-    figure_path = output_dir / f"{PULSE_NAME}_wide_profile.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
-    return figure_path
+    return reburp_helpers.plot_wide_profile(
+        wide_profile,
+        output_dir,
+        PULSE_NAME=PULSE_NAME,
+        METHYL_PPM_LO=METHYL_PPM_LO,
+        METHYL_PPM_HI=METHYL_PPM_HI,
+        WATER_PPM=WATER_PPM,
+        WIDE_PPM_LO=WIDE_PPM_LO,
+        WIDE_PPM_HI=WIDE_PPM_HI,
+    )
 
 
 def plot_wide_components(component_profile: dict[str, RealArray], output_dir: Path) -> Path:
-    """Write final Mx, My, Mz vs ppm for each initial Ix, Iy, Iz state."""
-    ppm = component_profile["ppm"]
-    figure, axes = plt.subplots(
-        3, 1, figsize=(9.0, 9.0), sharex=True, constrained_layout=True
+    return reburp_helpers.plot_wide_components(
+        component_profile,
+        output_dir,
+        PULSE_NAME=PULSE_NAME,
+        METHYL_PPM_LO=METHYL_PPM_LO,
+        METHYL_PPM_HI=METHYL_PPM_HI,
+        WATER_PPM=WATER_PPM,
+        WIDE_PPM_LO=WIDE_PPM_LO,
+        WIDE_PPM_HI=WIDE_PPM_HI,
     )
-    for axis, name in zip(axes, ("Ix", "Iy", "Iz")):
-        final = component_profile[name]
-        axis.plot(ppm, final[:, 0], label="Mx", color="tab:blue")
-        axis.plot(ppm, final[:, 1], label="My", color="tab:orange")
-        axis.plot(ppm, final[:, 2], label="Mz", color="tab:green")
-        axis.axvline(METHYL_PPM_LO, color="black", linestyle=":", linewidth=0.8)
-        axis.axvline(METHYL_PPM_HI, color="black", linestyle=":", linewidth=0.8)
-        axis.axvline(WATER_PPM, color="tab:gray", linestyle="--", linewidth=0.8)
-        axis.set_xlim(WIDE_PPM_LO, WIDE_PPM_HI)
-        axis.set_ylim(-1.05, 1.05)
-        axis.axhline(0.0, color="black", linewidth=0.5)
-        axis.set_ylabel(f"from {name}")
-    axes[0].legend(ncol=3, fontsize="small")
-    axes[0].set_title("Final Bloch components vs offset (dotted: methyl band, dashed: water)")
-    axes[-1].set_xlabel("1H shift (ppm)")
-
-    figure_path = output_dir / f"{PULSE_NAME}_wide_components.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
-    return figure_path
 
 
 def plot_time_evolution(time_evolution: dict[str, RealArray], output_dir: Path) -> Path:
@@ -434,8 +442,7 @@ def plot_time_evolution(time_evolution: dict[str, RealArray], output_dir: Path) 
     figure.suptitle(f"Bloch-component time evolution ({DURATION_US:.0f} us REBURP-style pulse)")
 
     figure_path = output_dir / f"{PULSE_NAME}_time_evolution.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 
@@ -448,9 +455,7 @@ def run() -> RealArray:
     export_bruker_shape(signed, output_dir)
     plot_diagnostics(signed, metrics, profiles, output_dir)
     plot_wide_profile(wide_transfer_profile(signed, duration_s=DURATION_S), output_dir)
-    plot_wide_components(
-        wide_component_profile(signed, duration_s=DURATION_S), output_dir
-    )
+    plot_wide_components(wide_component_profile(signed, duration_s=DURATION_S), output_dir)
     plot_time_evolution(
         time_evolution_profiles(signed, ppms=TIME_EVOLUTION_PPM, duration_s=DURATION_S),
         output_dir,

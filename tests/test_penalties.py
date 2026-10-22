@@ -163,8 +163,7 @@ def test_distortion_tanh_deriv_matches_finite_difference() -> None:
 
     derivative = distortion_tanh_deriv(waveform, scale=scale)
     finite_difference = (
-        distortion_tanh(waveform + eps, scale=scale)
-        - distortion_tanh(waveform - eps, scale=scale)
+        distortion_tanh(waveform + eps, scale=scale) - distortion_tanh(waveform - eps, scale=scale)
     ) / (2.0 * eps)
 
     np.testing.assert_allclose(derivative, finite_difference, rtol=1e-6, atol=1e-9)

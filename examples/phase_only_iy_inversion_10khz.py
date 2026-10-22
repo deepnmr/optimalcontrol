@@ -28,6 +28,8 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize
 
+from examples._figures import save_figure
+from examples._phase_waveforms import phase_to_xy
 from optimalcontrol.bloch import propagate_bloch_ensemble
 from optimalcontrol.grape import ControlProblem, grape_gradient, grape_xy, phase_only_gradient
 from optimalcontrol.io import export_bruker_shape as write_bruker_shape
@@ -124,12 +126,7 @@ OPTIMIZED_PHASE_DEG = np.array(
 )
 
 
-def _phase_to_xy(phase_rad: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-    """Return a unit-amplitude Cartesian waveform from phase samples."""
-    return np.asarray(
-        np.column_stack((np.cos(phase_rad), np.sin(phase_rad))),
-        dtype=np.float64,
-    )
+_phase_to_xy = phase_to_xy
 
 
 def _control_problem(duration_s: float) -> ControlProblem:
@@ -385,8 +382,7 @@ def _plot_figure(
     )
 
     fig_path = output_dir / f"{PULSE_NAME}.png"
-    fig.savefig(fig_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    save_figure(fig, fig_path, dpi=150, bbox_inches="tight")
     summary = np.array(
         [bandwidth_hz, centre_y, min_y, edge_values[0], edge_values[1]],
         dtype=np.float64,

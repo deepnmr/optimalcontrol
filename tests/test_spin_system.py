@@ -24,9 +24,7 @@ def test_drift_hamiltonian_two_spin_j_coupling() -> None:
         kc_prime=0.0,
     )
 
-    expected = (2.0 * np.pi * J_hz) * np.diag(
-        [0.25, -0.25, -0.25, 0.25]
-    ).astype(np.complex128)
+    expected = (2.0 * np.pi * J_hz) * np.diag([0.25, -0.25, -0.25, 0.25]).astype(np.complex128)
 
     npt.assert_allclose(drift_hamiltonian(sys), expected, rtol=1e-12)
 

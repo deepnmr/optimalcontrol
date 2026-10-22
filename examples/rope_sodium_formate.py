@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 
+from examples._figures import save_figure
 from optimalcontrol.rope import (
     inept_max_efficiency,
     rope_finite_efficiency,
@@ -88,12 +89,9 @@ def run() -> npt.NDArray[np.float64]:
 
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
     os.makedirs(output_dir, exist_ok=True)
-    fig.savefig(
-        os.path.join(output_dir, "rope_sodium_formate.png"),
-        dpi=150,
-        bbox_inches="tight",
+    save_figure(
+        fig, os.path.join(output_dir, "rope_sodium_formate.png"), dpi=150, bbox_inches="tight"
     )
-    plt.close(fig)
 
     return efficiency
 

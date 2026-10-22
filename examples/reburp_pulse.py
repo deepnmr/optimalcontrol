@@ -30,6 +30,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize_scalar
 
+from examples._figures import save_figure
 from optimalcontrol.bloch import propagate_bloch_ensemble
 
 RealArray = npt.NDArray[np.float64]
@@ -138,9 +139,7 @@ def component_profiles(signed: RealArray, rf_time_product: float) -> dict[str, R
     waveform_xy = np.column_stack((signed, np.zeros_like(signed)))
     scales = np.array([1.0], dtype=np.float64)
     dt = 1.0 / signed.size
-    offset_t = np.linspace(
-        -WIDE_HALF_WIDTH, WIDE_HALF_WIDTH, WIDE_POINTS, dtype=np.float64
-    )
+    offset_t = np.linspace(-WIDE_HALF_WIDTH, WIDE_HALF_WIDTH, WIDE_POINTS, dtype=np.float64)
     initials = {
         "Ix": np.array([1.0, 0.0, 0.0]),
         "Iy": np.array([0.0, 1.0, 0.0]),
@@ -226,8 +225,7 @@ def plot_reburp(
     axes[2].legend()
 
     figure_path = output_dir / f"{PULSE_NAME}.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 
@@ -247,18 +245,15 @@ def plot_wide_profile(profiles: dict[str, RealArray], output_dir: Path) -> Path:
     axis.legend()
 
     figure_path = output_dir / f"{PULSE_NAME}_wide_profile.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 
 def plot_wide_components(component_profile: dict[str, RealArray], output_dir: Path) -> Path:
     """Write final Mx, My, Mz vs ``offset * T`` for each initial Ix, Iy, Iz."""
     offset_t = component_profile["offset_t"]
-    figure, axes = plt.subplots(
-        3, 1, figsize=(9.0, 9.0), sharex=True, constrained_layout=True
-    )
-    for axis, name in zip(axes, ("Ix", "Iy", "Iz")):
+    figure, axes = plt.subplots(3, 1, figsize=(9.0, 9.0), sharex=True, constrained_layout=True)
+    for axis, name in zip(axes, ("Ix", "Iy", "Iz"), strict=True):
         final = component_profile[name]
         axis.plot(offset_t, final[:, 0], label="Mx", color="tab:blue")
         axis.plot(offset_t, final[:, 1], label="My", color="tab:orange")
@@ -272,8 +267,7 @@ def plot_wide_components(component_profile: dict[str, RealArray], output_dir: Pa
     axes[-1].set_xlabel("offset * T")
 
     figure_path = output_dir / f"{PULSE_NAME}_wide_components.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 
@@ -312,8 +306,7 @@ def plot_time_evolution(time_evolution: dict[str, RealArray], output_dir: Path) 
     figure.suptitle("Bloch-component time evolution (generic REBURP 180)")
 
     figure_path = output_dir / f"{PULSE_NAME}_time_evolution.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 
@@ -327,9 +320,7 @@ def run() -> RealArray:
     plot_reburp(signed, rf_time_product, profiles, output_dir)
     plot_wide_profile(profiles, output_dir)
     plot_wide_components(component_profiles(signed, rf_time_product), output_dir)
-    plot_time_evolution(
-        time_evolution_profiles(signed, rf_time_product), output_dir
-    )
+    plot_time_evolution(time_evolution_profiles(signed, rf_time_product), output_dir)
 
     in_passband = profiles["iz_to_mz"] < PASSBAND_INVERSION
     inverted = profiles["offset_t"][in_passband]
@@ -337,9 +328,7 @@ def run() -> RealArray:
     passband_hi = float(inverted.max()) if inverted.size else 0.0
     universal = (profiles["x"] + profiles["y"] + profiles["z"]) / 3.0
     universal_min = float(np.min(universal[in_passband])) if inverted.size else 0.0
-    summary = np.array(
-        [rf_time_product, passband_lo, passband_hi, universal_min], dtype=np.float64
-    )
+    summary = np.array([rf_time_product, passband_lo, passband_hi, universal_min], dtype=np.float64)
     return np.concatenate((signed, summary))
 
 

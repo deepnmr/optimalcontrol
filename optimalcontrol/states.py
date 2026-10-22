@@ -92,12 +92,23 @@ def single_transition_operator(label: str) -> npt.NDArray[np.complex128]:
 
 
 def normalise_hs(v: npt.NDArray[np.complex128]) -> npt.NDArray[np.complex128]:
-    """Normalise a matrix by its Hilbert-Schmidt norm sqrt(Tr(v.conj().T @ v))."""
+    """Normalise a matrix by its Hilbert-Schmidt norm sqrt(Tr(v.conj().T @ v)).
+
+    For entries with peak magnitude in [1e-150, 1e150] the direct formula is
+    used unchanged. Outside that range the matrix is first divided by its peak
+    magnitude so the squared norm cannot overflow or underflow; the result is
+    the same matrix up to rounding.
+    """
     arr = np.asarray(v, dtype=np.complex128)
-    norm = float(np.sqrt(np.real(np.trace(arr.conj().T @ arr))))
-    if norm == 0.0:
+    peak = float(np.max(np.abs(arr))) if arr.size else 0.0
+    if peak == 0.0:
         raise ValueError("Cannot normalise a zero-norm array")
-    return arr / norm
+    if 1e-150 <= peak <= 1e150:
+        norm = float(np.sqrt(np.real(np.trace(arr.conj().T @ arr))))
+        return arr / norm
+    scaled = arr / peak
+    norm = float(np.sqrt(np.real(np.trace(scaled.conj().T @ scaled))))
+    return scaled / norm
 
 
 def normalise_2norm(v: npt.NDArray[np.complex128]) -> npt.NDArray[np.complex128]:
@@ -173,9 +184,7 @@ def dead_time_propagation(
     return _apply_liouville_propagator(rho_arr, propagator, "dead-time propagator")
 
 
-def _overlap(
-    rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]
-) -> np.complex128:
+def _overlap(rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]) -> np.complex128:
     """Return the Hilbert-Schmidt overlap <rho_t, rho_f>."""
     rho_f_arr = np.asarray(rho_f, dtype=np.complex128)
     rho_t_arr = np.asarray(rho_t, dtype=np.complex128)
@@ -184,23 +193,17 @@ def _overlap(
     return np.complex128(np.vdot(rho_t_arr, rho_f_arr))
 
 
-def fidelity_real(
-    rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]
-) -> float:
+def fidelity_real(rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]) -> float:
     """Return Re(Tr(rho_t.conj().T @ rho_f)) for pre-normalised states."""
     return float(np.real(_overlap(rho_f, rho_t)))
 
 
-def fidelity_imag(
-    rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]
-) -> float:
+def fidelity_imag(rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]) -> float:
     """Return Im(Tr(rho_t.conj().T @ rho_f)) for pre-normalised states."""
     return float(np.imag(_overlap(rho_f, rho_t)))
 
 
-def fidelity_abs2(
-    rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]
-) -> float:
+def fidelity_abs2(rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]) -> float:
     """Return |Tr(rho_t.conj().T @ rho_f)|^2 for pre-normalised states."""
     overlap = _overlap(rho_f, rho_t)
     return float(np.real(overlap.conjugate() * overlap))
@@ -218,7 +221,7 @@ def fidelity_avg(
         raise ValueError("At least one source-target pair is required")
 
     values = np.array(
-        [fidelity_real(rho_f, rho_t) for rho_f, rho_t in zip(rho_f_list, rho_t_list)],
+        [fidelity_real(rho_f, rho_t) for rho_f, rho_t in zip(rho_f_list, rho_t_list, strict=True)],
         dtype=np.float64,
     )
     if weights is None:

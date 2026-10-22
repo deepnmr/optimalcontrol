@@ -23,7 +23,7 @@ from examples.methyl_water_binary_symmetric_180 import (
     evaluate_pulse,
     signed_amplitude,
 )
-from optimalcontrol.ocseed import Band, SeedlessSpec
+from optimalcontrol.ocseed import Band, SeedlessSpec, demo
 
 
 def _finite_diff_gradient(spec: SeedlessSpec, phases: np.ndarray, step: float = 1e-6) -> np.ndarray:
@@ -260,13 +260,13 @@ def _trajectory_min_mz(spec: SeedlessSpec, phases: np.ndarray) -> float:
 
 
 def test_invalid_specs_are_rejected() -> None:
-    with pytest.raises(ValueError):
-        Band(1.0, 0.0, "s2s", init="z", targ="z")  # ppm_hi < ppm_lo
-    with pytest.raises(ValueError):
-        Band(-1.0, 1.0, "s2s")  # missing init/targ
-    with pytest.raises(ValueError):
-        Band(-1.0, 1.0, "bogus")  # unknown restraint
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="ppm_hi must be >= ppm_lo"):
+        Band(1.0, 0.0, "s2s", init="z", targ="z")
+    with pytest.raises(ValueError, match="s2s restraint requires init and targ"):
+        Band(-1.0, 1.0, "s2s")
+    with pytest.raises(ValueError, match="restraint must be one of"):
+        Band(-1.0, 1.0, "bogus")
+    with pytest.raises(ValueError, match="b1_weights must sum to 1"):
         SeedlessSpec(
             600.0,
             0.0,
@@ -276,7 +276,7 @@ def test_invalid_specs_are_rejected() -> None:
             bands=[Band(-1.0, 1.0, "xycite")],
             b1_scales=(1.0,),
             b1_weights=(0.5,),
-        )  # weights do not sum to 1
+        )
 
 
 def test_kernel_rejects_non_finite_inputs() -> None:
@@ -373,3 +373,43 @@ def test_per_step_evaluation_matches_prefix_reference_with_linear_work(
     actual = spec.evaluate(waveform, dense=5, b1_scale=scale)["band0:suppress"]
     assert actual == pytest.approx(expected, abs=1e-12)
     assert propagated_steps == steps
+
+
+def test_demo_prints_ok_line(capsys) -> None:
+    demo()
+
+    assert any(line.startswith("demo ok") for line in capsys.readouterr().out.splitlines())
+
+
+def _seedless_spec(b1_weights: tuple[float, ...], b1_scales: tuple[float, ...]) -> SeedlessSpec:
+    band = Band(ppm_lo=-1.0, ppm_hi=1.0, restraint="suppress", targ=None)
+    return SeedlessSpec(
+        spectrometer_mhz=600.0,
+        carrier_ppm=0.0,
+        rf_max_hz=1000.0,
+        duration_s=1e-3,
+        n_steps=4,
+        bands=[band],
+        b1_scales=b1_scales,
+        b1_weights=b1_weights,
+    )
+
+
+def test_b1_weights_reject_negative_entry() -> None:
+    with pytest.raises(ValueError, match="b1_weights entries must be finite and non-negative"):
+        _seedless_spec((0.5, -0.25, 0.75), (0.95, 1.0, 1.03))
+
+
+def test_b1_weights_reject_nan_entry() -> None:
+    with pytest.raises(ValueError, match="b1_weights entries must be finite and non-negative"):
+        _seedless_spec((0.5, float("nan"), 0.5), (0.95, 1.0, 1.03))
+
+
+def test_b1_scales_reject_negative_entry() -> None:
+    with pytest.raises(ValueError, match="b1_scales entries must be finite and non-negative"):
+        _seedless_spec((0.25, 0.5, 0.25), (0.95, -1.0, 1.03))
+
+
+def test_universal_rotation_rejects_nan_angle() -> None:
+    with pytest.raises(ValueError, match="rotation angle must be finite"):
+        Band(ppm_lo=-1.0, ppm_hi=1.0, restraint="universal", rotation=("x", float("nan")))

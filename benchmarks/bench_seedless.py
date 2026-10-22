@@ -5,6 +5,7 @@ Run from the repository root:
     OPTIMALCONTROL_DISABLE_RUST=1 .venv/bin/python benchmarks/bench_seedless.py
 """
 
+from functools import partial
 from statistics import median
 from timeit import repeat
 
@@ -34,7 +35,7 @@ def main() -> None:
                 b1_scales=(0.8, 1.0, 1.2),
             )
             spec.objective(phases)
-            seconds = median(repeat(lambda: spec.objective(phases), number=1, repeat=5))
+            seconds = median(repeat(partial(spec.objective, phases), number=1, repeat=5))
             print(f"{backend},{band.restraint},{steps},21,{seconds:.8e}", flush=True)
 
 

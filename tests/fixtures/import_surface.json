@@ -1,0 +1,199 @@
+{
+ "optimalcontrol": [
+  "Band",
+  "CROPPulse",
+  "Ix",
+  "Iy",
+  "Iz",
+  "SeedlessSpec",
+  "SpinSystem",
+  "__version__",
+  "_accelerator",
+  "_rust",
+  "_seedless_kernel",
+  "comm",
+  "crop_eta",
+  "crop_waveform",
+  "fidelity_real",
+  "liouvillian_comm",
+  "propagate_bloch_ensemble",
+  "rope_g",
+  "rope_waveform",
+  "run_grape",
+  "set_random_seed",
+  "state_from_label",
+  "two_spin_system"
+ ],
+ "optimalcontrol._accelerator": [
+  "RUST_ACCELERATOR_AVAILABLE",
+  "_enabled",
+  "problem_vector_fidelity",
+  "problem_vector_value_gradient",
+  "vector_fidelity",
+  "vector_value_gradient"
+ ],
+ "optimalcontrol._types": [
+  "Array",
+  "RealArray"
+ ],
+ "optimalcontrol._validation": [
+  "validate_nonnegative",
+  "validate_positive"
+ ],
+ "optimalcontrol.analysis": [
+  "spectrogram_data",
+  "state_trajectory"
+ ],
+ "optimalcontrol.bloch": [
+  "propagate_bloch_ensemble"
+ ],
+ "optimalcontrol.crop": [
+  "crop_eta",
+  "crop_eta_prime",
+  "crop_kc0_limit",
+  "crop_limit_Iz_to_Sz",
+  "crop_pulse_params",
+  "crop_robustness_sweep",
+  "crop_waveform"
+ ],
+ "optimalcontrol.distortions": [
+  "distortion_noop",
+  "distortion_single_pole",
+  "distortion_tanh",
+  "distortion_tanh_deriv"
+ ],
+ "optimalcontrol.ensemble": [
+  "cartesian_product_ensemble",
+  "correlated_rho_drift",
+  "correlated_rho_match",
+  "ensemble_fidelity",
+  "ensemble_gradient",
+  "ensemble_xy_and_gradient",
+  "expand_drifts",
+  "expand_offsets",
+  "expand_phase_cycle",
+  "expand_power_levels",
+  "joblib_backend",
+  "serial_backend"
+ ],
+ "optimalcontrol.grape": [
+  "ControlProblem",
+  "_grape_xy_core",
+  "_single_value_and_gradient",
+  "ampl_phase_to_xy",
+  "apply_freeze",
+  "backward_states",
+  "curvilinear_reparameterise",
+  "dir_diff_expm",
+  "final_fidelity",
+  "forward_propagators",
+  "forward_states",
+  "grape_gradient",
+  "grape_hessian",
+  "grape_xy",
+  "grape_xy_and_gradient",
+  "grape_xy_hilbert",
+  "grape_xy_liouville",
+  "phase_only_gradient",
+  "validate_control_problem",
+  "validate_waveform",
+  "xy_to_ampl_phase"
+ ],
+ "optimalcontrol.io": [
+  "Waveform",
+  "_hash_control_problem",
+  "export_bruker",
+  "export_bruker_shape",
+  "export_csv",
+  "export_json",
+  "fapt_import",
+  "heterodyne_transform",
+  "import_jcamp_dx",
+  "import_json",
+  "waveform_from_result"
+ ],
+ "optimalcontrol.mcp_server": [
+  "bloch_offset_profile",
+  "design_seedless_pulse"
+ ],
+ "optimalcontrol.ocseed": [
+  "Band",
+  "SeedlessSpec"
+ ],
+ "optimalcontrol.operators": [
+  "E",
+  "Im",
+  "Ip",
+  "Ix",
+  "Iy",
+  "Iz",
+  "comm",
+  "kron_product",
+  "lindblad_dissipator",
+  "liouvillian_comm",
+  "place_operator",
+  "two_spin_product",
+  "unvec",
+  "vec"
+ ],
+ "optimalcontrol.optimizers": [
+  "OptimResult",
+  "lbfgs_direction",
+  "lbfgs_grape",
+  "lbfgs_state",
+  "lbfgs_update",
+  "line_search_cubic",
+  "run_grape"
+ ],
+ "optimalcontrol.penalties": [
+  "PenaltySpec",
+  "penalty_DNS",
+  "penalty_NS",
+  "penalty_SNS",
+  "penalty_SNSA",
+  "total_penalty",
+  "total_penalty_hessian"
+ ],
+ "optimalcontrol.plotting": [
+  "plot_rope_efficiency",
+  "plot_xy_controls"
+ ],
+ "optimalcontrol.rope": [
+  "inept_max_efficiency",
+  "rope_Tcrit",
+  "rope_V",
+  "rope_finite_angles",
+  "rope_finite_efficiency",
+  "rope_g",
+  "rope_g_inphase",
+  "rope_gain_over_inept",
+  "rope_hard_pulse_angle",
+  "rope_n",
+  "rope_phase1_control",
+  "rope_switching_time",
+  "rope_waveform"
+ ],
+ "optimalcontrol.spin_system": [
+  "Coupling",
+  "RelaxationRates",
+  "Spin",
+  "SpinSystem",
+  "control_operators",
+  "drift_hamiltonian",
+  "relaxation_liouvillian",
+  "shift_hamiltonian",
+  "total_generator",
+  "two_spin_system"
+ ],
+ "optimalcontrol.states": [
+  "dead_time_propagation",
+  "fidelity_abs2",
+  "fidelity_avg",
+  "fidelity_imag",
+  "fidelity_real",
+  "normalise_2norm",
+  "normalise_hs",
+  "single_transition_operator",
+  "state_from_label"
+ ]
+}

@@ -49,6 +49,9 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize
 
+from examples import _methyl_water_common as binary_helpers
+from examples._figures import save_figure
+from examples._methyl_water_common import _constraint_score as _constraint_score
 from optimalcontrol.bloch import propagate_bloch_ensemble
 from optimalcontrol.grape import ControlProblem, grape_xy_and_gradient
 from optimalcontrol.io import export_bruker_shape as write_bruker_shape
@@ -189,13 +192,7 @@ class PulseMetrics:
 
 
 def signed_amplitude(half: RealArray = OPTIMIZED_HALF_AMPLITUDE) -> RealArray:
-    """Return the exactly symmetric signed RF-amplitude waveform."""
-    half_array = np.asarray(half, dtype=np.float64)
-    if half_array.shape != (N_STEPS // 2,):
-        raise ValueError(f"half waveform must have shape ({N_STEPS // 2},)")
-    if np.max(np.abs(half_array)) > 1.0 + 1e-12:
-        raise ValueError("signed amplitude exceeds the 10 kHz RF limit")
-    return np.asarray(np.concatenate((half_array, half_array[::-1])), dtype=np.float64)
+    return binary_helpers.signed_amplitude_10khz(half, N_STEPS=N_STEPS)
 
 
 def amplitude_phase(signed: RealArray) -> tuple[RealArray, RealArray]:
@@ -368,9 +365,7 @@ def wide_component_profile(
     }
     profile: dict[str, RealArray] = {"ppm": ppm}
     for name, initial in initials.items():
-        final = propagate_bloch_ensemble(
-            initial, waveform_xy, offsets_hz, scales, rf_max_hz, dt
-        )[0]
+        final = propagate_bloch_ensemble(initial, waveform_xy, offsets_hz, scales, rf_max_hz, dt)[0]
         profile[name] = np.asarray(final, dtype=np.float64)
     return profile
 
@@ -445,20 +440,7 @@ def _control_problem(
 def _collapse_symmetric_gradient(gradient: RealArray) -> RealArray:
     """Apply the mirror-parameterization chain rule to a full gradient."""
     half = N_STEPS // 2
-    return np.asarray(
-        gradient[:half, 0] + gradient[half:, 0][::-1], dtype=np.float64
-    )
-
-
-def _constraint_score(metrics: PulseMetrics) -> float:
-    """Return the worst normalized constraint, with 0.999 as the pass boundary."""
-    return min(
-        metrics.methyl_x_min,
-        metrics.methyl_y_min,
-        metrics.methyl_z_min,
-        metrics.water_z_min,
-        1.0 - metrics.artifact_max_percent / 100.0,
-    )
+    return np.asarray(gradient[:half, 0] + gradient[half:, 0][::-1], dtype=np.float64)
 
 
 def refine_duration(
@@ -474,9 +456,7 @@ def refine_duration(
     mean is high.
     """
     duration_s = duration_us * 1e-6
-    base_offsets = np.linspace(
-        METHYL_OFFSET_LO_HZ, METHYL_OFFSET_HI_HZ, 81, dtype=np.float64
-    )
+    base_offsets = np.linspace(METHYL_OFFSET_LO_HZ, METHYL_OFFSET_HI_HZ, 81, dtype=np.float64)
     validation_offsets = np.linspace(
         METHYL_OFFSET_LO_HZ,
         METHYL_OFFSET_HI_HZ,
@@ -490,24 +470,16 @@ def refine_duration(
         dtype=np.float64,
     )
     best = np.asarray(half_seed, dtype=np.float64).copy()
-    best_metrics, best_profiles = evaluate_pulse(
-        signed_amplitude(best), duration_s=duration_s
-    )
+    best_metrics, best_profiles = evaluate_pulse(signed_amplitude(best), duration_s=duration_s)
 
     best_score = _constraint_score(best_metrics)
     for _ in range(max_outer):
         x_indices = np.argsort(best_profiles["methyl_x"])[:30]
         y_indices = np.argsort(best_profiles["methyl_y"])[:30]
         z_indices = np.argsort(best_profiles["methyl_z"])[:30]
-        x_offsets = np.concatenate(
-            (base_offsets, np.repeat(validation_offsets[x_indices], 30))
-        )
-        y_offsets = np.concatenate(
-            (base_offsets, np.repeat(validation_offsets[y_indices], 30))
-        )
-        z_offsets = np.concatenate(
-            (base_offsets, np.repeat(validation_offsets[z_indices], 30))
-        )
+        x_offsets = np.concatenate((base_offsets, np.repeat(validation_offsets[x_indices], 30)))
+        y_offsets = np.concatenate((base_offsets, np.repeat(validation_offsets[y_indices], 30)))
+        z_offsets = np.concatenate((base_offsets, np.repeat(validation_offsets[z_indices], 30)))
         cp_x = _control_problem(x_offsets, [Ix()], [Ix()], duration_s)
         cp_y = _control_problem(y_offsets, [-Iy()], [Iy()], duration_s)
         cp_z = _control_problem(z_offsets, [Iz()], [-Iz()], duration_s)
@@ -517,7 +489,14 @@ def refine_duration(
         local_profiles = best_profiles
         local_score = best_score
 
-        def objective(half: RealArray) -> tuple[float, RealArray]:
+        def objective(
+            half: RealArray,
+            *,
+            cp_x: ControlProblem = cp_x,
+            cp_y: ControlProblem = cp_y,
+            cp_z: ControlProblem = cp_z,
+            cp_water: ControlProblem = cp_water,
+        ) -> tuple[float, RealArray]:
             waveform = signed_amplitude(half)[:, None]
             value_x, gradient_x = grape_xy_and_gradient(cp_x, waveform)
             value_y, gradient_y = grape_xy_and_gradient(cp_y, waveform)
@@ -531,9 +510,7 @@ def refine_duration(
 
         def callback(half: RealArray) -> None:
             nonlocal local_best, local_metrics, local_profiles, local_score
-            metrics, profiles = evaluate_pulse(
-                signed_amplitude(half), duration_s=duration_s
-            )
+            metrics, profiles = evaluate_pulse(signed_amplitude(half), duration_s=duration_s)
             candidate_score = _constraint_score(metrics)
             if candidate_score > local_score:
                 local_best = np.asarray(half, dtype=np.float64).copy()
@@ -632,9 +609,7 @@ def plot_diagnostics(
     axes[0].set_ylabel("Amplitude (%)")
     phase_axis.set_ylabel("Phase (deg)")
     phase_axis.set_yticks([0.0, 180.0])
-    axes[0].set_title(
-        f"Symmetric binary-phase methyl 180: {DURATION_US:.0f} us, 10 kHz max"
-    )
+    axes[0].set_title(f"Symmetric binary-phase methyl 180: {DURATION_US:.0f} us, 10 kHz max")
 
     axes[1].plot(methyl_ppm, profiles["methyl_x"], label="Ix -> Ix")
     axes[1].plot(methyl_ppm, profiles["methyl_y"], label="-Iy -> Iy")
@@ -664,59 +639,34 @@ def plot_diagnostics(
     )
 
     figure_path = output_dir / f"{PULSE_NAME}.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 
 def plot_wide_profile(wide_profile: dict[str, RealArray], output_dir: Path) -> Path:
-    """Write Ix, -Iy, Iz transfer profiles over the full -6..6 ppm window."""
-    ppm = wide_profile["ppm"]
-    figure, axis = plt.subplots(1, 1, figsize=(9.0, 4.5), constrained_layout=True)
-    axis.plot(ppm, wide_profile["x"], label="Ix -> Ix")
-    axis.plot(ppm, wide_profile["y"], label="Iy -> -Iy")
-    axis.plot(ppm, wide_profile["z"], label="Iz -> -Iz")
-    axis.axvline(METHYL_PPM_LO, color="black", linestyle=":", linewidth=0.8)
-    axis.axvline(METHYL_PPM_HI, color="black", linestyle=":", linewidth=0.8)
-    axis.axvline(WATER_PPM, color="tab:gray", linestyle="--", linewidth=0.8)
-    axis.set_xlim(WIDE_PPM_LO, WIDE_PPM_HI)
-    axis.set_xlabel("1H shift (ppm)")
-    axis.set_ylabel("Transfer fidelity")
-    axis.set_title("Wide-offset transfer profile (dotted: methyl band, dashed: water)")
-    axis.legend()
-
-    figure_path = output_dir / f"{PULSE_NAME}_wide_profile.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
-    return figure_path
+    return binary_helpers.plot_wide_profile(
+        wide_profile,
+        output_dir,
+        PULSE_NAME=PULSE_NAME,
+        METHYL_PPM_LO=METHYL_PPM_LO,
+        METHYL_PPM_HI=METHYL_PPM_HI,
+        WATER_PPM=WATER_PPM,
+        WIDE_PPM_LO=WIDE_PPM_LO,
+        WIDE_PPM_HI=WIDE_PPM_HI,
+    )
 
 
 def plot_wide_components(component_profile: dict[str, RealArray], output_dir: Path) -> Path:
-    """Write final Mx, My, Mz vs ppm for each initial Ix, Iy, Iz state."""
-    ppm = component_profile["ppm"]
-    figure, axes = plt.subplots(
-        3, 1, figsize=(9.0, 9.0), sharex=True, constrained_layout=True
+    return binary_helpers.plot_wide_components(
+        component_profile,
+        output_dir,
+        PULSE_NAME=PULSE_NAME,
+        METHYL_PPM_LO=METHYL_PPM_LO,
+        METHYL_PPM_HI=METHYL_PPM_HI,
+        WATER_PPM=WATER_PPM,
+        WIDE_PPM_LO=WIDE_PPM_LO,
+        WIDE_PPM_HI=WIDE_PPM_HI,
     )
-    for axis, name in zip(axes, ("Ix", "Iy", "Iz")):
-        final = component_profile[name]
-        axis.plot(ppm, final[:, 0], label="Mx", color="tab:blue")
-        axis.plot(ppm, final[:, 1], label="My", color="tab:orange")
-        axis.plot(ppm, final[:, 2], label="Mz", color="tab:green")
-        axis.axvline(METHYL_PPM_LO, color="black", linestyle=":", linewidth=0.8)
-        axis.axvline(METHYL_PPM_HI, color="black", linestyle=":", linewidth=0.8)
-        axis.axvline(WATER_PPM, color="tab:gray", linestyle="--", linewidth=0.8)
-        axis.set_xlim(WIDE_PPM_LO, WIDE_PPM_HI)
-        axis.set_ylim(-1.05, 1.05)
-        axis.axhline(0.0, color="black", linewidth=0.5)
-        axis.set_ylabel(f"from {name}")
-    axes[0].legend(ncol=3, fontsize="small")
-    axes[0].set_title("Final Bloch components vs offset (dotted: methyl band, dashed: water)")
-    axes[-1].set_xlabel("1H shift (ppm)")
-
-    figure_path = output_dir / f"{PULSE_NAME}_wide_components.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
-    return figure_path
 
 
 def plot_time_evolution(time_evolution: dict[str, RealArray], output_dir: Path) -> Path:
@@ -758,8 +708,7 @@ def plot_time_evolution(time_evolution: dict[str, RealArray], output_dir: Path) 
     figure.suptitle(f"Bloch-component time evolution ({DURATION_US:.0f} us pulse)")
 
     figure_path = output_dir / f"{PULSE_NAME}_time_evolution.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 

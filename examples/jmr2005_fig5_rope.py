@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 
+from examples._figures import save_figure
 from optimalcontrol.grape import ControlProblem, forward_propagators, forward_states
 from optimalcontrol.io import export_bruker_shape as write_bruker_shape
 from optimalcontrol.operators import liouvillian_comm, vec
@@ -92,10 +93,9 @@ def _control_problem() -> ControlProblem:
         ka_prime=0.0,
         kc_prime=0.0,
     )
-    drift = (
-        liouvillian_comm(drift_hamiltonian(system) + shift_hamiltonian(system))
-        + relaxation_liouvillian(system)
-    )
+    drift = liouvillian_comm(
+        drift_hamiltonian(system) + shift_hamiltonian(system)
+    ) + relaxation_liouvillian(system)
     controls = control_operators(system)
     return ControlProblem(
         drifts=[drift],
@@ -110,9 +110,7 @@ def _control_problem() -> ControlProblem:
     )
 
 
-def _state_trajectory(
-    cp: ControlProblem, wfm: npt.NDArray[np.float64]
-) -> npt.NDArray[np.float64]:
+def _state_trajectory(cp: ControlProblem, wfm: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """Return trajectories for Iz, Ix, 2IySz, and 2IzSz."""
     propagators = forward_propagators(cp, wfm)
     states = forward_states(cp.rho_init[0], propagators)
@@ -240,12 +238,9 @@ def run(optimize: bool = False, max_iter: int = 30) -> npt.NDArray[np.float64]:
     shape_path = _export_bruker_shape(waveform, output_dir)
 
     fig.tight_layout()
-    fig.savefig(
-        os.path.join(output_dir, "jmr2005_fig5_rope.png"),
-        dpi=150,
-        bbox_inches="tight",
+    save_figure(
+        fig, os.path.join(output_dir, "jmr2005_fig5_rope.png"), dpi=150, bbox_inches="tight"
     )
-    plt.close(fig)
 
     waveform_with_time = np.column_stack((pulse_times, waveform))
     trajectory_with_time = np.column_stack((trajectory_times, trajectory))

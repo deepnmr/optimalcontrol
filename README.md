@@ -16,7 +16,7 @@ pip install optimalcontrol-nmr
 The import name is still `optimalcontrol` — only the PyPI distribution is named
 `optimalcontrol-nmr` (the bare name is blocked by an existing similar project).
 
-Python 3.10 or newer is required. Environments without a compatible prebuilt wheel also
+Python 3.11 or newer is required. Environments without a compatible prebuilt wheel also
 need a stable Rust toolchain so `pip` can compile the native extension from the sdist.
 
 ## Getting started
@@ -78,24 +78,36 @@ brew install rust
 
 ```bash
 # Install in editable mode with dev and MCP dependencies
-python3 -m pip install -e ".[dev,mcp]"
+python -m pip install -e ".[dev,mcp]"
 
-# Lint
-ruff check optimalcontrol/ tests/
+# Format and lint
+ruff format --check optimalcontrol/ tests/ examples/ benchmarks/
+ruff check optimalcontrol/ tests/ examples/ benchmarks/
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
 
 # Typecheck
 mypy optimalcontrol
 
 # Test
-python3 -m pytest
+python -m pytest -q
+
+# Full suite on the NumPy/SciPy fallback
+OPTIMALCONTROL_DISABLE_RUST=1 python -m pytest -q --deselect tests/test_rust_accelerator.py
 ```
+
+Inside a local virtualenv, prefix the Python tools with `.venv/bin/`
+(for example `.venv/bin/python -m pip install -e ".[dev,mcp]"`).
 
 Set `OPTIMALCONTROL_DISABLE_RUST=1` to run the NumPy/SciPy fallback for numerical
 comparisons. Normal installations build and use the Rust extension automatically.
-GitHub Actions runs the full native suite, targeted fallback tests (including MCP),
-Ruff, mypy, and Clippy on Ubuntu with Python 3.12 and stable Rust for pull requests
-and pushes to `master`. See [the CI workflow](.github/workflows/ci.yml) for the exact
-commands; Rust accelerator tests only run in the native suite.
+GitHub Actions runs on Ubuntu with stable Rust for pull requests and pushes to
+`master`. The main job runs a Python 3.11 + 3.12 matrix with the formatting gates
+(`ruff format --check`, `cargo fmt --check`), Ruff, mypy, Clippy, and the native test
+suite. A separate job runs the full suite on the NumPy fallback, and a packaging job
+builds the sdist and wheel, smoke-installs the wheel, and checks the sdist for leaked
+files. See [the CI workflow](.github/workflows/ci.yml) for the exact commands; Rust
+accelerator tests only run in the native suite.
 
 ## Performance
 
@@ -148,7 +160,7 @@ This package follows semantic versioning: `MAJOR.MINOR.PATCH`.
 
 - `PATCH` releases contain backwards-compatible fixes only and must not introduce breaking API,
   file-format, or numerical-contract changes.
-- `MINOR` releases may add features and deprecate existing APIs; deprecations must emit warnings
-  before removal.
+- `MINOR` releases may add features and deprecate existing APIs; deprecations are announced in
+  `CHANGELOG.md` one MINOR release before removal.
 - `MAJOR` releases may remove deprecated APIs or introduce intentional breaking changes, with
   migration notes recorded in `CHANGELOG.md`.

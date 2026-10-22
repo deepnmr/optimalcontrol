@@ -1,12 +1,113 @@
 """End-to-end check of the MCP tool functions (called directly, no transport)."""
 
+import asyncio
 import json
 
 import pytest
 
 pytest.importorskip("mcp")
 
-from optimalcontrol.mcp_server import bloch_offset_profile, design_seedless_pulse
+from mcp import Client
+
+from optimalcontrol.mcp_server import bloch_offset_profile, design_seedless_pulse, server
+
+_SMALL_DESIGN = {
+    "spectrometer_mhz": 600.0,
+    "carrier_ppm": 0.0,
+    "rf_max_hz": 1000.0,
+    "duration_s": 1e-4,
+    "n_steps": 4,
+    "max_iter": 5,
+    "n_seeds": 1,
+}
+
+
+def _call(name, arguments):
+    async def run():
+        async with Client(server) as client:
+            return await client.call_tool(name, arguments)
+
+    return asyncio.run(run())
+
+
+def _find_enum_containing(node, value):
+    if isinstance(node, dict):
+        if value in node.get("enum", []):
+            return node["enum"]
+        return next((hit for v in node.values() if (hit := _find_enum_containing(v, value))), None)
+    if isinstance(node, list):
+        return next((hit for v in node if (hit := _find_enum_containing(v, value))), None)
+    return None
+
+
+def test_mcp_client_lists_the_two_tools():
+    async def run():
+        async with Client(server) as client:
+            return await client.list_tools()
+
+    tools = asyncio.run(run())
+    assert sorted(tool.name for tool in tools.tools) == [
+        "bloch_offset_profile",
+        "design_seedless_pulse",
+    ]
+    design = next(tool for tool in tools.tools if tool.name == "design_seedless_pulse")
+    assert "s2s" in _find_enum_containing(design.input_schema, "s2s")
+
+
+def test_mcp_client_rejects_b1_weights_not_summing_to_one(tmp_path):
+    result = _call(
+        "design_seedless_pulse",
+        {
+            **_SMALL_DESIGN,
+            "bands": [{"ppm_lo": 0.0, "ppm_hi": 0.0, "restraint": "xycite", "n_offsets": 1}],
+            "out_dir": str(tmp_path),
+            "b1_scales": [1.0],
+            "b1_weights": [0.5],
+        },
+    )
+    assert result.is_error is True
+    assert "b1_weights must sum to 1" in result.content[0].text
+
+
+def test_mcp_client_rejects_zero_seeds(tmp_path):
+    result = _call(
+        "design_seedless_pulse",
+        {
+            **_SMALL_DESIGN,
+            "bands": [{"ppm_lo": 0.0, "ppm_hi": 0.0, "restraint": "xycite", "n_offsets": 1}],
+            "out_dir": str(tmp_path),
+            "n_seeds": 0,
+        },
+    )
+    assert result.is_error is True
+    assert "n_seeds must be >= 1" in result.content[0].text
+
+
+def test_mcp_client_rejects_s2s_band_without_init_targ(tmp_path):
+    result = _call(
+        "design_seedless_pulse",
+        {
+            **_SMALL_DESIGN,
+            "bands": [{"ppm_lo": 0.0, "ppm_hi": 0.0, "restraint": "s2s", "n_offsets": 1}],
+            "out_dir": str(tmp_path),
+        },
+    )
+    assert result.is_error is True
+    assert "s2s restraint requires init and targ" in result.content[0].text
+
+
+def test_mcp_client_reports_missing_design_file(tmp_path):
+    missing = tmp_path / "missing.json"
+    result = _call(
+        "bloch_offset_profile",
+        {
+            "design_json": str(missing),
+            "offset_lo_hz": -100.0,
+            "offset_hi_hz": 100.0,
+        },
+    )
+    assert result.is_error is True
+    assert str(missing) in result.content[0].text
 
 
 def test_design_then_profile(tmp_path):
@@ -77,3 +178,11 @@ def test_design_worst_case_covers_b1_ensemble(tmp_path, band_fields, duration_s,
     assert result["worst_case"][key] == pytest.approx(expected, abs=5e-5)
     design = json.loads((tmp_path / "pulse.json").read_text())
     assert design["worst_case"][key] == pytest.approx(expected, abs=1e-12)
+
+
+def test_console_script_entry_point_targets_mcp_main() -> None:
+    import importlib.metadata
+
+    scripts = importlib.metadata.entry_points(group="console_scripts")
+    matches = [entry for entry in scripts if entry.name == "optimalcontrol-mcp"]
+    assert [entry.value for entry in matches] == ["optimalcontrol.mcp_server:main"]

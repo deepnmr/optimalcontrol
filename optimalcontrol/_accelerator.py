@@ -82,10 +82,10 @@ def _vector_inputs(problems: Sequence[Any], wfm: RealArray) -> _KernelInputs | N
             or len(problem.rho_targ) != len(target_states)
         ):
             return None
-        for actual, expected in zip(problem.rho_init, init_states):
+        for actual, expected in zip(problem.rho_init, init_states, strict=True):
             if not np.array_equal(np.asarray(actual), expected):
                 return None
-        for actual, expected in zip(problem.rho_targ, target_states):
+        for actual, expected in zip(problem.rho_targ, target_states, strict=True):
             if not np.array_equal(np.asarray(actual), expected):
                 return None
 
@@ -100,7 +100,9 @@ def _vector_inputs(problems: Sequence[Any], wfm: RealArray) -> _KernelInputs | N
                     np.stack(
                         [
                             float(level) * np.asarray(operator, dtype=np.complex128)
-                            for level, operator in zip(problem.pwr_levels, problem.operators)
+                            for level, operator in zip(
+                                problem.pwr_levels, problem.operators, strict=True
+                            )
                         ]
                     )
                     for problem in problems
@@ -248,17 +250,27 @@ def _is_anti_hermitian(matrix: Any) -> bool:
     return bool(deviation <= 1e-12 * scale)
 
 
-def _generators_coherent(problem: Any) -> bool:
+def _generators_coherent(problem: Any, wfm: RealArray) -> bool:
     """Return True when every generator is anti-Hermitian (coherent dynamics).
 
     Cheap pre-gate for the gradient kernel, which rejects dissipative members
     anyway: skipping the ensemble marshalling and kernel round-trip here avoids
     paying that cost on every gradient call of a relaxation problem. The check
-    mirrors the Rust ``member_is_anti_hermitian`` tolerance on the raw (not
-    power-scaled) matrices; near-threshold disagreement is harmless because the
-    kernel still validates each member itself.
+    mirrors the Rust ``member_is_anti_hermitian`` tolerance on power-scaled
+    controls at the maximum waveform amplitude for each channel.
     """
-    matrices = list(problem.drifts) + list(problem.operators)
+    amplitudes = np.maximum(1.0, np.max(np.abs(wfm), axis=0))
+    levels = np.asarray(problem.pwr_levels, dtype=np.float64)
+    if levels.size > 1 and levels.size != len(problem.operators):
+        control_scales = [levels * amplitude for amplitude in amplitudes]
+    else:
+        control_scales = [
+            np.array([level * amplitude])
+            for level, amplitude in zip(levels, amplitudes, strict=True)
+        ]
+    matrices = list(problem.drifts)
+    for operator, scales in zip(problem.operators, control_scales, strict=True):
+        matrices.extend(scale * np.asarray(operator, dtype=np.complex128) for scale in scales)
     if problem.offset_operators is not None:
         matrices += list(problem.offset_operators)
     for matrix in matrices:
@@ -301,7 +313,7 @@ def problem_vector_fidelity(problem: Any, wfm: RealArray) -> float | None:
 
 def problem_vector_value_gradient(problem: Any, wfm: RealArray) -> tuple[float, RealArray] | None:
     """Return Rust fidelity/gradient computed straight from an unexpanded problem."""
-    if not _enabled() or not _generators_coherent(problem):
+    if not _enabled() or not _generators_coherent(problem, wfm):
         return None
     return _call_value_gradient(_problem_inputs(problem, wfm))
 
@@ -315,6 +327,6 @@ def vector_value_gradient(
     problems: Sequence[Any], wfm: RealArray
 ) -> tuple[float, RealArray] | None:
     """Return Rust-accelerated coherent fidelity/gradient when supported."""
-    if not _enabled() or not all(_generators_coherent(problem) for problem in problems):
+    if not _enabled() or not all(_generators_coherent(problem, wfm) for problem in problems):
         return None
     return _call_value_gradient(_vector_inputs(problems, wfm))

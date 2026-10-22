@@ -5,6 +5,7 @@ import numpy.typing as npt
 import pytest
 from scipy.linalg import expm
 
+from optimalcontrol._propagation import dir_diff_expm
 from optimalcontrol.grape import (
     ControlProblem,
     ampl_phase_to_xy,
@@ -17,6 +18,7 @@ from optimalcontrol.grape import (
     grape_gradient,
     grape_hessian,
     grape_xy,
+    grape_xy_and_gradient,
     grape_xy_hilbert,
     grape_xy_liouville,
     phase_only_gradient,
@@ -26,6 +28,56 @@ from optimalcontrol.grape import (
 )
 from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm, place_operator, vec
 from optimalcontrol.states import normalise_2norm, normalise_hs, state_from_label
+
+
+@pytest.mark.parametrize("disable_rust", ["0", "1"])
+def test_extreme_eigenvalues_with_finite_eigenphases(
+    monkeypatch: pytest.MonkeyPatch, disable_rust: str
+) -> None:
+    monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", disable_rust)
+    cp = ControlProblem(
+        drifts=[-1j * 1e308 * np.diag([1.0, -1.0]).astype(np.complex128)],
+        operators=[-1j * 1e308 * np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128)],
+        rho_init=[np.array([1.0, 0.0], dtype=np.complex128)],
+        rho_targ=[np.array([0.0, 1.0], dtype=np.complex128)],
+        pulse_dt=1e-308,
+        pwr_levels=[1.0],
+        freeze=None,
+        basis="hilbert",
+        fidelity_mode="imag",
+    )
+
+    _, gradient = grape_xy_and_gradient(cp, np.array([[0.0]]))
+
+    assert np.all(np.isfinite(gradient))
+    np.testing.assert_allclose(gradient, -np.sin(1.0), rtol=0.0, atol=1e-9)
+
+
+def test_large_waveform_preserves_small_control_dissipation() -> None:
+    """Waveform amplification must not hide dissipation behind the coherence gate."""
+    cp = ControlProblem(
+        drifts=[np.zeros((2, 2), dtype=np.complex128)],
+        operators=[-1e-13 * np.eye(2, dtype=np.complex128)],
+        rho_init=[np.array([1.0, 0.0], dtype=np.complex128)],
+        rho_targ=[np.array([1.0, 0.0], dtype=np.complex128)],
+        pulse_dt=1.0,
+        pwr_levels=[1.0],
+        freeze=None,
+        basis="hilbert",
+        fidelity_mode="real",
+    )
+    waveform = np.array([[1e13]], dtype=np.float64)
+
+    fidelity = grape_xy(cp, waveform)
+    value, gradient = grape_xy_and_gradient(cp, waveform)
+    hessian = grape_hessian(cp, waveform)
+
+    np.testing.assert_allclose(fidelity, np.exp(-1.0), atol=1e-12, rtol=0.0)
+    np.testing.assert_allclose(value, np.exp(-1.0), atol=1e-12, rtol=0.0)
+    # Express derivatives in units of the amplified control, not the raw waveform.
+    np.testing.assert_allclose(gradient * 1e13, -np.exp(-1.0), atol=1e-9, rtol=0.0)
+    assert hessian is not None
+    np.testing.assert_allclose(hessian * 1e26, np.exp(-1.0), atol=1e-6, rtol=0.0)
 
 
 def _basic_control_problem() -> ControlProblem:
@@ -607,7 +659,7 @@ def test_hermitian_fast_path_matches_pade_fallback(
     fast_gradient = grape_gradient(cp, waveform)
     fast_propagators = forward_propagators(cp, waveform)
 
-    monkeypatch.setattr(grape_module, "_has_hermitian_igenerators", lambda _cp: False)
+    monkeypatch.setattr(grape_module, "_has_hermitian_igenerators", lambda _cp, **_kw: False)
     slow_fidelity = grape_xy(cp, waveform)
     slow_gradient = grape_gradient(cp, waveform)
     slow_propagators = forward_propagators(cp, waveform)
@@ -728,3 +780,27 @@ def test_rf_ensemble_hessian_dispatches_and_forward_propagators_rejects() -> Non
     np.testing.assert_allclose(grape_xy_hilbert(cp, waveform), grape_xy(cp, waveform))
     with pytest.raises(ValueError, match="does not support ensemble"):
         forward_propagators(cp, waveform)
+
+
+def test_dir_diff_expm_matches_central_finite_difference() -> None:
+    hamiltonian = np.array([[0.3, 0.2 - 0.1j], [0.2 + 0.1j, -0.5]], dtype=np.complex128)
+    perturbation = np.array([[0.7, -0.4j], [0.4j, 0.1]], dtype=np.complex128)
+    dt = 0.3
+    eps = 1e-6
+
+    def propagator(scale: float) -> np.ndarray:
+        return expm(-1j * (hamiltonian + scale * perturbation) * dt)
+
+    finite_difference = (propagator(eps) - propagator(-eps)) / (2.0 * eps)
+
+    np.testing.assert_allclose(
+        dir_diff_expm(hamiltonian, perturbation, dt), finite_difference, atol=1e-6
+    )
+
+
+@pytest.mark.parametrize("dt", [-1.0, 0.0, float("nan")])
+def test_dir_diff_expm_rejects_non_positive_or_non_finite_dt(dt: float) -> None:
+    identity = np.eye(2, dtype=np.complex128)
+
+    with pytest.raises(ValueError, match="dt must be finite and positive"):
+        dir_diff_expm(identity, identity, dt)

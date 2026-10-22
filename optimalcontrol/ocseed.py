@@ -58,7 +58,7 @@ _CARDINAL: dict[str, RealArray] = {
 VALID_RESTRAINTS = frozenset({"universal", "s2s", "xycite", "suppress"})
 
 
-def _axis_bloch(label: str) -> RealArray:
+def axis_bloch(label: str) -> RealArray:
     """Return the signed cardinal Bloch vector for a label like ``"-z"``."""
     text = label.strip().lower()
     sign = 1.0
@@ -70,9 +70,12 @@ def _axis_bloch(label: str) -> RealArray:
     return np.asarray(sign * _CARDINAL[text], dtype=np.float64)
 
 
+_axis_bloch = axis_bloch
+
+
 def _rotation_matrix(axis_label: str, angle_deg: float) -> RealArray:
     """Return the 3x3 right-handed Bloch rotation about a cardinal axis."""
-    axis = _axis_bloch(axis_label)
+    axis = axis_bloch(axis_label)
     theta = math.radians(angle_deg)
     k = np.array(
         [[0.0, -axis[2], axis[1]], [axis[2], 0.0, -axis[0]], [-axis[1], axis[0], 0.0]],
@@ -119,6 +122,8 @@ class Band:
             raise ValueError("s2s restraint requires init and targ axis labels")
         if self.restraint == "universal" and self.rotation is None:
             raise ValueError("universal restraint requires a rotation (axis, angle_deg)")
+        if self.rotation is not None and not math.isfinite(self.rotation[1]):
+            raise ValueError("rotation angle must be finite")
 
     def state_pairs(self) -> list[tuple[ComplexArray, ComplexArray]]:
         """Return (init, targ) operator pairs describing this band's transfers."""
@@ -132,7 +137,7 @@ class Band:
             return [(_CARDINAL[axis], rot @ _CARDINAL[axis]) for axis in ("x", "y", "z")]
         if self.restraint == "s2s":
             assert self.init is not None and self.targ is not None
-            return [(_axis_bloch(self.init), _axis_bloch(self.targ))]
+            return [(axis_bloch(self.init), axis_bloch(self.targ))]
         # suppress and xycite both start from Iz; targ is used only by suppress.
         return [(_CARDINAL["z"], _CARDINAL["z"])]
 
@@ -168,6 +173,10 @@ class SeedlessSpec:
             raise ValueError("at least one band is required")
         if len(self.b1_scales) != len(self.b1_weights):
             raise ValueError("b1_scales and b1_weights must have equal length")
+        if not all(math.isfinite(w) and w >= 0.0 for w in self.b1_weights):
+            raise ValueError("b1_weights entries must be finite and non-negative")
+        if not all(math.isfinite(s) and s >= 0.0 for s in self.b1_scales):
+            raise ValueError("b1_scales entries must be finite and non-negative")
         if not math.isclose(sum(self.b1_weights), 1.0, rel_tol=0.0, abs_tol=1e-9):
             raise ValueError("b1_weights must sum to 1")
         self._lx = liouvillian_comm(Ix())
@@ -279,7 +288,7 @@ class SeedlessSpec:
         pairs = band.state_pairs()
         cost = 0.0
         grad = np.zeros(self.n_steps, dtype=np.float64)
-        for scale, weight in zip(self.b1_scales, self.b1_weights):
+        for scale, weight in zip(self.b1_scales, self.b1_weights, strict=True):
             cp = self._control_problem(pairs, offsets, scale)
             fidelity, grad_xy = grape_xy_and_gradient(cp, wfm_xy)
             cost += weight * (1.0 - fidelity)
@@ -297,7 +306,7 @@ class SeedlessSpec:
         cost = 0.0
         grad = np.zeros(self.n_steps, dtype=np.float64)
         n_off = float(offsets.size)
-        for scale, weight in zip(self.b1_scales, self.b1_weights):
+        for scale, weight in zip(self.b1_scales, self.b1_weights, strict=True):
             for offset in offsets:
                 cp = self._control_problem(iz_pair, np.array([offset]), scale)
                 mz, grad_xy = grape_xy_and_gradient(cp, wfm_xy)

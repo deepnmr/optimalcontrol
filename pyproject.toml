@@ -1,5 +1,5 @@
 [build-system]
-requires = ["maturin>=1.9,<2"]
+requires = ["maturin>=1.9.4,<2"]
 build-backend = "maturin"
 
 [project]
@@ -7,48 +7,61 @@ name = "optimalcontrol-nmr"
 version = "0.5.0"
 description = "Python optimal control package for NMR spin dynamics (ROPE, CROP, GRAPE, Seedless)"
 readme = "README.md"
-requires-python = ">=3.10"
-dependencies = [
-    "numpy",
-    "scipy",
+requires-python = ">=3.11"
+dependencies = ["numpy>=2.0", "scipy>=1.13"]
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Operating System :: OS Independent",
+    "License :: OSI Approved :: MIT License",
 ]
+
+[project.urls]
+Homepage = "https://github.com/deepnmr/optimalcontrol"
+Repository = "https://github.com/deepnmr/optimalcontrol"
 
 [project.scripts]
 optimalcontrol-mcp = "optimalcontrol.mcp_server:main"
 
 [project.optional-dependencies]
-mcp = [
-    "mcp",
-]
-dev = [
-    "pytest",
-    "ruff",
-    "mypy",
-    "matplotlib",
-]
+mcp = ["mcp>=2.0,<3"]
+dev = ["pytest>=8", "ruff>=0.17", "mypy>=1.18", "matplotlib>=3.9"]
 
 [tool.ruff]
 line-length = 100
+target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+select = ["E", "F", "I", "B", "UP", "NPY"]
+
+[tool.ruff.lint.per-file-ignores]
+"optimalcontrol/__init__.py" = ["NPY002"]
+"tests/test_imports.py" = ["NPY002"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.11"
 strict = true
 ignore_missing_imports = true
 
 [tool.maturin]
 module-name = "optimalcontrol._rust"
 python-source = "."
-features = ["pyo3/extension-module"]
 exclude = [
     { path = "dev/**/*", format = "sdist" },
     { path = "examples/output/**/*", format = "sdist" },
-    { path = "optimalcontrol.egg-info/**/*", format = "sdist" },
-    { path = "refdoc/**/*", format = "sdist" },
     { path = "scripts/**/*", format = "sdist" },
-    { path = "tmp/**/*", format = "sdist" },
+    { path = ".kbsi/**/*", format = "sdist" },
+    { path = ".github/**/*", format = "sdist" },
+    { path = ".claude-plugin/**/*", format = "sdist" },
+    { path = ".gitignore", format = "sdist" },
+    { path = "CLAUDE.md", format = "sdist" },
+    { path = "AGENTS.md", format = "sdist" },
+    { path = "**/AGENTS.md", format = "sdist" },
+    { path = "benchmarks/**/*", format = "sdist" },
 ]
 
 [tool.pytest.ini_options]

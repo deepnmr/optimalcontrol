@@ -77,6 +77,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.linalg import expm
 
+from examples._figures import save_figure
 from optimalcontrol.grape import ControlProblem, grape_xy, grape_xy_and_gradient
 from optimalcontrol.io import export_bruker_shape as write_bruker_shape
 from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm, vec
@@ -136,7 +137,7 @@ N_OFFSETS = 151
 # [u_x, u_y] as fractions of RF_MAX_HZ. Regenerate with --optimize.
 OPTIMIZED_WFM_XY: RealArray = np.array(
     [
-        [1.021316614245e+00, 8.606019735756e-02],
+        [1.021316614245e00, 8.606019735756e-02],
         [8.714426140707e-01, 5.052614481200e-01],
         [-5.396299447705e-01, -1.980066658417e-01],
         [-5.877404191445e-01, 5.333795621396e-01],
@@ -159,7 +160,7 @@ OPTIMIZED_WFM_XY: RealArray = np.array(
         [-2.696619009094e-01, 9.611547622611e-01],
         [-9.859845427008e-01, 1.674219277529e-01],
         [2.922070477945e-01, -8.336914361550e-01],
-        [1.002246488172e+00, 2.643007453535e-02],
+        [1.002246488172e00, 2.643007453535e-02],
         [7.190448310853e-01, 7.016114653047e-01],
         [4.784368053346e-01, 8.336483217653e-01],
         [9.590001577390e-01, 2.885900347616e-01],
@@ -172,9 +173,9 @@ OPTIMIZED_WFM_XY: RealArray = np.array(
         [9.007361512116e-01, 4.500809584163e-01],
         [6.326322516131e-01, 7.871295958177e-01],
         [5.160297075008e-01, 8.688235030351e-01],
-        [-6.890364183861e-02, 1.010250438534e+00],
+        [-6.890364183861e-02, 1.010250438534e00],
         [-7.561837898271e-01, 6.760953170670e-01],
-        [-1.010320145818e+00, 1.493270935800e-01],
+        [-1.010320145818e00, 1.493270935800e-01],
         [-9.713816183453e-01, -3.168242114494e-01],
         [-7.612542977933e-01, -6.677024322360e-01],
         [-2.863645590549e-01, -8.903107299434e-01],
@@ -216,9 +217,7 @@ def _liouville_problem(
     l_x = liouvillian_comm(Ix())
     l_y = liouvillian_comm(Iy())
     l_z = liouvillian_comm(Iz())
-    penalties = (
-        [PenaltySpec(kind="SNSA", weight=SNSA_WEIGHT, limit=1.0)] if with_penalty else None
-    )
+    penalties = [PenaltySpec(kind="SNSA", weight=SNSA_WEIGHT, limit=1.0)] if with_penalty else None
     return ControlProblem(
         drifts=[np.zeros((4, 4), dtype=np.complex128)],
         operators=[TWO_PI * RF_MAX_HZ * l_x, TWO_PI * RF_MAX_HZ * l_y],
@@ -238,9 +237,7 @@ def _liouville_problem(
 def _methyl_offsets() -> list[float]:
     return [
         float(o)
-        for o in np.linspace(
-            METHYL_OFFSET_LO, METHYL_OFFSET_HI, N_OPT_METHYL, dtype=np.float64
-        )
+        for o in np.linspace(METHYL_OFFSET_LO, METHYL_OFFSET_HI, N_OPT_METHYL, dtype=np.float64)
     ]
 
 
@@ -281,9 +278,7 @@ def _water_problem() -> ControlProblem:
     )
 
 
-def _combined_evaluators() -> tuple[
-    Callable[[RealArray], float], Callable[[RealArray], RealArray]
-]:
+def _combined_evaluators() -> tuple[Callable[[RealArray], float], Callable[[RealArray], RealArray]]:
     """Return (objective, gradient) for the full band-selective 180_x goal.
 
     fidelity = (F_my + F_mz + WATER_WEIGHT * F_water) / (2 + WATER_WEIGHT). The
@@ -306,9 +301,7 @@ def _combined_evaluators() -> tuple[
         _, g_my = grape_xy_and_gradient(cp_my, wfm)
         _, g_mz = grape_xy_and_gradient(cp_mz, wfm)
         _, g_water = grape_xy_and_gradient(cp_water, wfm)
-        return np.asarray(
-            (g_my + g_mz + WATER_WEIGHT * g_water) / norm, dtype=np.float64
-        )
+        return np.asarray((g_my + g_mz + WATER_WEIGHT * g_water) / norm, dtype=np.float64)
 
     return objective, gradient
 
@@ -329,9 +322,7 @@ def _inversion_evaluators() -> tuple[
     norm = 1.0 + WATER_WEIGHT
 
     def objective(wfm: RealArray) -> float:
-        return float(
-            (grape_xy(cp_mz, wfm) + WATER_WEIGHT * grape_xy(cp_water, wfm)) / norm
-        )
+        return float((grape_xy(cp_mz, wfm) + WATER_WEIGHT * grape_xy(cp_water, wfm)) / norm)
 
     def gradient(wfm: RealArray) -> RealArray:
         _, g_mz = grape_xy_and_gradient(cp_mz, wfm)
@@ -441,12 +432,15 @@ def _oc_propagator(wfm_xy: RealArray, offset_hz: float, b1_scale: float) -> Comp
     """Return the total 2x2 propagator of the OC pulse at one offset/B1 point."""
     total = np.eye(2, dtype=np.complex128)
     for step in range(wfm_xy.shape[0]):
-        total = _slice_propagator(
-            b1_scale * RF_MAX_HZ * float(wfm_xy[step, 0]),
-            b1_scale * RF_MAX_HZ * float(wfm_xy[step, 1]),
-            offset_hz,
-            DT,
-        ) @ total
+        total = (
+            _slice_propagator(
+                b1_scale * RF_MAX_HZ * float(wfm_xy[step, 0]),
+                b1_scale * RF_MAX_HZ * float(wfm_xy[step, 1]),
+                offset_hz,
+                DT,
+            )
+            @ total
+        )
     return total
 
 
@@ -613,8 +607,7 @@ def _plot_figure(wfm_xy: RealArray, profile: dict[str, RealArray], output_dir: P
     ax_art.set_title("HMQC methyl artifact intensity (Eq. 6)")
     ax_art.legend(fontsize=8, loc="upper center")
 
-    fig.savefig(figure_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    save_figure(fig, figure_path, dpi=150, bbox_inches="tight")
     return figure_path
 
 

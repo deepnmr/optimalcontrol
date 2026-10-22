@@ -60,7 +60,7 @@ def _import_example(name: str) -> object:
 @pytest.mark.parametrize("name", _EXAMPLE_NAMES)
 def test_example_matches_snapshot(name: str) -> None:
     mod = _import_example(name)
-    run = getattr(mod, "run")
+    run = mod.run
     result = run()
     assert result is not None
     expected = _load_snapshot(name)

@@ -18,6 +18,79 @@ type SliceData<D> = (CMatrix<D>, CMatrix<D>, Vec<CMatrix<D>>);
 /// Per-member results: (per-pair fidelities, per-pair flat gradients).
 type MemberPairResults = (Vec<f64>, Vec<Vec<f64>>);
 
+/// Borrowed vector-state inputs shared by the ensemble drivers.
+struct VectorInputs<'a> {
+    drifts: &'a [Complex64],
+    operators: &'a [Complex64],
+    waveform: &'a [f64],
+    rho_init: &'a [Complex64],
+    rho_targ: &'a [Complex64],
+    dt: f64,
+    mode: FidelityMode,
+    members: usize,
+    channels: usize,
+    steps: usize,
+    dim: usize,
+    pairs: usize,
+}
+
+/// One member's borrowed inputs, with the selected matrix dimension.
+struct MemberInputs<'a, D> {
+    dim: D,
+    drift: &'a [Complex64],
+    operators: &'a [Complex64],
+    waveform: &'a [f64],
+    rho_init: &'a [Complex64],
+    rho_targ: &'a [Complex64],
+    dt: f64,
+    mode: FidelityMode,
+    channels: usize,
+    steps: usize,
+    pairs: usize,
+    parallel_steps: bool,
+}
+
+impl<'a> MemberInputs<'a, usize> {
+    fn with_dim<D>(self, dim: D) -> MemberInputs<'a, D> {
+        MemberInputs {
+            dim,
+            drift: self.drift,
+            operators: self.operators,
+            waveform: self.waveform,
+            rho_init: self.rho_init,
+            rho_targ: self.rho_targ,
+            dt: self.dt,
+            mode: self.mode,
+            channels: self.channels,
+            steps: self.steps,
+            pairs: self.pairs,
+            parallel_steps: self.parallel_steps,
+        }
+    }
+}
+
+impl VectorInputs<'_> {
+    fn member(&self, member: usize) -> MemberInputs<'_, usize> {
+        let matrix_len = self.dim * self.dim;
+        MemberInputs {
+            dim: self.dim,
+            drift: &self.drifts[member * matrix_len..(member + 1) * matrix_len],
+            operators: &self.operators
+                [member * self.channels * matrix_len..(member + 1) * self.channels * matrix_len],
+            waveform: self.waveform,
+            rho_init: self.rho_init,
+            rho_targ: self.rho_targ,
+            dt: self.dt,
+            mode: self.mode,
+            channels: self.channels,
+            steps: self.steps,
+            pairs: self.pairs,
+            parallel_steps: self.members < rayon::current_num_threads()
+                && self.members * self.steps >= 256,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 enum FidelityMode {
     Real,
@@ -62,8 +135,7 @@ fn is_anti_hermitian_slice(values: &[Complex64], dim: usize) -> bool {
         .fold(1.0_f64, f64::max);
     for row in 0..dim {
         for col in 0..dim {
-            if (values[row * dim + col] + values[col * dim + row].conj()).norm() > 1.0e-12 * scale
-            {
+            if (values[row * dim + col] + values[col * dim + row].conj()).norm() > 1.0e-12 * scale {
                 return false;
             }
         }
@@ -74,35 +146,39 @@ fn is_anti_hermitian_slice(values: &[Complex64], dim: usize) -> bool {
 /// Anti-Hermiticity of a member's drift and all its control operators.
 ///
 /// The step generators are drift + sum(w_k * control_k) with real waveform
-/// weights, so checking the drift and controls once covers every time slice.
+/// weights. Scale controls by their maximum waveform amplitudes so the tolerance
+/// floor cannot hide dissipation amplified by the waveform.
 fn member_is_anti_hermitian(
     drift: &[Complex64],
     operators: &[Complex64],
     dim: usize,
-    channels: usize,
+    amplitudes: &[f64],
 ) -> bool {
     let matrix_len = dim * dim;
     if !is_anti_hermitian_slice(drift, dim) {
         return false;
     }
-    (0..channels).all(|channel| {
-        is_anti_hermitian_slice(
-            &operators[channel * matrix_len..(channel + 1) * matrix_len],
-            dim,
-        )
+    amplitudes.iter().enumerate().all(|(channel, &amplitude)| {
+        let operator = &operators[channel * matrix_len..(channel + 1) * matrix_len];
+        if amplitude == 1.0 {
+            is_anti_hermitian_slice(operator, dim)
+        } else {
+            let scaled: Vec<Complex64> = operator.iter().map(|value| value * amplitude).collect();
+            is_anti_hermitian_slice(&scaled, dim)
+        }
     })
 }
 
 /// Statically dispatch a generic kernel on the common small dimensions.
 macro_rules! dispatch_dim {
-    ($dim:expr, $func:ident, $($args:expr),* $(,)?) => {
+    ($dim:expr, $func:ident, $inputs:expr) => {
         match $dim {
-            2 => $func(Const::<2>, $($args),*),
-            3 => $func(Const::<3>, $($args),*),
-            4 => $func(Const::<4>, $($args),*),
-            8 => $func(Const::<8>, $($args),*),
-            16 => $func(Const::<16>, $($args),*),
-            n => $func(Dyn(n), $($args),*),
+            2 => $func($inputs.with_dim(Const::<2>)),
+            3 => $func($inputs.with_dim(Const::<3>)),
+            4 => $func($inputs.with_dim(Const::<4>)),
+            8 => $func($inputs.with_dim(Const::<8>)),
+            16 => $func($inputs.with_dim(Const::<16>)),
+            n => $func($inputs.with_dim(Dyn(n))),
         }
     };
 }
@@ -172,26 +248,26 @@ where
 ///
 /// `drift` and `operators` are row-major slices for this member only and must
 /// already be verified anti-Hermitian by the caller.
-#[allow(clippy::too_many_arguments)]
-fn member_pair_values_gradients<D>(
-    dim: D,
-    drift: &[Complex64],
-    operators: &[Complex64],
-    waveform: &[f64],
-    rho_init: &[Complex64],
-    rho_targ: &[Complex64],
-    dt: f64,
-    mode: FidelityMode,
-    channels: usize,
-    steps: usize,
-    pairs: usize,
-    parallel_steps: bool,
-) -> MemberPairResults
+fn member_pair_values_gradients<D>(inputs: MemberInputs<'_, D>) -> MemberPairResults
 where
     D: DimSub<U1>,
     DefaultAllocator: Allocator<D, D> + Allocator<D> + Allocator<DimDiff<D, U1>>,
     CMatrix<D>: Send + Sync,
 {
+    let MemberInputs {
+        dim,
+        drift,
+        operators,
+        waveform,
+        rho_init,
+        rho_targ,
+        dt,
+        mode,
+        channels,
+        steps,
+        pairs,
+        parallel_steps,
+    } = inputs;
     let n = dim.value();
     let matrix_len = n * n;
     let minus_i_dt = Complex64::new(0.0, -dt);
@@ -224,15 +300,17 @@ where
                         // cancellation-free sinc form, well-conditioned for
                         // near-degenerate eigenvalue pairs and identical to
                         // the Python expression in grape.py.
-                        let half_gap = 0.5 * dt * (eigenvalues[row] - eigenvalues[col]);
+                        let theta_r = dt * eigenvalues[row];
+                        let theta_c = dt * eigenvalues[col];
+                        let half_gap = 0.5 * (theta_r - theta_c);
+                        let midpoint = 0.5 * (theta_r + theta_c);
                         let sinc = if half_gap == 0.0 {
                             1.0
                         } else {
                             half_gap.sin() / half_gap
                         };
-                        let divided = minus_i_dt
-                            * (minus_i_dt * (0.5 * (eigenvalues[row] + eigenvalues[col]))).exp()
-                            * sinc;
+                        let divided =
+                            minus_i_dt * (Complex64::new(0.0, -1.0) * midpoint).exp() * sinc;
                         weighted[(row, col)] *= divided;
                     }
                 }
@@ -308,26 +386,26 @@ where
 /// Summed (not yet averaged) fidelity over all state pairs of one member
 /// via the eigen propagators. The caller applies the 1/(members*pairs) scale
 /// exactly as the gradient kernel does, so both kernels agree bitwise.
-#[allow(clippy::too_many_arguments)]
-fn member_fidelity_eigen<D>(
-    dim: D,
-    drift: &[Complex64],
-    operators: &[Complex64],
-    waveform: &[f64],
-    rho_init: &[Complex64],
-    rho_targ: &[Complex64],
-    dt: f64,
-    mode: FidelityMode,
-    channels: usize,
-    steps: usize,
-    pairs: usize,
-    parallel_steps: bool,
-) -> f64
+fn member_fidelity_eigen<D>(inputs: MemberInputs<'_, D>) -> f64
 where
     D: DimSub<U1>,
     DefaultAllocator: Allocator<D, D> + Allocator<D> + Allocator<DimDiff<D, U1>>,
     CMatrix<D>: Send + Sync,
 {
+    let MemberInputs {
+        dim,
+        drift,
+        operators,
+        waveform,
+        rho_init,
+        rho_targ,
+        dt,
+        mode,
+        channels,
+        steps,
+        pairs,
+        parallel_steps,
+    } = inputs;
     let n = dim.value();
     let matrix_len = n * n;
     let minus_i_dt = Complex64::new(0.0, -dt);
@@ -344,11 +422,7 @@ where
 
     let mut states: Vec<CVector<D>> = (0..pairs)
         .map(|pair| {
-            OVector::from_column_slice_generic(
-                dim,
-                Const::<1>,
-                &rho_init[pair * n..pair * n + n],
-            )
+            OVector::from_column_slice_generic(dim, Const::<1>, &rho_init[pair * n..pair * n + n])
         })
         .collect();
 
@@ -398,20 +472,21 @@ where
 }
 
 /// General (possibly dissipative) fallback via dense matrix exponentials.
-#[allow(clippy::too_many_arguments)]
-fn member_fidelity_expm(
-    drift: &[Complex64],
-    operators: &[Complex64],
-    waveform: &[f64],
-    rho_init: &[Complex64],
-    rho_targ: &[Complex64],
-    dt: f64,
-    mode: FidelityMode,
-    dim: usize,
-    channels: usize,
-    steps: usize,
-    pairs: usize,
-) -> f64 {
+fn member_fidelity_expm(inputs: MemberInputs<'_, usize>) -> f64 {
+    let MemberInputs {
+        dim,
+        drift,
+        operators,
+        waveform,
+        rho_init,
+        rho_targ,
+        dt,
+        mode,
+        channels,
+        steps,
+        pairs,
+        ..
+    } = inputs;
     let matrix_len = dim * dim;
     let drift = DMatrix::from_row_slice(dim, dim, drift);
     let controls: Vec<DMatrix<Complex64>> = (0..channels)
@@ -456,7 +531,9 @@ fn ensure_finite_f64(name: &str, values: &[f64]) -> PyResult<()> {
     if values.iter().all(|value| value.is_finite()) {
         Ok(())
     } else {
-        Err(PyValueError::new_err(format!("{name} entries must be finite")))
+        Err(PyValueError::new_err(format!(
+            "{name} entries must be finite"
+        )))
     }
 }
 
@@ -467,7 +544,9 @@ fn ensure_finite_c64(name: &str, values: &[Complex64]) -> PyResult<()> {
     {
         Ok(())
     } else {
-        Err(PyValueError::new_err(format!("{name} entries must be finite")))
+        Err(PyValueError::new_err(format!(
+            "{name} entries must be finite"
+        )))
     }
 }
 
@@ -513,20 +592,16 @@ fn validate_shapes(
     Ok((members, channels, steps, dim))
 }
 
-/// Mean fidelity over a fully expanded ensemble of vector-state GRAPE problems.
-///
-/// Matrix assembly, slice exponentials, propagation, and ensemble reduction all
-/// run in Rust. Ensemble members are evaluated in parallel with Rayon.
-#[pyfunction]
-fn grape_fidelity_vectors(
-    drifts: PyReadonlyArray3<'_, Complex64>,
-    operators: PyReadonlyArray4<'_, Complex64>,
-    waveform: PyReadonlyArray2<'_, f64>,
-    rho_init: PyReadonlyArray2<'_, Complex64>,
-    rho_targ: PyReadonlyArray2<'_, Complex64>,
+/// Validate the shared GRAPE boundary and borrow its contiguous arrays.
+fn vector_inputs<'a>(
+    drifts: &'a PyReadonlyArray3<'_, Complex64>,
+    operators: &'a PyReadonlyArray4<'_, Complex64>,
+    waveform: &'a PyReadonlyArray2<'_, f64>,
+    rho_init: &'a PyReadonlyArray2<'_, Complex64>,
+    rho_targ: &'a PyReadonlyArray2<'_, Complex64>,
     dt: f64,
     mode: &str,
-) -> PyResult<f64> {
+) -> PyResult<VectorInputs<'a>> {
     if !dt.is_finite() || dt <= 0.0 {
         return Err(PyValueError::new_err("dt must be finite and positive"));
     }
@@ -536,6 +611,19 @@ fn grape_fidelity_vectors(
     let waveform_shape = waveform.shape().to_vec();
     let init_shape = rho_init.shape().to_vec();
     let target_shape = rho_targ.shape().to_vec();
+    for (name, contiguous) in [
+        ("drifts", drifts.is_c_contiguous()),
+        ("operators", operators.is_c_contiguous()),
+        ("waveform", waveform.is_c_contiguous()),
+        ("rho_init", rho_init.is_c_contiguous()),
+        ("rho_targ", rho_targ.is_c_contiguous()),
+    ] {
+        if !contiguous {
+            return Err(PyValueError::new_err(format!(
+                "{name} must be a C-contiguous array"
+            )));
+        }
+    }
     let drifts = drifts.as_slice()?;
     let operators = operators.as_slice()?;
     let waveform = waveform.as_slice()?;
@@ -554,8 +642,49 @@ fn grape_fidelity_vectors(
     ensure_finite_c64("rho_init", rho_init)?;
     ensure_finite_c64("rho_targ", rho_targ)?;
     let pairs = init_shape[0];
-    let matrix_len = dim * dim;
-    let parallel_steps = members < rayon::current_num_threads() && members * steps >= 256;
+    Ok(VectorInputs {
+        drifts,
+        operators,
+        waveform,
+        rho_init,
+        rho_targ,
+        dt,
+        mode: fidelity_mode,
+        members,
+        channels,
+        steps,
+        dim,
+        pairs,
+    })
+}
+
+/// Mean fidelity over a fully expanded ensemble of vector-state GRAPE problems.
+///
+/// Matrix assembly, slice exponentials, propagation, and ensemble reduction all
+/// run in Rust. Ensemble members are evaluated in parallel with Rayon.
+#[pyfunction]
+fn grape_fidelity_vectors(
+    drifts: PyReadonlyArray3<'_, Complex64>,
+    operators: PyReadonlyArray4<'_, Complex64>,
+    waveform: PyReadonlyArray2<'_, f64>,
+    rho_init: PyReadonlyArray2<'_, Complex64>,
+    rho_targ: PyReadonlyArray2<'_, Complex64>,
+    dt: f64,
+    mode: &str,
+) -> PyResult<f64> {
+    let inputs = vector_inputs(
+        &drifts, &operators, &waveform, &rho_init, &rho_targ, dt, mode,
+    )?;
+    let (members, pairs) = (inputs.members, inputs.pairs);
+    let amplitudes: Vec<f64> = (0..inputs.channels)
+        .map(|channel| {
+            inputs.waveform[channel..]
+                .iter()
+                .step_by(inputs.channels)
+                .map(|value| value.abs())
+                .fold(1.0, f64::max)
+        })
+        .collect();
 
     // Collect per-member values in index order and reduce serially so the
     // fidelity is bitwise reproducible run-to-run; a parallel f64 sum
@@ -564,39 +693,11 @@ fn grape_fidelity_vectors(
     let member_values: Vec<f64> = (0..members)
         .into_par_iter()
         .map(|member| {
-            let drift = &drifts[member * matrix_len..(member + 1) * matrix_len];
-            let member_operators = &operators
-                [member * channels * matrix_len..(member + 1) * channels * matrix_len];
-            if member_is_anti_hermitian(drift, member_operators, dim, channels) {
-                dispatch_dim!(
-                    dim,
-                    member_fidelity_eigen,
-                    drift,
-                    member_operators,
-                    waveform,
-                    rho_init,
-                    rho_targ,
-                    dt,
-                    fidelity_mode,
-                    channels,
-                    steps,
-                    pairs,
-                    parallel_steps,
-                )
+            let member = inputs.member(member);
+            if member_is_anti_hermitian(member.drift, member.operators, member.dim, &amplitudes) {
+                dispatch_dim!(member.dim, member_fidelity_eigen, member)
             } else {
-                member_fidelity_expm(
-                    drift,
-                    member_operators,
-                    waveform,
-                    rho_init,
-                    rho_targ,
-                    dt,
-                    fidelity_mode,
-                    dim,
-                    channels,
-                    steps,
-                    pairs,
-                )
+                member_fidelity_expm(member)
             }
         })
         .collect();
@@ -607,51 +708,32 @@ fn grape_fidelity_vectors(
 }
 
 /// Shared parallel driver returning per-pair values and gradients per member.
-#[allow(clippy::too_many_arguments)]
-fn all_member_pair_results(
-    drifts: &[Complex64],
-    operators: &[Complex64],
-    waveform: &[f64],
-    rho_init: &[Complex64],
-    rho_targ: &[Complex64],
-    dt: f64,
-    mode: FidelityMode,
-    members: usize,
-    channels: usize,
-    steps: usize,
-    dim: usize,
-    pairs: usize,
-) -> PyResult<Vec<MemberPairResults>> {
-    let matrix_len = dim * dim;
+fn all_member_pair_results(inputs: &VectorInputs<'_>) -> PyResult<Vec<MemberPairResults>> {
+    let amplitudes: Vec<f64> = (0..inputs.channels)
+        .map(|channel| {
+            inputs.waveform[channel..]
+                .iter()
+                .step_by(inputs.channels)
+                .map(|value| value.abs())
+                .fold(1.0, f64::max)
+        })
+        .collect();
     // With fewer members than worker threads, recover parallelism by
     // decomposing the time slices of each member concurrently instead. Tiny
     // problems stay serial: the fork/join overhead outweighs ~1 us slices.
-    let parallel_steps = members < rayon::current_num_threads() && members * steps >= 256;
-    (0..members)
+    (0..inputs.members)
         .into_par_iter()
         .map(|member| {
-            let drift = &drifts[member * matrix_len..(member + 1) * matrix_len];
-            let member_operators = &operators
-                [member * channels * matrix_len..(member + 1) * channels * matrix_len];
-            if !member_is_anti_hermitian(drift, member_operators, dim, channels) {
+            let member = inputs.member(member);
+            if !member_is_anti_hermitian(member.drift, member.operators, member.dim, &amplitudes) {
                 return Err(PyValueError::new_err(
                     "Rust gradient acceleration requires anti-Hermitian generators",
                 ));
             }
             Ok(dispatch_dim!(
-                dim,
+                member.dim,
                 member_pair_values_gradients,
-                drift,
-                member_operators,
-                waveform,
-                rho_init,
-                rho_targ,
-                dt,
-                mode,
-                channels,
-                steps,
-                pairs,
-                parallel_steps,
+                member
             ))
         })
         .collect()
@@ -668,48 +750,12 @@ fn grape_value_gradient_vectors(
     dt: f64,
     mode: &str,
 ) -> PyResult<(f64, Vec<Vec<f64>>)> {
-    if !dt.is_finite() || dt <= 0.0 {
-        return Err(PyValueError::new_err("dt must be finite and positive"));
-    }
-    let fidelity_mode = FidelityMode::parse(mode)?;
-    let drift_shape = drifts.shape().to_vec();
-    let operator_shape = operators.shape().to_vec();
-    let waveform_shape = waveform.shape().to_vec();
-    let init_shape = rho_init.shape().to_vec();
-    let target_shape = rho_targ.shape().to_vec();
-    let drifts = drifts.as_slice()?;
-    let operators = operators.as_slice()?;
-    let waveform = waveform.as_slice()?;
-    let rho_init = rho_init.as_slice()?;
-    let rho_targ = rho_targ.as_slice()?;
-    let (members, channels, steps, dim) = validate_shapes(
-        &drift_shape,
-        &operator_shape,
-        &waveform_shape,
-        &init_shape,
-        &target_shape,
+    let inputs = vector_inputs(
+        &drifts, &operators, &waveform, &rho_init, &rho_targ, dt, mode,
     )?;
-    ensure_finite_c64("drifts", drifts)?;
-    ensure_finite_c64("operators", operators)?;
-    ensure_finite_f64("waveform", waveform)?;
-    ensure_finite_c64("rho_init", rho_init)?;
-    ensure_finite_c64("rho_targ", rho_targ)?;
-    let pairs = init_shape[0];
-
-    let member_results = all_member_pair_results(
-        drifts,
-        operators,
-        waveform,
-        rho_init,
-        rho_targ,
-        dt,
-        fidelity_mode,
-        members,
-        channels,
-        steps,
-        dim,
-        pairs,
-    )?;
+    let (members, channels, steps, pairs) =
+        (inputs.members, inputs.channels, inputs.steps, inputs.pairs);
+    let member_results = all_member_pair_results(&inputs)?;
 
     let mut value = 0.0;
     let mut gradient = vec![0.0; steps * channels];
@@ -731,7 +777,12 @@ fn grape_value_gradient_vectors(
 }
 
 fn rotate_bloch(mut state: [f64; 3], field: [f64; 3], dt: f64) -> [f64; 3] {
-    let norm = (field[0] * field[0] + field[1] * field[1] + field[2] * field[2]).sqrt();
+    let m = field[0].abs().max(field[1].abs()).max(field[2].abs());
+    let norm = if m == 0.0 {
+        0.0
+    } else {
+        m * ((field[0] / m).powi(2) + (field[1] / m).powi(2) + (field[2] / m).powi(2)).sqrt()
+    };
     if norm == 0.0 {
         return state;
     }
@@ -774,6 +825,18 @@ fn bloch_ensemble(
         return Err(PyValueError::new_err(
             "initial must have shape (3,) and waveform_xy shape (steps, 2)",
         ));
+    }
+    for (name, contiguous) in [
+        ("initial", initial.is_c_contiguous()),
+        ("waveform_xy", waveform_xy.is_c_contiguous()),
+        ("offsets_hz", offsets_hz.is_c_contiguous()),
+        ("b1_scales", b1_scales.is_c_contiguous()),
+    ] {
+        if !contiguous {
+            return Err(PyValueError::new_err(format!(
+                "{name} must be a C-contiguous array"
+            )));
+        }
     }
     let initial = initial.as_slice()?;
     let waveform = waveform_xy.as_slice()?;
@@ -825,7 +888,12 @@ fn spin_propagator(ux: f64, uy: f64, offset: f64, scale: f64, rf: f64, dt: f64) 
     let fx = scale * rf * ux;
     let fy = scale * rf * uy;
     let fz = offset;
-    let fnorm = (fx * fx + fy * fy + fz * fz).sqrt();
+    let m = fx.abs().max(fy.abs()).max(fz.abs());
+    let fnorm = if m == 0.0 {
+        0.0
+    } else {
+        m * ((fx / m).powi(2) + (fy / m).powi(2) + (fz / m).powi(2)).sqrt()
+    };
     if fnorm == 0.0 {
         return (Spin::identity(), Spin::zeros());
     }
@@ -942,19 +1010,36 @@ fn seedless_inputs<'a>(
     dt: f64,
 ) -> PyResult<SeedlessInputs<'a>> {
     if !rf_hz.is_finite() || rf_hz < 0.0 {
-        return Err(PyValueError::new_err("rf_hz must be finite and non-negative"));
+        return Err(PyValueError::new_err(
+            "rf_hz must be finite and non-negative",
+        ));
     }
     if !dt.is_finite() || dt <= 0.0 {
         return Err(PyValueError::new_err("dt must be finite and positive"));
     }
     if waveform_xy.shape()[1] != 2 {
-        return Err(PyValueError::new_err("waveform_xy must have shape (steps, 2)"));
+        return Err(PyValueError::new_err(
+            "waveform_xy must have shape (steps, 2)",
+        ));
+    }
+    for (name, contiguous) in [
+        ("waveform_xy", waveform_xy.is_c_contiguous()),
+        ("offsets_hz", offsets_hz.is_c_contiguous()),
+        ("b1_scales", b1_scales.is_c_contiguous()),
+    ] {
+        if !contiguous {
+            return Err(PyValueError::new_err(format!(
+                "{name} must be a C-contiguous array"
+            )));
+        }
     }
     let waveform = waveform_xy.as_slice()?;
     let offsets = offsets_hz.as_slice()?;
     let scales = b1_scales.as_slice()?;
     if offsets.is_empty() || scales.is_empty() || waveform.is_empty() {
-        return Err(PyValueError::new_err("ensemble and waveform axes must be non-empty"));
+        return Err(PyValueError::new_err(
+            "ensemble and waveform axes must be non-empty",
+        ));
     }
     let n_steps = waveform.len() / 2;
     Ok((waveform, offsets, scales, n_steps))
@@ -962,7 +1047,6 @@ fn seedless_inputs<'a>(
 
 /// Per-member S2S fidelities and gradients over the offset-major (offset, B1) grid.
 #[pyfunction]
-#[allow(clippy::too_many_arguments)]
 fn seedless_pair_value_gradient(
     waveform_xy: PyReadonlyArray2<'_, f64>,
     offsets_hz: PyReadonlyArray1<'_, f64>,
@@ -975,7 +1059,19 @@ fn seedless_pair_value_gradient(
     let (waveform, offsets, scales, n_steps) =
         seedless_inputs(&waveform_xy, &offsets_hz, &b1_scales, rf_hz, dt)?;
     if init_bloch.shape() != [3] || targ_bloch.shape() != [3] {
-        return Err(PyValueError::new_err("init_bloch and targ_bloch must have shape (3,)"));
+        return Err(PyValueError::new_err(
+            "init_bloch and targ_bloch must have shape (3,)",
+        ));
+    }
+    for (name, contiguous) in [
+        ("init_bloch", init_bloch.is_c_contiguous()),
+        ("targ_bloch", targ_bloch.is_c_contiguous()),
+    ] {
+        if !contiguous {
+            return Err(PyValueError::new_err(format!(
+                "{name} must be a C-contiguous array"
+            )));
+        }
     }
     let i = init_bloch.as_slice()?;
     let t = targ_bloch.as_slice()?;

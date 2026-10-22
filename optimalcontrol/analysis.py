@@ -3,9 +3,9 @@
 import numpy as np
 from scipy.signal import spectrogram
 
+from optimalcontrol._problem import ControlProblem
 from optimalcontrol._types import Array, RealArray
 from optimalcontrol.grape import (
-    ControlProblem,
     _has_ensemble_axes,
     _problem_for_basis,
     forward_propagators,

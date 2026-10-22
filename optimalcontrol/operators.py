@@ -50,9 +50,7 @@ def place_operator(
     """Place op at spin_index in an n_spins Hilbert space, identity at all other sites."""
     if not 0 <= spin_index < n_spins:
         raise ValueError(f"spin_index {spin_index} out of range for {n_spins} spins")
-    ops: list[npt.NDArray[np.complex128]] = [
-        op if i == spin_index else E() for i in range(n_spins)
-    ]
+    ops: list[npt.NDArray[np.complex128]] = [op if i == spin_index else E() for i in range(n_spins)]
     return kron_product(ops)
 
 
@@ -150,11 +148,5 @@ def lindblad_dissipator(
             if coeff == 0.0:
                 continue
             FlFk = Fl.conj().T @ Fk
-            D += coeff * (
-                L_op(Fk) @ R_op(Fl.conj().T)
-                - 0.5 * L_op(FlFk)
-                - 0.5 * R_op(FlFk)
-            )
+            D += coeff * (L_op(Fk) @ R_op(Fl.conj().T) - 0.5 * L_op(FlFk) - 0.5 * R_op(FlFk))
     return D
-
-

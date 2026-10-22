@@ -10,9 +10,12 @@ from optimalcontrol.operators import (
     Ix,
     Iy,
     Iz,
+    L_op,
+    R_op,
     kron_product,
     place_operator,
     two_spin_product,
+    vec,
 )
 
 
@@ -71,6 +74,24 @@ def test_kron_product_two_elements() -> None:
 def test_kron_product_empty_raises() -> None:
     try:
         kron_product([])
-        assert False, "Expected ValueError"
+        raise AssertionError("Expected ValueError")
     except ValueError:
         pass
+
+
+def _random_complex_2x2(rng: np.random.Generator) -> np.ndarray:
+    return rng.standard_normal((2, 2)) + 1j * rng.standard_normal((2, 2))
+
+
+def test_L_op_left_multiplies_in_column_major_vec() -> None:
+    rng = np.random.default_rng(0)
+    for _ in range(10):
+        A, X = _random_complex_2x2(rng), _random_complex_2x2(rng)
+        npt.assert_allclose(L_op(A) @ vec(X), vec(A @ X), rtol=1e-12, atol=1e-12)
+
+
+def test_R_op_right_multiplies_in_column_major_vec() -> None:
+    rng = np.random.default_rng(1)
+    for _ in range(10):
+        B, X = _random_complex_2x2(rng), _random_complex_2x2(rng)
+        npt.assert_allclose(R_op(B) @ vec(X), vec(X @ B), rtol=1e-12, atol=1e-12)
