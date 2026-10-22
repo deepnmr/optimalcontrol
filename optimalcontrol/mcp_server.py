@@ -13,8 +13,10 @@ with the independent Bloch model.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -24,6 +26,8 @@ from optimalcontrol.ocseed import Band, SeedlessSpec, _axis_bloch
 
 try:
     from mcp.server import MCPServer
+    from mcp.server.mcpserver.exceptions import ToolError
+    from typing_extensions import TypedDict  # pydantic needs this form on Python < 3.12
 except ImportError as exc:  # pragma: no cover
     raise ImportError(
         'MCP support requires the optional "mcp" dependency: pip install "optimalcontrol-nmr[mcp]"'
@@ -40,6 +44,29 @@ server = MCPServer(
         "the offset response."
     ),
 )
+
+
+class _BandRequired(TypedDict):
+    ppm_lo: float
+    ppm_hi: float
+    restraint: Literal["universal", "s2s", "xycite", "suppress"]
+
+
+class BandSpec(_BandRequired, total=False):
+    n_offsets: int
+    init: str
+    targ: str
+    rotation: list[Any]
+    weight: float
+    per_step: bool
+
+
+@contextmanager
+def _tool_errors() -> Iterator[None]:
+    try:
+        yield
+    except (ValueError, KeyError, TypeError, OSError) as exc:
+        raise ToolError(str(exc)) from exc
 
 
 def _make_spec(spec_dict: dict[str, Any]) -> SeedlessSpec:
@@ -65,7 +92,7 @@ def design_seedless_pulse(
     rf_max_hz: float,
     duration_s: float,
     n_steps: int,
-    bands: list[dict[str, Any]],
+    bands: list[BandSpec],
     out_dir: str,
     name: str = "pulse",
     n_seeds: int = 4,
@@ -93,64 +120,68 @@ def design_seedless_pulse(
     value means a wrong-sign local minimum: retry with more n_seeds, or give
     the problem more duration_s / n_steps / rf_max_hz.
     """
-    spec_dict: dict[str, Any] = {
-        "spectrometer_mhz": spectrometer_mhz,
-        "carrier_ppm": carrier_ppm,
-        "rf_max_hz": rf_max_hz,
-        "duration_s": duration_s,
-        "n_steps": n_steps,
-        "bands": bands,
-    }
-    if b1_scales is not None:
-        spec_dict["b1_scales"] = b1_scales
-    if b1_weights is not None:
-        spec_dict["b1_weights"] = b1_weights
-    spec = _make_spec(spec_dict)
+    if n_seeds < 1:
+        raise ToolError("n_seeds must be >= 1")
+    with _tool_errors():
+        spec_dict: dict[str, Any] = {
+            "spectrometer_mhz": spectrometer_mhz,
+            "carrier_ppm": carrier_ppm,
+            "rf_max_hz": rf_max_hz,
+            "duration_s": duration_s,
+            "n_steps": n_steps,
+            "bands": bands,
+        }
+        if b1_scales is not None:
+            spec_dict["b1_scales"] = b1_scales
+        if b1_weights is not None:
+            spec_dict["b1_weights"] = b1_weights
+        spec = _make_spec(spec_dict)
 
-    best_phases, best_infidelity = None, float("inf")
-    for seed in range(n_seeds):
-        phases, infidelity = spec.optimize(max_iter=max_iter, seed=seed)
-        if infidelity < best_infidelity:
-            best_phases, best_infidelity = phases, infidelity
-    assert best_phases is not None
+        best_phases, best_infidelity = None, float("inf")
+        for seed in range(n_seeds):
+            phases, infidelity = spec.optimize(max_iter=max_iter, seed=seed)
+            if infidelity < best_infidelity:
+                best_phases, best_infidelity = phases, infidelity
+        if best_phases is None:
+            raise ToolError("optimisation returned no phases")
 
-    waveform = spec.waveform_xy(best_phases)
-    evaluations = [spec.evaluate(waveform, b1_scale=scale) for scale in spec.b1_scales]
-    worst_case = {
-        key: (max if key.endswith(":xycite") else min)(values[key] for values in evaluations)
-        for key in evaluations[0]
-    }
+        waveform = spec.waveform_xy(best_phases)
+        evaluations = [spec.evaluate(waveform, b1_scale=scale) for scale in spec.b1_scales]
+        worst_case = {
+            key: (max if key.endswith(":xycite") else min)(values[key] for values in evaluations)
+            for key in evaluations[0]
+        }
 
-    out = Path(out_dir).expanduser()
-    out.mkdir(parents=True, exist_ok=True)
-    shape_path = spec.export_shape(best_phases, out / f"{name}.shape", title=name)
-    design_path = out / f"{name}.json"
-    design_path.write_text(
-        json.dumps(
-            {
-                "optimalcontrol_version": __version__,
-                "spec": spec_dict,
-                "phases_rad": best_phases.tolist(),
-                "infidelity": best_infidelity,
-                "worst_case": worst_case,
-            },
-            indent=2,
+        out = Path(out_dir).expanduser()
+        out.mkdir(parents=True, exist_ok=True)
+        shape_path = spec.export_shape(best_phases, out / f"{name}.shape", title=name)
+        design_path = out / f"{name}.json"
+        design_path.write_text(
+            json.dumps(
+                {
+                    "optimalcontrol_version": __version__,
+                    "spec": spec_dict,
+                    "phases_rad": best_phases.tolist(),
+                    "infidelity": best_infidelity,
+                    "worst_case": worst_case,
+                },
+                indent=2,
+            )
         )
-    )
 
-    warnings = [
-        f"{key} = {value:.4f}: wrong-sign local minimum — see docstring"
-        for key, value in worst_case.items()
-        if value < 0.0 and not key.endswith(":xycite")
-    ]
-    return {
-        "shape_file": str(shape_path),
-        "design_json": str(design_path),
-        "infidelity": round(best_infidelity, 6),
-        "worst_case": {k: round(v, 4) for k, v in worst_case.items()},
-        "dt_s": spec.dt,
-        "warnings": warnings,
-    }
+        warnings = [
+            f"{key} = {value:.4f}: wrong-sign local minimum — see docstring"
+            for key, value in worst_case.items()
+            if value < 0.0 and not key.endswith(":xycite")
+        ]
+        return {
+            "shape_file": str(shape_path),
+            "design_json": str(design_path),
+            "infidelity": round(best_infidelity, 6),
+            "worst_case": {k: round(v, 4) for k, v in worst_case.items()},
+            "dt_s": spec.dt,
+            "warnings": warnings,
+        }
 
 
 @server.tool()
@@ -169,24 +200,25 @@ def bloch_offset_profile(
     or negated). Returns the final magnetisation per offset; regions not covered
     by any band are unconstrained by design.
     """
-    design = json.loads(Path(design_json).expanduser().read_text())
-    spec = _make_spec(design["spec"])
-    waveform = spec.waveform_xy(np.asarray(design["phases_rad"], dtype=np.float64))
-    offsets = np.linspace(offset_lo_hz, offset_hi_hz, n_points)
-    final = propagate_bloch_ensemble(
-        _axis_bloch(init),
-        waveform,
-        offsets,
-        np.array([b1_scale]),
-        spec.rf_max_hz,
-        spec.dt,
-    )[0]
-    return {
-        "offsets_hz": [round(float(x), 3) for x in offsets],
-        "mx": [round(float(x), 4) for x in final[:, 0]],
-        "my": [round(float(x), 4) for x in final[:, 1]],
-        "mz": [round(float(x), 4) for x in final[:, 2]],
-    }
+    with _tool_errors():
+        design = json.loads(Path(design_json).expanduser().read_text())
+        spec = _make_spec(design["spec"])
+        waveform = spec.waveform_xy(np.asarray(design["phases_rad"], dtype=np.float64))
+        offsets = np.linspace(offset_lo_hz, offset_hi_hz, n_points)
+        final = propagate_bloch_ensemble(
+            _axis_bloch(init),
+            waveform,
+            offsets,
+            np.array([b1_scale]),
+            spec.rf_max_hz,
+            spec.dt,
+        )[0]
+        return {
+            "offsets_hz": [round(float(x), 3) for x in offsets],
+            "mx": [round(float(x), 4) for x in final[:, 0]],
+            "my": [round(float(x), 4) for x in final[:, 1]],
+            "mz": [round(float(x), 4) for x in final[:, 2]],
+        }
 
 
 def main() -> None:
