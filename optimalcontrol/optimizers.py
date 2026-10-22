@@ -8,7 +8,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -24,10 +24,26 @@ from optimalcontrol.grape import (
 if TYPE_CHECKING:
     from optimalcontrol.io import Waveform
 
+from optimalcontrol._lbfgs import LBFGSState as LBFGSState
+from optimalcontrol._lbfgs import _copy_lbfgs_state as _copy_lbfgs_state
+from optimalcontrol._lbfgs import lbfgs_direction as lbfgs_direction
+from optimalcontrol._lbfgs import lbfgs_state as lbfgs_state
+from optimalcontrol._lbfgs import lbfgs_update as lbfgs_update
+from optimalcontrol._line_search import Gradient as Gradient
+from optimalcontrol._line_search import Objective as Objective
+from optimalcontrol._line_search import _array_norm as _array_norm
+from optimalcontrol._line_search import _as_real_array as _as_real_array
+from optimalcontrol._line_search import _bracket_trial_alpha as _bracket_trial_alpha
+from optimalcontrol._line_search import _cubic_interpolated_minimum as _cubic_interpolated_minimum
+from optimalcontrol._line_search import _directional_derivative as _directional_derivative
+from optimalcontrol._line_search import _LinePoint as _LinePoint
+from optimalcontrol._line_search import line_search_cubic as line_search_cubic
+from optimalcontrol._newton import _as_symmetric_matrix as _as_symmetric_matrix
+from optimalcontrol._newton import _newton_step as _newton_step
+from optimalcontrol._newton import _positive_definite_shift as _positive_definite_shift
+from optimalcontrol._newton import _rfo_step as _rfo_step
+from optimalcontrol._newton import _solve_symmetric_system as _solve_symmetric_system
 from optimalcontrol._types import Array, RealArray
-
-Objective = Callable[[RealArray], float]
-Gradient = Callable[[RealArray], RealArray]
 
 
 @dataclass
@@ -44,24 +60,6 @@ class OptimResult:
     trajectory: list[Array] | None = None
 
 
-class LBFGSState(TypedDict):
-    """Limited-memory inverse-Hessian state for maximisation optimizers."""
-
-    m: int
-    s_history: list[RealArray]
-    y_history: list[RealArray]
-    rho_history: list[float]
-
-
-@dataclass(frozen=True)
-class _LinePoint:
-    """One evaluated point on the scalar line-search objective."""
-
-    alpha: float
-    phi: float
-    dphi: float
-
-
 @dataclass(frozen=True)
 class _CheckpointData:
     """Validated checkpoint contents used by the optimizers."""
@@ -71,26 +69,6 @@ class _CheckpointData:
     n_feval: int = 0
     lbfgs_state: LBFGSState | None = None
     signature: str | None = None
-
-
-def _as_real_array(name: str, value: RealArray) -> RealArray:
-    """Return a finite float64 array."""
-    array = np.asarray(value, dtype=np.float64)
-    if array.size == 0:
-        raise ValueError(f"{name} must be non-empty")
-    if not np.all(np.isfinite(array)):
-        raise ValueError(f"{name} entries must be finite")
-    return array
-
-
-def _directional_derivative(gradient: RealArray, direction: RealArray) -> float:
-    """Return the real flattened directional derivative."""
-    return float(np.sum(np.asarray(gradient, dtype=np.float64) * direction))
-
-
-def _array_norm(value: RealArray) -> float:
-    """Return the Euclidean norm of a real array."""
-    return float(np.linalg.norm(np.asarray(value, dtype=np.float64).reshape(-1)))
 
 
 def _check_gradient_shape(gradient: RealArray, waveform: RealArray) -> None:
@@ -350,282 +328,6 @@ def load_checkpoint(path: str) -> tuple[RealArray, list[float]]:
     return checkpoint.wfm.copy(), checkpoint.history.copy()
 
 
-def _as_symmetric_matrix(name: str, value: RealArray) -> RealArray:
-    """Return a finite square float64 matrix symmetrised across the diagonal."""
-    matrix = np.asarray(value, dtype=np.float64)
-    if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
-        raise ValueError(f"{name} must be a square matrix, got shape {matrix.shape}")
-    if not np.all(np.isfinite(matrix)):
-        raise ValueError(f"{name} entries must be finite")
-    return np.asarray(0.5 * (matrix + matrix.T), dtype=np.float64)
-
-
-def _solve_symmetric_system(matrix: RealArray, rhs: RealArray) -> RealArray:
-    """Solve a symmetric linear system, falling back to least squares if singular."""
-    try:
-        solution = np.linalg.solve(matrix, rhs)
-    except np.linalg.LinAlgError:
-        solution, *_ = np.linalg.lstsq(matrix, rhs, rcond=None)
-    return np.asarray(solution, dtype=np.float64)
-
-
-def _positive_definite_shift(curvature: RealArray) -> float:
-    """Return a diagonal shift that makes ``curvature`` positive definite."""
-    eigenvalues = np.linalg.eigvalsh(curvature)
-    min_eigenvalue = float(np.min(eigenvalues))
-    if min_eigenvalue > 0.0:
-        return 0.0
-    scale = max(1.0, float(np.max(np.abs(eigenvalues))))
-    epsilon = 1e-10 * scale
-    return -min_eigenvalue + epsilon
-
-
-def _rfo_step(curvature: RealArray, gradient: RealArray) -> RealArray:
-    """Return a rational-function-optimisation step for minimising ``-f``."""
-    n_params = gradient.size
-    augmented = np.zeros((n_params + 1, n_params + 1), dtype=np.float64)
-    augmented[:n_params, :n_params] = curvature
-    augmented[:n_params, n_params] = -gradient
-    augmented[n_params, :n_params] = -gradient
-
-    eigenvalues, _ = np.linalg.eigh(augmented)
-    level_shift = float(np.min(eigenvalues))
-    shifted = np.asarray(
-        curvature - level_shift * np.eye(n_params, dtype=np.float64),
-        dtype=np.float64,
-    )
-    return _solve_symmetric_system(shifted, gradient)
-
-
-def _newton_step(
-    gradient: RealArray,
-    hessian: RealArray,
-    *,
-    regularise: bool,
-    rfo: bool,
-) -> RealArray:
-    """Return a Newton or RFO step for maximising the fidelity objective."""
-    gradient_arr = _as_real_array("gradient", gradient)
-    hessian_arr = _as_symmetric_matrix("hessian", hessian)
-    gradient_flat = gradient_arr.reshape(-1)
-    if hessian_arr.shape != (gradient_flat.size, gradient_flat.size):
-        raise ValueError(
-            "hessian shape "
-            f"{hessian_arr.shape} must match flattened gradient size {gradient_flat.size}"
-        )
-
-    # Solve the Newton system for minimising ``-f`` so a local maximum of ``f``
-    # corresponds to a positive-definite curvature model.
-    curvature = np.asarray(-hessian_arr, dtype=np.float64)
-    if regularise:
-        shift = _positive_definite_shift(curvature)
-        if shift > 0.0:
-            curvature = np.asarray(
-                curvature + shift * np.eye(curvature.shape[0], dtype=np.float64),
-                dtype=np.float64,
-            )
-
-    step_flat = (
-        _rfo_step(curvature, gradient_flat)
-        if rfo
-        else _solve_symmetric_system(curvature, gradient_flat)
-    )
-    step = np.asarray(step_flat.reshape(gradient_arr.shape), dtype=np.float64)
-    if not np.all(np.isfinite(step)):
-        raise ValueError("Newton step must be finite")
-    return step
-
-
-def _cubic_interpolated_minimum(point_a: _LinePoint, point_b: _LinePoint) -> float | None:
-    """Return the stationary point of the cubic Hermite interpolant, if usable."""
-    if not all(
-        math.isfinite(value)
-        for value in (
-            point_a.alpha,
-            point_a.phi,
-            point_a.dphi,
-            point_b.alpha,
-            point_b.phi,
-            point_b.dphi,
-        )
-    ):
-        return None
-
-    step = point_b.alpha - point_a.alpha
-    if step == 0.0:
-        return None
-
-    delta_value = point_b.phi - point_a.phi - step * point_a.dphi
-    delta_slope = step * (point_b.dphi - point_a.dphi)
-    cubic_term = delta_slope - 2.0 * delta_value
-    quadratic_term = 3.0 * delta_value - delta_slope
-    linear_term = step * point_a.dphi
-
-    candidates: list[float] = []
-    if abs(cubic_term) < 1e-14:
-        if abs(quadratic_term) >= 1e-14:
-            candidates.append(-linear_term / (2.0 * quadratic_term))
-    else:
-        discriminant = 4.0 * quadratic_term * quadratic_term - 12.0 * cubic_term * linear_term
-        if discriminant >= 0.0:
-            sqrt_discriminant = math.sqrt(discriminant)
-            candidates.append((-2.0 * quadratic_term + sqrt_discriminant) / (6.0 * cubic_term))
-            candidates.append((-2.0 * quadratic_term - sqrt_discriminant) / (6.0 * cubic_term))
-
-    best_alpha: float | None = None
-    best_value = math.inf
-    for candidate in candidates:
-        if candidate <= 0.0 or candidate >= 1.0 or not math.isfinite(candidate):
-            continue
-        value = (
-            point_a.phi
-            + linear_term * candidate
-            + quadratic_term * candidate * candidate
-            + cubic_term * candidate * candidate * candidate
-        )
-        if value < best_value:
-            best_value = value
-            best_alpha = point_a.alpha + step * candidate
-    return best_alpha
-
-
-def _bracket_trial_alpha(point_a: _LinePoint, point_b: _LinePoint) -> float:
-    """Return a safeguarded cubic trial point inside a bracket."""
-    lower = min(point_a.alpha, point_b.alpha)
-    upper = max(point_a.alpha, point_b.alpha)
-    width = upper - lower
-    if width <= 0.0:
-        return point_a.alpha
-
-    candidate = _cubic_interpolated_minimum(point_a, point_b)
-    margin = 0.1 * width
-    if (
-        candidate is None
-        or not math.isfinite(candidate)
-        or candidate <= lower + margin
-        or candidate >= upper - margin
-    ):
-        return 0.5 * (point_a.alpha + point_b.alpha)
-    return candidate
-
-
-def line_search_cubic(
-    f: Objective,
-    grad: Gradient,
-    wfm: RealArray,
-    direction: RealArray,
-    alpha0: float = 1.0,
-    max_iter: int = 20,
-) -> float:
-    """Return a step length satisfying strong Wolfe conditions, or the best found.
-
-    The public objective is treated as a maximisation problem, matching GRAPE
-    fidelity. Internally the search minimises ``-f(wfm + alpha * direction)`` so
-    the standard Wolfe inequalities can be used.
-    """
-    waveform = _as_real_array("wfm", wfm)
-    search_direction = _as_real_array("direction", direction)
-    if search_direction.shape != waveform.shape:
-        raise ValueError(
-            f"direction shape {search_direction.shape} must match wfm shape {waveform.shape}"
-        )
-    if not math.isfinite(alpha0) or alpha0 <= 0.0:
-        raise ValueError("alpha0 must be finite and positive")
-    if max_iter <= 0:
-        raise ValueError("max_iter must be positive")
-
-    c1 = 1e-4
-    c2 = 0.9
-
-    f0 = float(f(waveform))
-    if not math.isfinite(f0):
-        raise ValueError("initial objective value must be finite")
-    g0 = _as_real_array("initial gradient", grad(waveform))
-    if g0.shape != waveform.shape:
-        raise ValueError(f"gradient shape {g0.shape} must match wfm shape {waveform.shape}")
-
-    ascent_slope = _directional_derivative(g0, search_direction)
-    if ascent_slope <= 0.0:
-        return 0.0
-
-    phi0 = -f0
-    dphi0 = -ascent_slope
-    best_alpha = 0.0
-    best_phi = phi0
-
-    def candidate(alpha: float) -> RealArray:
-        return np.asarray(waveform + alpha * search_direction, dtype=np.float64)
-
-    def phi(alpha: float) -> float:
-        value = float(f(candidate(alpha)))
-        if not math.isfinite(value):
-            return math.inf
-        return -value
-
-    def dphi(alpha: float) -> float:
-        gradient = np.asarray(grad(candidate(alpha)), dtype=np.float64)
-        if gradient.shape != waveform.shape or not np.all(np.isfinite(gradient)):
-            return math.nan
-        return -_directional_derivative(gradient, search_direction)
-
-    def record_best(alpha: float, value: float) -> None:
-        nonlocal best_alpha, best_phi
-        if value < best_phi:
-            best_alpha = alpha
-            best_phi = value
-
-    def make_point(alpha: float, value: float) -> _LinePoint:
-        return _LinePoint(alpha=alpha, phi=value, dphi=dphi(alpha))
-
-    def zoom(point_lo: _LinePoint, point_hi: _LinePoint, remaining_iter: int) -> float:
-        low = point_lo
-        high = point_hi
-        for _ in range(remaining_iter):
-            if abs(high.alpha - low.alpha) <= 1e-14 * max(1.0, abs(low.alpha)):
-                return best_alpha
-            alpha_j = _bracket_trial_alpha(low, high)
-            phi_j = phi(alpha_j)
-            record_best(alpha_j, phi_j)
-            if phi_j > phi0 + c1 * alpha_j * dphi0 or phi_j >= low.phi:
-                high = make_point(alpha_j, phi_j)
-                continue
-
-            dphi_j = dphi(alpha_j)
-            if not math.isfinite(dphi_j):
-                return best_alpha
-            if abs(dphi_j) <= -c2 * dphi0:
-                return alpha_j
-            if dphi_j * (high.alpha - low.alpha) >= 0.0:
-                high = low
-            low = _LinePoint(alpha=alpha_j, phi=phi_j, dphi=dphi_j)
-        return best_alpha
-
-    previous = _LinePoint(alpha=0.0, phi=phi0, dphi=dphi0)
-    alpha = float(alpha0)
-    for iteration in range(max_iter):
-        phi_alpha = phi(alpha)
-        record_best(alpha, phi_alpha)
-        if phi_alpha > phi0 + c1 * alpha * dphi0 or (iteration > 0 and phi_alpha >= previous.phi):
-            return zoom(previous, make_point(alpha, phi_alpha), max_iter - iteration)
-
-        dphi_alpha = dphi(alpha)
-        if not math.isfinite(dphi_alpha):
-            return best_alpha
-        if abs(dphi_alpha) <= -c2 * dphi0:
-            return alpha
-        if dphi_alpha >= 0.0:
-            return zoom(
-                _LinePoint(alpha=alpha, phi=phi_alpha, dphi=dphi_alpha),
-                previous,
-                max_iter - iteration,
-            )
-
-        previous = _LinePoint(alpha=alpha, phi=phi_alpha, dphi=dphi_alpha)
-        alpha *= 2.0
-
-    return best_alpha
-
-
 def _cached_grape_evaluators(
     cp: ControlProblem,
     *,
@@ -841,31 +543,6 @@ def _drive_optimizer(
     return finalise(waveform, fidelity, max_iter, n_feval(), False, "max_iter", history)
 
 
-def lbfgs_state(m: int = 10) -> LBFGSState:
-    """Return an empty L-BFGS memory dictionary."""
-    if m <= 0:
-        raise ValueError("m must be positive")
-    return {"m": m, "s_history": [], "y_history": [], "rho_history": []}
-
-
-def _copy_lbfgs_state(state: LBFGSState) -> LBFGSState:
-    """Return a shallow copy of an L-BFGS state with copied history lists."""
-    m = int(state["m"])
-    if m <= 0:
-        raise ValueError("state m must be positive")
-    s_history = [np.asarray(s, dtype=np.float64).copy() for s in state["s_history"]]
-    y_history = [np.asarray(y, dtype=np.float64).copy() for y in state["y_history"]]
-    rho_history = [float(rho) for rho in state["rho_history"]]
-    if not (len(s_history) == len(y_history) == len(rho_history)):
-        raise ValueError("L-BFGS history lists must have the same length")
-    return {
-        "m": m,
-        "s_history": s_history,
-        "y_history": y_history,
-        "rho_history": rho_history,
-    }
-
-
 def _validate_lbfgs_checkpoint_state(state: LBFGSState, waveform_shape: tuple[int, ...]) -> None:
     """Raise ValueError if restored L-BFGS arrays do not match the waveform shape."""
     memory = _copy_lbfgs_state(state)
@@ -879,86 +556,6 @@ def _validate_lbfgs_checkpoint_state(state: LBFGSState, waveform_shape: tuple[in
                     f"checkpoint {name}[{index}] shape {array.shape} "
                     f"must match waveform shape {waveform_shape}"
                 )
-
-
-def lbfgs_update(
-    state: LBFGSState,
-    wfm_diff: RealArray,
-    grad_diff: RealArray,
-) -> LBFGSState:
-    """Return an updated L-BFGS state.
-
-    For maximising a fidelity objective ``f``, pass ``wfm_new - wfm_old`` as
-    ``wfm_diff`` and ``grad_old - grad_new`` as ``grad_diff``. That stores
-    positive-curvature pairs for the equivalent minimisation of ``-f``.
-    """
-    next_state = _copy_lbfgs_state(state)
-    step = _as_real_array("wfm_diff", wfm_diff)
-    curvature = _as_real_array("grad_diff", grad_diff)
-    if curvature.shape != step.shape:
-        raise ValueError(
-            f"grad_diff shape {curvature.shape} must match wfm_diff shape {step.shape}"
-        )
-
-    step_flat = step.reshape(-1)
-    curvature_flat = curvature.reshape(-1)
-    ys = float(np.dot(curvature_flat, step_flat))
-    if ys <= 1e-14 * max(1.0, _array_norm(step) * _array_norm(curvature)):
-        return next_state
-
-    next_state["s_history"].append(step.copy())
-    next_state["y_history"].append(curvature.copy())
-    next_state["rho_history"].append(1.0 / ys)
-    if len(next_state["s_history"]) > next_state["m"]:
-        next_state["s_history"] = next_state["s_history"][-next_state["m"] :]
-        next_state["y_history"] = next_state["y_history"][-next_state["m"] :]
-        next_state["rho_history"] = next_state["rho_history"][-next_state["m"] :]
-    return next_state
-
-
-def lbfgs_direction(state: LBFGSState, grad: RealArray) -> RealArray:
-    """Return an L-BFGS ascent direction for a maximisation gradient."""
-    memory = _copy_lbfgs_state(state)
-    gradient = _as_real_array("grad", grad)
-    if not memory["s_history"]:
-        return gradient.copy()
-
-    q = -gradient.reshape(-1).copy()
-    alpha_values: list[float] = []
-    flat_s_history = [s.reshape(-1) for s in memory["s_history"]]
-    flat_y_history = [y.reshape(-1) for y in memory["y_history"]]
-    for step, curvature, rho in zip(
-        reversed(flat_s_history),
-        reversed(flat_y_history),
-        reversed(memory["rho_history"]),
-        strict=True,
-    ):
-        if step.shape != q.shape or curvature.shape != q.shape:
-            raise ValueError("L-BFGS history shapes must match gradient shape")
-        alpha = rho * float(np.dot(step, q))
-        q -= alpha * curvature
-        alpha_values.append(alpha)
-
-    last_step = flat_s_history[-1]
-    last_curvature = flat_y_history[-1]
-    yy = float(np.dot(last_curvature, last_curvature))
-    gamma = 1.0 if yy <= 0.0 else float(np.dot(last_step, last_curvature) / yy)
-    r = gamma * q
-
-    for step, curvature, rho, alpha in zip(
-        flat_s_history,
-        flat_y_history,
-        memory["rho_history"],
-        reversed(alpha_values),
-        strict=True,
-    ):
-        beta = rho * float(np.dot(curvature, r))
-        r += step * (alpha - beta)
-
-    direction = np.asarray((-r).reshape(gradient.shape), dtype=np.float64)
-    if _directional_derivative(gradient, direction) <= 0.0:
-        return gradient.copy()
-    return direction
 
 
 def lbfgs_grape(
