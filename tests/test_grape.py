@@ -5,6 +5,7 @@ import numpy.typing as npt
 import pytest
 from scipy.linalg import expm
 
+from optimalcontrol._propagation import dir_diff_expm
 from optimalcontrol.grape import (
     ControlProblem,
     ampl_phase_to_xy,
@@ -728,3 +729,19 @@ def test_rf_ensemble_hessian_dispatches_and_forward_propagators_rejects() -> Non
     np.testing.assert_allclose(grape_xy_hilbert(cp, waveform), grape_xy(cp, waveform))
     with pytest.raises(ValueError, match="does not support ensemble"):
         forward_propagators(cp, waveform)
+
+
+def test_dir_diff_expm_matches_central_finite_difference() -> None:
+    hamiltonian = np.array([[0.3, 0.2 - 0.1j], [0.2 + 0.1j, -0.5]], dtype=np.complex128)
+    perturbation = np.array([[0.7, -0.4j], [0.4j, 0.1]], dtype=np.complex128)
+    dt = 0.3
+    eps = 1e-6
+
+    def propagator(scale: float) -> np.ndarray:
+        return expm(-1j * (hamiltonian + scale * perturbation) * dt)
+
+    finite_difference = (propagator(eps) - propagator(-eps)) / (2.0 * eps)
+
+    np.testing.assert_allclose(
+        dir_diff_expm(hamiltonian, perturbation, dt), finite_difference, atol=1e-6
+    )

@@ -178,3 +178,11 @@ def test_design_worst_case_covers_b1_ensemble(tmp_path, band_fields, duration_s,
     assert result["worst_case"][key] == pytest.approx(expected, abs=5e-5)
     design = json.loads((tmp_path / "pulse.json").read_text())
     assert design["worst_case"][key] == pytest.approx(expected, abs=1e-12)
+
+
+def test_console_script_entry_point_targets_mcp_main() -> None:
+    import importlib.metadata
+
+    scripts = importlib.metadata.entry_points(group="console_scripts")
+    matches = [entry for entry in scripts if entry.name == "optimalcontrol-mcp"]
+    assert [entry.value for entry in matches] == ["optimalcontrol.mcp_server:main"]

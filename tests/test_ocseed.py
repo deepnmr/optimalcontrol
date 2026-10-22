@@ -23,7 +23,7 @@ from examples.methyl_water_binary_symmetric_180 import (
     evaluate_pulse,
     signed_amplitude,
 )
-from optimalcontrol.ocseed import Band, SeedlessSpec
+from optimalcontrol.ocseed import Band, SeedlessSpec, demo
 
 
 def _finite_diff_gradient(spec: SeedlessSpec, phases: np.ndarray, step: float = 1e-6) -> np.ndarray:
@@ -373,3 +373,9 @@ def test_per_step_evaluation_matches_prefix_reference_with_linear_work(
     actual = spec.evaluate(waveform, dense=5, b1_scale=scale)["band0:suppress"]
     assert actual == pytest.approx(expected, abs=1e-12)
     assert propagated_steps == steps
+
+
+def test_demo_prints_ok_line(capsys) -> None:
+    demo()
+
+    assert any(line.startswith("demo ok") for line in capsys.readouterr().out.splitlines())

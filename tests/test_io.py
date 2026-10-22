@@ -12,6 +12,7 @@ from optimalcontrol.grape import ControlProblem
 from optimalcontrol.io import (
     Waveform,
     export_bruker,
+    export_bruker_shape,
     export_csv,
     export_json,
     fapt_import,
@@ -318,3 +319,30 @@ def test_fapt_import_allows_only_one_header_row(tmp_path: pathlib.Path) -> None:
     one_header = tmp_path / "one.fapt"
     one_header.write_text("freq amp phase time\n1 2 3 4\n5 6 7 8\n")
     assert fapt_import(one_header).times.shape[0] == 2
+
+
+def test_export_bruker_shape_writes_parsable_jcamp_rows(tmp_path: pathlib.Path) -> None:
+    amplitude = np.array([0.0, 50.0, 100.0, 12.5], dtype=np.float64)
+    phase = np.array([0.0, 90.0, 180.0, 270.25], dtype=np.float64)
+    extra_tags = ["##$OPTIMALCONTROL_TEST= 7", "##$OPTIMALCONTROL_NOTE= <demo>"]
+
+    path = export_bruker_shape(
+        tmp_path / "shape.jcamp",
+        "demo shape",
+        amplitude,
+        phase,
+        extra_tags=extra_tags,
+    )
+
+    lines = path.read_text(encoding="ascii").splitlines()
+    assert "##$SHAPE_MODE= 1" in lines
+    assert f"##NPOINTS= {amplitude.size}" in lines
+    xy_index = lines.index("##XYPOINTS= (XY..XY)")
+    for tag in extra_tags:
+        assert tag in lines[: lines.index(f"##NPOINTS= {amplitude.size}")]
+    assert lines[-1] == "##END="
+    rows = lines[xy_index + 1 : -1]
+    assert len(rows) == amplitude.size
+    parsed = np.array([[float(value) for value in row.split(",")] for row in rows])
+    np.testing.assert_allclose(parsed[:, 0], amplitude, atol=1e-12)
+    np.testing.assert_allclose(parsed[:, 1], phase, atol=1e-12)
