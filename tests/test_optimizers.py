@@ -9,6 +9,7 @@ import numpy.typing as npt
 import pytest
 
 import optimalcontrol
+import optimalcontrol._checkpoint as _checkpoint
 import optimalcontrol.optimizers as optimizers
 from optimalcontrol.grape import ControlProblem, grape_xy
 from optimalcontrol.operators import Ix, Iy, Iz
@@ -438,13 +439,65 @@ def test_save_load_checkpoint_round_trip(tmp_path: pathlib.Path) -> None:
     assert loaded_history == pytest.approx(history)
 
     cp = _optimizer_control_problem(n_steps=2, n_channels=2)
+    with pytest.raises(ValueError, match="checkpoint has no problem signature"):
+        optimizers.lbfgs_grape(
+            cp,
+            np.zeros_like(waveform),
+            max_iter=0,
+            checkpoint_path=str(checkpoint_path),
+        )
+
+
+def test_unsigned_checkpoint_with_history_is_refused_for_other_problem(
+    tmp_path: pathlib.Path,
+) -> None:
+    cp_b = _one_spin_iz_to_ix_problem(n_steps=2)
+    cp_b.rho_targ = [normalise_hs(Iz())]
+    checkpoint_path = tmp_path / "unsigned-with-history.json"
+    optimizers.save_checkpoint(str(checkpoint_path), np.zeros((2, 2)), [0.1, 0.2])
+
+    with pytest.raises(ValueError, match="checkpoint has no problem signature"):
+        optimizers.lbfgs_grape(
+            cp_b,
+            np.zeros((2, 2)),
+            max_iter=0,
+            checkpoint_path=str(checkpoint_path),
+        )
+
+
+def test_unsigned_checkpoint_with_empty_history_still_resumes(
+    tmp_path: pathlib.Path,
+) -> None:
+    cp = _one_spin_iz_to_ix_problem(n_steps=2)
+    checkpoint_path = tmp_path / "unsigned-empty-history.json"
+    optimizers.save_checkpoint(str(checkpoint_path), np.zeros((2, 2)), [])
+
     resumed = optimizers.lbfgs_grape(
         cp,
-        np.zeros_like(waveform),
+        np.zeros((2, 2)),
         max_iter=0,
         checkpoint_path=str(checkpoint_path),
     )
-    assert resumed.history == pytest.approx([1.0])
+    assert resumed.history == pytest.approx([resumed.fidelity_final])
+
+
+def test_problem_bound_checkpoint_rejects_different_problem(tmp_path: pathlib.Path) -> None:
+    cp = _one_spin_iz_to_ix_problem(n_steps=2)
+    other = _one_spin_iz_to_ix_problem(n_steps=2)
+    other.rho_targ = [normalise_hs(Iz())]
+    checkpoint_path = tmp_path / "problem-bound.json"
+    optimizers.save_checkpoint(str(checkpoint_path), np.zeros((2, 2)), [0.1, 0.2], cp=cp)
+    loaded_waveform, loaded_history = optimizers.load_checkpoint(str(checkpoint_path))
+    assert loaded_history == pytest.approx([0.1, 0.2])
+    assert loaded_waveform.shape == (2, 2)
+
+    with pytest.raises(ValueError, match="optimizer or control problem does not match"):
+        _checkpoint._restore_checkpoint(
+            other,
+            np.zeros((2, 2)),
+            checkpoint_path,
+            _checkpoint._checkpoint_signature(other, "user"),
+        )
 
 
 @pytest.mark.parametrize(
@@ -494,3 +547,27 @@ def test_optimizer_checkpoint_resume_matches_continuous_run(
         rtol=1e-12,
     )
     assert resumed.fidelity_final == pytest.approx(continuous.fidelity_final)
+
+
+def test_problem_bound_checkpoint_resumes_with_any_optimizer(tmp_path: pathlib.Path) -> None:
+    cp = _one_spin_iz_to_ix_problem(n_steps=2)
+    checkpoint_path = tmp_path / "problem-bound-resume.json"
+    optimizers.save_checkpoint(str(checkpoint_path), np.zeros((2, 2)), [0.1, 0.2], cp=cp)
+
+    resumed = optimizers.lbfgs_grape(
+        cp,
+        np.zeros((2, 2)),
+        max_iter=0,
+        checkpoint_path=str(checkpoint_path),
+    )
+    assert resumed.history[:2] == pytest.approx([0.1, 0.2])
+
+    other = _one_spin_iz_to_ix_problem(n_steps=2)
+    other.rho_targ = [normalise_hs(Iz())]
+    with pytest.raises(ValueError, match="optimizer or control problem does not match"):
+        optimizers.lbfgs_grape(
+            other,
+            np.zeros((2, 2)),
+            max_iter=0,
+            checkpoint_path=str(checkpoint_path),
+        )

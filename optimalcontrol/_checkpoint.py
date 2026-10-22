@@ -60,6 +60,9 @@ def _validate_checkpoint_path(path: str) -> Path:
     return checkpoint_path
 
 
+USER_SIGNATURE_TAG = "user"
+
+
 def _checkpoint_signature(cp: ControlProblem, optimizer_name: str) -> str:
     """Return a signature binding a checkpoint to its problem and optimizer."""
     payload = f"{optimizer_name}\0{_hash_control_problem(cp)}".encode()
@@ -222,8 +225,16 @@ def _restore_checkpoint(
                 f"wfm0 shape {requested_shape}"
             )
         if checkpoint.signature is None:
+            if checkpoint.history:
+                raise ValueError(
+                    "checkpoint has no problem signature; "
+                    "re-save it with save_checkpoint(path, wfm, history, cp=cp)"
+                )
             return _CheckpointData(wfm=waveform, history=[], signature=signature)
-        if checkpoint.signature != signature:
+        # A checkpoint written by save_checkpoint(..., cp=cp) is bound to the problem
+        # only (tag "user"), so any optimizer may resume it for the same problem.
+        accepted = {signature, _checkpoint_signature(cp, USER_SIGNATURE_TAG)}
+        if checkpoint.signature not in accepted:
             raise ValueError("checkpoint optimizer or control problem does not match current run")
         return _CheckpointData(
             wfm=waveform,
@@ -261,10 +272,20 @@ def _save_optimizer_checkpoint(
     )
 
 
-def save_checkpoint(path: str, wfm: RealArray, result_so_far: list[float] | OptimResult) -> None:
-    """Save a waveform and fidelity history to a JSON checkpoint file."""
+def save_checkpoint(
+    path: str,
+    wfm: RealArray,
+    result_so_far: list[float] | OptimResult,
+    *,
+    cp: ControlProblem | None = None,
+) -> None:
+    """Save a waveform and fidelity history to a JSON checkpoint file.
+
+    Pass ``cp`` to bind the checkpoint to its control problem.
+    """
     checkpoint_path = _validate_checkpoint_path(path)
     n_feval = result_so_far.n_feval if isinstance(result_so_far, OptimResult) else 0
+    signature = None if cp is None else _checkpoint_signature(cp, USER_SIGNATURE_TAG)
     _write_checkpoint(
         checkpoint_path,
         _CheckpointData(
@@ -272,6 +293,7 @@ def save_checkpoint(path: str, wfm: RealArray, result_so_far: list[float] | Opti
             history=_checkpoint_history(result_so_far),
             n_feval=n_feval,
             lbfgs_state=None,
+            signature=signature,
         ),
     )
 
