@@ -503,7 +503,14 @@ def refine_duration(
         local_profiles = best_profiles
         local_score = best_score
 
-        def objective(half: RealArray) -> tuple[float, RealArray]:
+        def objective(
+            half: RealArray,
+            *,
+            cp_x: ControlProblem = cp_x,
+            cp_y: ControlProblem = cp_y,
+            cp_z: ControlProblem = cp_z,
+            cp_water: ControlProblem = cp_water,
+        ) -> tuple[float, RealArray]:
             waveform = signed_amplitude(half)[:, None]
             value_x, gradient_x = grape_xy_and_gradient(cp_x, waveform)
             value_y, gradient_y = grape_xy_and_gradient(cp_y, waveform)
