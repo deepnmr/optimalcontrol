@@ -40,7 +40,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 
-from examples._figures import save_figure
+from examples._figures import quantise, save_figure
 from optimalcontrol.bloch import propagate_bloch_ensemble
 
 RealArray = npt.NDArray[np.float64]
@@ -145,8 +145,16 @@ def _draw_panel(
         WATER_PPM, color="tab:gray", linestyle="--", linewidth=0.9, label="water (4.7 ppm)"
     )
     axis.axvline(-4.0, color="tab:gray", linestyle=":", linewidth=0.9, label="3-9-19 null (-4 ppm)")
-    axis.plot(ppm, reburp, color="tab:blue", linewidth=1.8, label="min-length REBURP (10 kHz OC)")
-    axis.plot(ppm, w3919, color="tab:red", linewidth=1.4, label="3-9-19 WATERGATE (36 kHz hard)")
+    axis.plot(
+        ppm,
+        quantise(reburp),
+        color="tab:blue",
+        linewidth=1.8,
+        label="min-length REBURP (10 kHz OC)",
+    )
+    axis.plot(
+        ppm, quantise(w3919), color="tab:red", linewidth=1.4, label="3-9-19 WATERGATE (36 kHz hard)"
+    )
     axis.set_xlim(PPM_HI, PPM_LO)  # NMR convention: high ppm on the left
     axis.set_ylim(-1.15, 1.15)
     axis.set_xlabel("1H shift (ppm)")

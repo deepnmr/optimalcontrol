@@ -710,8 +710,13 @@ OPTIMALCONTROL_DISABLE_RUST=1 python3 my_first_pulse.py
 ```
 
 Both paths give the same answers to well within physical significance, but not
-bit-for-bit — expect agreement in the first several digits, not the last. Rust is
-roughly an order of magnitude faster on realistic problems (the [§4-3](#4-3-two-bands-invert-the-methyls-keep-the-water)
+bit-for-bit — expect agreement in the first several digits, not the last. The Bloch
+fallback uses the same Rodrigues formula as the Rust kernel and agrees to ~1e-13.
+Bloch-vector verification (`propagate_bloch_ensemble`, `SeedlessSpec.evaluate`, the
+MCP profile tool) is vectorised on the NumPy path, so a 512-step x 801-offset
+ensemble takes about 20 ms in fallback versus about 1 ms native. GRAPE ensemble
+optimisation is still roughly 15-20x slower in fallback, because members are
+propagated one by one with NumPy eigendecompositions (the [§4-3](#4-3-two-bands-invert-the-methyls-keep-the-water)
 optimisation takes ~0.8 s native versus ~10 s in fallback on one development
 machine). If a result *only* reproduces on one path, that is a bug worth
 reporting.

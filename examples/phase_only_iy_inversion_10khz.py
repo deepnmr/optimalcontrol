@@ -28,7 +28,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize
 
-from examples._figures import save_figure
+from examples._figures import quantise, save_figure
 from examples._phase_waveforms import phase_to_xy
 from optimalcontrol.bloch import propagate_bloch_ensemble
 from optimalcontrol.grape import ControlProblem, grape_gradient, grape_xy, phase_only_gradient
@@ -367,7 +367,7 @@ def _plot_figure(
     ax_phase.set_ylim(0.0, 360.0)
     ax_amp.set_ylim(0.0, 100.0)
 
-    ax_profile.plot(offsets_khz, y_values, color="black", linewidth=1.6)
+    ax_profile.plot(offsets_khz, quantise(y_values), color="black", linewidth=1.6)
     ax_profile.axhline(PROFILE_THRESHOLD, color="gray", linestyle="--", linewidth=1.0)
     for edge in (-PROFILE_HALF_WIDTH_HZ, PROFILE_HALF_WIDTH_HZ):
         ax_profile.axvline(edge / 1.0e3, color="tab:blue", linestyle=":", linewidth=1.0)

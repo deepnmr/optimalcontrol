@@ -4,6 +4,11 @@ Example scripts in `examples/` reproduce the numerical curves and pulse shapes
 used by the ROPE and CROP paper guides. Each script has a `run()` function for
 tests and saves a PNG under `examples/output/` when run from the repository root with
 `python -m examples.<name>`.
+The PNGs are byte-stable across the Rust and NumPy backends for the recorded
+rendering environment (matplotlib 3.11.2 with the Agg backend, used to regenerate
+the committed figures), because Bloch-derived curves are quantised to 12 decimals
+(`examples/_figures.quantise`) before plotting; a different matplotlib or FreeType
+version can still change the bytes.
 
 Run one figure script directly:
 

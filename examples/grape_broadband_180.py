@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 
-from examples._figures import save_figure
+from examples._figures import quantise, save_figure
 from optimalcontrol.bloch import propagate_bloch_ensemble
 from optimalcontrol.grape import ControlProblem
 from optimalcontrol.io import export_bruker_shape as write_bruker_shape
@@ -299,9 +299,10 @@ def _plot_figure(
         ),
     ]
     for ax, data, title in panels:
+        plotted = quantise(data)
         if data is phase_error:
             image = ax.imshow(
-                data,
+                plotted,
                 origin="lower",
                 extent=extent,
                 aspect="auto",
@@ -311,12 +312,12 @@ def _plot_figure(
             )
             levels = [-2.0, -1.0, 0.0, 1.0, 2.0]
         else:
-            image = ax.imshow(data, **image_kwargs)
+            image = ax.imshow(plotted, **image_kwargs)
             levels = contour_levels
         contours = ax.contour(
             offsets / 1000.0,
             deviations,
-            data,
+            plotted,
             levels=levels,
             colors="black",
             linewidths=0.55,

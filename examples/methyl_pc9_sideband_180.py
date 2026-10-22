@@ -63,7 +63,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize_scalar
 
-from examples._figures import save_figure
+from examples._figures import quantise, save_figure
 from examples.methyl_water_binary_symmetric_180 import (
     MAX_ARTIFACT_PERCENT,
     METHYL_PPM_HI,
@@ -249,16 +249,18 @@ def plot_diagnostics(
         f"180-degree PC9 (Pc9_4_90): {duration_s * 1e6:.0f} us, {rf_peak_hz / 1000.0:.2f} kHz peak"
     )
 
-    axes[1].plot(ppm, profiles["methyl_x"], label="Ix -> Ix")
-    axes[1].plot(ppm, profiles["methyl_y"], label="-Iy -> Iy")
-    axes[1].plot(ppm, profiles["methyl_z"], label="Iz -> -Iz")
+    axes[1].plot(ppm, quantise(profiles["methyl_x"]), label="Ix -> Ix")
+    axes[1].plot(ppm, quantise(profiles["methyl_y"]), label="-Iy -> Iy")
+    axes[1].plot(ppm, quantise(profiles["methyl_z"]), label="Iz -> -Iz")
     axes[1].axhline(MIN_METHYL_FIDELITY, color="black", linestyle=":")
     axes[1].set_xlim(METHYL_PPM_LO, METHYL_PPM_HI)
     axes[1].set_ylim(-1.05, 1.05)
     axes[1].set_ylabel("Transfer fidelity")
     axes[1].legend(loc="lower center", ncol=3, fontsize="small")
 
-    axes[2].semilogy(ppm, np.maximum(profiles["artifact_percent"], 1e-4), color="tab:green")
+    axes[2].semilogy(
+        ppm, quantise(np.maximum(profiles["artifact_percent"], 1e-4)), color="tab:green"
+    )
     axes[2].axhline(MAX_ARTIFACT_PERCENT, color="black", linestyle=":")
     axes[2].set_xlim(METHYL_PPM_LO, METHYL_PPM_HI)
     axes[2].set_ylabel("Kay sideband (%)")
@@ -267,7 +269,7 @@ def plot_diagnostics(
         f"Worst methyl sideband over -3..3 ppm = {sideband_max:.2f}% (target <= 0.1%)"
     )
 
-    axes[3].plot(profiles["water_offsets_hz"], profiles["water_z"], marker="o")
+    axes[3].plot(profiles["water_offsets_hz"], quantise(profiles["water_z"]), marker="o")
     axes[3].axhline(MIN_WATER_FIDELITY, color="black", linestyle=":")
     axes[3].set_ylim(-1.05, 1.05)
     axes[3].set_xlabel("Offset from carrier (Hz); water at 4.7 ppm")
@@ -284,7 +286,7 @@ def plot_regime(sweep: dict[str, RealArray], bwfac_us: float, output_dir: Path) 
     figure, axis = plt.subplots(1, 1, figsize=(8.0, 4.8), constrained_layout=True)
     axis.semilogy(
         duration_us,
-        np.maximum(sweep["sideband_max_percent"], 1e-4),
+        quantise(np.maximum(sweep["sideband_max_percent"], 1e-4)),
         marker="o",
         color="tab:green",
         label="worst methyl sideband (%)",
@@ -303,7 +305,7 @@ def plot_regime(sweep: dict[str, RealArray], bwfac_us: float, output_dir: Path) 
     water_axis = axis.twinx()
     water_axis.plot(
         duration_us,
-        sweep["water_z_min"],
+        quantise(sweep["water_z_min"]),
         marker="s",
         color="tab:blue",
         label="worst water Iz -> Iz",

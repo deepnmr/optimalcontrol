@@ -30,7 +30,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize_scalar
 
-from examples._figures import save_figure
+from examples._figures import quantise, save_figure
 from optimalcontrol.bloch import propagate_bloch_ensemble
 
 RealArray = npt.NDArray[np.float64]
@@ -174,10 +174,18 @@ def time_evolution_profiles(
     for name, initial in initials.items():
         trajectory = np.empty((n_steps + 1, offset_t.size, 3), dtype=np.float64)
         trajectory[0] = initial
-        for step in range(1, n_steps + 1):
-            trajectory[step] = propagate_bloch_ensemble(
-                initial, waveform_xy[:step], offset_t, scales, rf_time_product, dt
-            )[0]
+        for col in range(offset_t.size):
+            state = initial
+            for step in range(n_steps):
+                state = propagate_bloch_ensemble(
+                    state,
+                    waveform_xy[step : step + 1],
+                    offset_t[col : col + 1],
+                    scales,
+                    rf_time_product,
+                    dt,
+                )[0, 0]
+                trajectory[step + 1, col] = state
         trajectories[name] = trajectory
     return trajectories
 
@@ -206,7 +214,7 @@ def plot_reburp(
         f"Generic REBURP 180 (B1_peak * T = {rf_time_product:.3f} for on-resonance flip)"
     )
 
-    axes[1].plot(offset_t, profiles["iz_to_mz"], color="tab:green")
+    axes[1].plot(offset_t, quantise(profiles["iz_to_mz"]), color="tab:green")
     axes[1].axhline(-1.0, color="black", linestyle=":")
     axes[1].set_xlim(-PROFILE_HALF_WIDTH, PROFILE_HALF_WIDTH)
     axes[1].set_ylim(-1.05, 1.05)
@@ -214,9 +222,9 @@ def plot_reburp(
     axes[1].set_xlabel("offset * T")
     axes[1].set_title("Band-selective inversion profile")
 
-    axes[2].plot(offset_t, profiles["x"], label="Ix -> Ix")
-    axes[2].plot(offset_t, profiles["y"], label="Iy -> -Iy")
-    axes[2].plot(offset_t, profiles["z"], label="Iz -> -Iz")
+    axes[2].plot(offset_t, quantise(profiles["x"]), label="Ix -> Ix")
+    axes[2].plot(offset_t, quantise(profiles["y"]), label="Iy -> -Iy")
+    axes[2].plot(offset_t, quantise(profiles["z"]), label="Iz -> -Iz")
     axes[2].axhline(1.0, color="black", linestyle=":")
     axes[2].set_xlim(-8.0, 8.0)
     axes[2].set_ylim(-1.05, 1.05)
@@ -233,9 +241,9 @@ def plot_wide_profile(profiles: dict[str, RealArray], output_dir: Path) -> Path:
     """Write Ix, -Iy, Iz transfer over the wide ``offset * T`` window."""
     offset_t = profiles["offset_t"]
     figure, axis = plt.subplots(1, 1, figsize=(9.0, 4.5), constrained_layout=True)
-    axis.plot(offset_t, profiles["x"], label="Ix -> Ix")
-    axis.plot(offset_t, profiles["y"], label="Iy -> -Iy")
-    axis.plot(offset_t, profiles["z"], label="Iz -> -Iz")
+    axis.plot(offset_t, quantise(profiles["x"]), label="Ix -> Ix")
+    axis.plot(offset_t, quantise(profiles["y"]), label="Iy -> -Iy")
+    axis.plot(offset_t, quantise(profiles["z"]), label="Iz -> -Iz")
     axis.axhline(1.0, color="black", linestyle=":")
     axis.set_xlim(-WIDE_HALF_WIDTH, WIDE_HALF_WIDTH)
     axis.set_ylim(-1.05, 1.05)
@@ -255,9 +263,9 @@ def plot_wide_components(component_profile: dict[str, RealArray], output_dir: Pa
     figure, axes = plt.subplots(3, 1, figsize=(9.0, 9.0), sharex=True, constrained_layout=True)
     for axis, name in zip(axes, ("Ix", "Iy", "Iz"), strict=True):
         final = component_profile[name]
-        axis.plot(offset_t, final[:, 0], label="Mx", color="tab:blue")
-        axis.plot(offset_t, final[:, 1], label="My", color="tab:orange")
-        axis.plot(offset_t, final[:, 2], label="Mz", color="tab:green")
+        axis.plot(offset_t, quantise(final[:, 0]), label="Mx", color="tab:blue")
+        axis.plot(offset_t, quantise(final[:, 1]), label="My", color="tab:orange")
+        axis.plot(offset_t, quantise(final[:, 2]), label="Mz", color="tab:green")
         axis.axhline(0.0, color="black", linewidth=0.5)
         axis.set_xlim(-WIDE_HALF_WIDTH, WIDE_HALF_WIDTH)
         axis.set_ylim(-1.05, 1.05)
@@ -291,9 +299,9 @@ def plot_time_evolution(time_evolution: dict[str, RealArray], output_dir: Path) 
         trajectory = time_evolution[name]
         for col in range(n_cols):
             axis = axes[row, col]
-            axis.plot(fraction, trajectory[:, col, 0], label="Mx", color="tab:blue")
-            axis.plot(fraction, trajectory[:, col, 1], label="My", color="tab:orange")
-            axis.plot(fraction, trajectory[:, col, 2], label="Mz", color="tab:green")
+            axis.plot(fraction, quantise(trajectory[:, col, 0]), label="Mx", color="tab:blue")
+            axis.plot(fraction, quantise(trajectory[:, col, 1]), label="My", color="tab:orange")
+            axis.plot(fraction, quantise(trajectory[:, col, 2]), label="Mz", color="tab:green")
             axis.axhline(0.0, color="black", linewidth=0.5)
             axis.set_ylim(-1.05, 1.05)
             if row == 0:
