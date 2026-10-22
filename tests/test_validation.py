@@ -60,6 +60,21 @@ def test_invalid_fidelity_mode_reports_allowed_values() -> None:
         validate_control_problem(cp)
 
 
+def test_invalid_basis_reports_supported_values() -> None:
+    cp = _valid_control_problem()
+    cp.basis = "sparse"
+
+    with pytest.raises(ValueError, match="basis must be one of: dense, hilbert, liouville"):
+        validate_control_problem(cp)
+
+
+def test_basis_is_case_insensitive() -> None:
+    cp = _valid_control_problem()
+    cp.basis = "Dense"
+
+    validate_control_problem(cp)
+
+
 def test_negative_j_reports_positive_requirement() -> None:
     with pytest.raises(ValueError, match="J_hz must be positive"):
         rope_waveform(T=0.01, n=1.0, J_hz=-100.0, dt=0.001)

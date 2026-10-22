@@ -18,11 +18,12 @@ from optimalcontrol._validation import validate_square_matrix as _validate_squar
 from optimalcontrol.penalties import PenaltyInput, PenaltySpec
 
 VALID_FIDELITY_MODES = {"real", "imag", "abs2"}
+VALID_BASES = {"dense", "hilbert", "liouville"}
 
 
-def _raise_invalid_mode(label: str) -> NoReturn:
-    """Raise a ValueError naming the accepted fidelity modes for ``label``."""
-    valid = ", ".join(sorted(VALID_FIDELITY_MODES))
+def _raise_invalid_mode(label: str, valid_values: set[str] = VALID_FIDELITY_MODES) -> NoReturn:
+    """Raise a ValueError naming the accepted values for ``label``."""
+    valid = ", ".join(sorted(valid_values))
     raise ValueError(f"{label} must be one of: {valid}")
 
 
@@ -30,7 +31,10 @@ def _basis_name(basis: object) -> str:
     """Return a normalised basis name or raise ValueError."""
     if not isinstance(basis, str) or not basis:
         raise ValueError("basis must be a non-empty string")
-    return basis.lower()
+    normalised = basis.lower()
+    if normalised not in VALID_BASES:
+        _raise_invalid_mode("basis", VALID_BASES)
+    return normalised
 
 
 @dataclass
@@ -189,7 +193,7 @@ def validate_control_problem(cp: ControlProblem) -> None:
     _validate_nonempty("rho_targ", cp.rho_targ)
 
     if cp.fidelity_mode not in VALID_FIDELITY_MODES:
-        _raise_invalid_mode("fidelity_mode")
+        _raise_invalid_mode("fidelity_mode", VALID_FIDELITY_MODES)
     basis = _basis_name(cp.basis)
     if cp.pulse_dt <= 0.0 or not math.isfinite(cp.pulse_dt):
         raise ValueError("pulse_dt must be finite and positive")
