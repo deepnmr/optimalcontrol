@@ -9,10 +9,10 @@ import numpy as np
 from optimalcontrol._types import Array, RealArray
 from optimalcontrol._validation import validate_finite_floats as _validate_float_values
 from optimalcontrol._validation import validate_nonempty as _validate_nonempty
-from optimalcontrol._validation import validate_square_matrix as _validate_square_matrix
 from optimalcontrol.grape import (
     ControlProblem,
     _has_rf_power_ensemble,
+    _validate_offset_operators,
     _validate_phase_cycle,
     _validate_same_drift_dimensions,
     _zero_frozen,
@@ -116,13 +116,9 @@ def expand_offsets(cp: ControlProblem) -> list[ControlProblem]:
     _validate_nonempty("offset_operators", cp.offset_operators)
     generator_dim = _validate_same_drift_dimensions(cp.drifts)
 
+    _validate_offset_operators(cp.offset_operators, generator_dim)
     offset_generator = np.zeros((generator_dim, generator_dim), dtype=np.complex128)
-    for index, operator in enumerate(cp.offset_operators):
-        dim = _validate_square_matrix(f"offset_operators[{index}]", operator)
-        if dim != generator_dim:
-            raise ValueError(
-                f"offset_operators[{index}] dimension {dim} does not match {generator_dim}"
-            )
+    for operator in cp.offset_operators:
         offset_generator += np.asarray(operator, dtype=np.complex128)
 
     expanded: list[ControlProblem] = []

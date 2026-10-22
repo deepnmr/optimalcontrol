@@ -172,6 +172,16 @@ def _validate_same_drift_dimensions(drifts: Sequence[Array]) -> int:
     return generator_dim
 
 
+def _validate_offset_operators(offset_operators: Sequence[Array], generator_dim: int) -> None:
+    """Raise ValueError if any offset operator does not match the generator dimension."""
+    for index, operator in enumerate(offset_operators):
+        dim = _validate_square_matrix(f"offset_operators[{index}]", operator)
+        if dim != generator_dim:
+            raise ValueError(
+                f"offset_operators[{index}] dimension {dim} does not match {generator_dim}"
+            )
+
+
 def validate_control_problem(cp: ControlProblem) -> None:
     """Raise ValueError if a GRAPE control problem is internally inconsistent."""
     _validate_nonempty("drifts", cp.drifts)
@@ -220,12 +230,7 @@ def validate_control_problem(cp: ControlProblem) -> None:
     if cp.offsets is not None:
         _validate_float_list("offsets", cp.offsets)
     if cp.offset_operators is not None:
-        for index, operator in enumerate(cp.offset_operators):
-            dim = _validate_square_matrix(f"offset_operators[{index}]", operator)
-            if dim != generator_dim:
-                raise ValueError(
-                    f"offset_operators[{index}] dimension {dim} does not match {generator_dim}"
-                )
+        _validate_offset_operators(cp.offset_operators, generator_dim)
 
     _validate_freeze_mask(cp.freeze, len(cp.operators))
     _validate_phase_cycle(cp.phase_cycle)
