@@ -58,7 +58,7 @@ _CARDINAL: dict[str, RealArray] = {
 VALID_RESTRAINTS = frozenset({"universal", "s2s", "xycite", "suppress"})
 
 
-def _axis_bloch(label: str) -> RealArray:
+def axis_bloch(label: str) -> RealArray:
     """Return the signed cardinal Bloch vector for a label like ``"-z"``."""
     text = label.strip().lower()
     sign = 1.0
@@ -70,9 +70,12 @@ def _axis_bloch(label: str) -> RealArray:
     return np.asarray(sign * _CARDINAL[text], dtype=np.float64)
 
 
+_axis_bloch = axis_bloch
+
+
 def _rotation_matrix(axis_label: str, angle_deg: float) -> RealArray:
     """Return the 3x3 right-handed Bloch rotation about a cardinal axis."""
-    axis = _axis_bloch(axis_label)
+    axis = axis_bloch(axis_label)
     theta = math.radians(angle_deg)
     k = np.array(
         [[0.0, -axis[2], axis[1]], [axis[2], 0.0, -axis[0]], [-axis[1], axis[0], 0.0]],
@@ -132,7 +135,7 @@ class Band:
             return [(_CARDINAL[axis], rot @ _CARDINAL[axis]) for axis in ("x", "y", "z")]
         if self.restraint == "s2s":
             assert self.init is not None and self.targ is not None
-            return [(_axis_bloch(self.init), _axis_bloch(self.targ))]
+            return [(axis_bloch(self.init), axis_bloch(self.targ))]
         # suppress and xycite both start from Iz; targ is used only by suppress.
         return [(_CARDINAL["z"], _CARDINAL["z"])]
 

@@ -22,7 +22,7 @@ import numpy as np
 
 from optimalcontrol import __version__
 from optimalcontrol.bloch import propagate_bloch_ensemble
-from optimalcontrol.ocseed import Band, SeedlessSpec, _axis_bloch
+from optimalcontrol.ocseed import Band, SeedlessSpec, axis_bloch
 
 try:
     from mcp.server import MCPServer
@@ -206,7 +206,7 @@ def bloch_offset_profile(
         waveform = spec.waveform_xy(np.asarray(design["phases_rad"], dtype=np.float64))
         offsets = np.linspace(offset_lo_hz, offset_hi_hz, n_points)
         final = propagate_bloch_ensemble(
-            _axis_bloch(init),
+            axis_bloch(init),
             waveform,
             offsets,
             np.array([b1_scale]),

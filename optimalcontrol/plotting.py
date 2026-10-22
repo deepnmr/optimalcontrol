@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from optimalcontrol.io import Waveform, _xy_channel_indices
+from optimalcontrol.io import Waveform, xy_channel_indices
 from optimalcontrol.rope import inept_max_efficiency, rope_g
 
 try:
@@ -53,7 +53,7 @@ def plot_xy_controls(
     -------
     matplotlib.figure.Figure
     """
-    x_index, y_index = _xy_channel_indices(wfm)
+    x_index, y_index = xy_channel_indices(wfm)
 
     fig, axes = _figure_and_axes(ax)
     times = wfm.times

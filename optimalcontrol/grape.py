@@ -9,7 +9,8 @@ import numpy as np
 import numpy.typing as npt
 from scipy.linalg import expm
 
-from optimalcontrol._accelerator import _is_anti_hermitian
+# _accelerator depends only on _types, so importing it at module top creates no cycle.
+from optimalcontrol._accelerator import _is_anti_hermitian, vector_fidelity, vector_value_gradient
 from optimalcontrol._types import Array, BoolArray, RealArray
 from optimalcontrol._validation import validate_finite_floats as _validate_float_list
 from optimalcontrol._validation import validate_nonempty as _validate_nonempty
@@ -915,8 +916,6 @@ def _single_value_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[floa
 
     n_steps, n_channels = effective_waveform.shape
 
-    from optimalcontrol._accelerator import vector_value_gradient
-
     accelerated = vector_value_gradient([cp], effective_waveform)
     if accelerated is not None:
         fidelity, accelerated_gradient = accelerated
@@ -1166,8 +1165,6 @@ def _zero_frozen_hessian(
 
 def _grape_xy_core(cp: ControlProblem, wfm: RealArray) -> float:
     """Return scalar GRAPE fidelity without basis-specific state conversion."""
-    from optimalcontrol._accelerator import vector_fidelity
-
     accelerated = vector_fidelity([cp], wfm)
     if accelerated is not None:
         return accelerated

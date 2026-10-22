@@ -237,12 +237,15 @@ def _numeric_table(lines: list[str], source_name: str) -> RealArray:
     return np.asarray(rows, dtype=np.float64)
 
 
-def _xy_channel_indices(wfm: Waveform) -> tuple[int, int]:
+def xy_channel_indices(wfm: Waveform) -> tuple[int, int]:
     """Return row indices for x/y waveform channels."""
     lowered = [channel.lower() for channel in wfm.channels]
     if "x" not in lowered or "y" not in lowered:
         raise ValueError("waveform must contain 'x' and 'y' channels")
     return lowered.index("x"), lowered.index("y")
+
+
+_xy_channel_indices = xy_channel_indices
 
 
 def _bruker_amplitude_phase_deg(wfm: Waveform) -> tuple[RealArray, RealArray]:
@@ -256,7 +259,7 @@ def _bruker_amplitude_phase_deg(wfm: Waveform) -> tuple[RealArray, RealArray]:
         raise ValueError(
             f"Bruker amplitude/phase export supports 1 or 2 (x/y) channels, got {len(wfm.channels)}"
         )
-    x_index, y_index = _xy_channel_indices(wfm)
+    x_index, y_index = xy_channel_indices(wfm)
     x_values = np.asarray(wfm.data[x_index, :], dtype=np.float64)
     y_values = np.asarray(wfm.data[y_index, :], dtype=np.float64)
     amplitude = np.asarray(np.hypot(x_values, y_values), dtype=np.float64)
@@ -701,7 +704,7 @@ def heterodyne_transform(wfm: Waveform, carrier_hz: float) -> Waveform:
     """
     if not math.isfinite(carrier_hz):
         raise ValueError("carrier_hz must be finite")
-    x_index, y_index = _xy_channel_indices(wfm)
+    x_index, y_index = xy_channel_indices(wfm)
     phase = np.asarray(2.0 * math.pi * carrier_hz * wfm.times, dtype=np.float64)
     envelope = np.asarray(
         wfm.data[x_index, :] + np.complex128(1j) * wfm.data[y_index, :],
