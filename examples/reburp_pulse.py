@@ -174,10 +174,18 @@ def time_evolution_profiles(
     for name, initial in initials.items():
         trajectory = np.empty((n_steps + 1, offset_t.size, 3), dtype=np.float64)
         trajectory[0] = initial
-        for step in range(1, n_steps + 1):
-            trajectory[step] = propagate_bloch_ensemble(
-                initial, waveform_xy[:step], offset_t, scales, rf_time_product, dt
-            )[0]
+        for col in range(offset_t.size):
+            state = initial
+            for step in range(n_steps):
+                state = propagate_bloch_ensemble(
+                    state,
+                    waveform_xy[step : step + 1],
+                    offset_t[col : col + 1],
+                    scales,
+                    rf_time_product,
+                    dt,
+                )[0, 0]
+                trajectory[step + 1, col] = state
         trajectories[name] = trajectory
     return trajectories
 
