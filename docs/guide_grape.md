@@ -33,7 +33,6 @@ cp = ControlProblem(
     rho_targ=[rho_targ],
     pulse_dt=0.05,
     pwr_levels=[0.8, 0.8],
-    freeze=None,
     fidelity_mode="abs2",
     basis="hilbert",
 )

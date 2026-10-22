@@ -184,7 +184,6 @@ cp = ControlProblem(
     rho_targ=[normalise_hs(Ix())],                    # target: Ix
     pulse_dt=0.1,                                     # duration of one time slice
     pwr_levels=[1.0, 1.0],                            # RF strength per channel
-    freeze=None,
     fidelity_mode="real",
     basis="dense",
 )

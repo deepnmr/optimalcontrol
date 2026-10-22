@@ -50,7 +50,7 @@ class ControlProblem:
     rho_targ: list[Array]
     pulse_dt: float
     pwr_levels: list[float]
-    freeze: npt.NDArray[np.bool_] | None
+    freeze: npt.NDArray[np.bool_] | None = None
     fidelity_mode: str = "real"
     offsets: list[float] | None = None
     offset_operators: list[Array] | None = None
