@@ -2,7 +2,6 @@
 
 import csv
 import hashlib
-import inspect
 import json
 import math
 from collections.abc import Sequence
@@ -12,15 +11,15 @@ from typing import cast
 
 import numpy as np
 
+from optimalcontrol._problem import _callable_provenance as _callable_provenance
+from optimalcontrol._problem import _hash_array as _hash_array
+from optimalcontrol._problem import _hash_control_problem as _hash_control_problem
+from optimalcontrol._problem import _hash_optional_array as _hash_optional_array
+from optimalcontrol._problem import _own_callable_provenance as _own_callable_provenance
+from optimalcontrol._problem import _penalty_hash_payload as _penalty_hash_payload
 from optimalcontrol._types import RealArray
-from optimalcontrol.grape import (
-    ControlProblem,
-    _basis_name,
-    validate_control_problem,
-    validate_waveform,
-)
+from optimalcontrol.grape import ControlProblem, validate_control_problem, validate_waveform
 from optimalcontrol.optimizers import OptimResult
-from optimalcontrol.penalties import PenaltySpec
 
 
 @dataclass
@@ -280,121 +279,6 @@ def _payload_string(payload: dict[str, object], key: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"waveform JSON field {key!r} must be a string")
     return value
-
-
-def _hash_array(hasher: "hashlib._Hash", name: str, value: object) -> None:
-    """Add an array payload to a problem hash."""
-    array = np.asarray(value)
-    hasher.update(name.encode("utf-8"))
-    hasher.update(str(array.shape).encode("utf-8"))
-    hasher.update(str(array.dtype).encode("utf-8"))
-    hasher.update(np.ascontiguousarray(array).tobytes())
-
-
-def _hash_optional_array(hasher: "hashlib._Hash", name: str, value: object | None) -> None:
-    """Add an optional array payload to a problem hash."""
-    if value is None:
-        hasher.update(f"{name}:none".encode())
-        return
-    _hash_array(hasher, name, value)
-
-
-def _own_callable_provenance(value: object) -> str:
-    """Return a provenance tag stored directly on a callable or instance."""
-    try:
-        provenance = vars(value).get("__optimalcontrol_provenance__")
-    except TypeError:
-        provenance = None
-    descriptor = vars(type(value)).get("__optimalcontrol_provenance__")
-    if provenance is None and inspect.ismemberdescriptor(descriptor):
-        provenance = getattr(value, "__optimalcontrol_provenance__", None)
-    if not isinstance(provenance, str) or not provenance.strip():
-        raise ValueError(
-            "callable penalties require a non-empty "
-            "__optimalcontrol_provenance__ attribute for stable problem hashes"
-        )
-    return provenance
-
-
-def _callable_provenance(penalty: object) -> object:
-    """Return stable provenance, including bound-method instance identity."""
-    function = getattr(penalty, "__func__", None)
-    instance = getattr(penalty, "__self__", None)
-    if function is not None and instance is not None:
-        return {
-            "function": _own_callable_provenance(function),
-            "instance": _own_callable_provenance(instance),
-        }
-    return _own_callable_provenance(penalty)
-
-
-def _penalty_hash_payload(cp: ControlProblem) -> list[dict[str, object]] | None:
-    """Return stable penalty provenance for a control-problem hash."""
-    if cp.penalties is None:
-        return None
-    payload: list[dict[str, object]] = []
-    for penalty in cp.penalties:
-        if isinstance(penalty, PenaltySpec):
-            payload.append(
-                {
-                    "kind": penalty.kind.upper(),
-                    "weight": float(penalty.weight),
-                    "limit": None if penalty.limit is None else float(penalty.limit),
-                }
-            )
-        else:
-            payload.append({"callable_provenance": _callable_provenance(penalty)})
-    return payload
-
-
-def _hash_control_problem(cp: ControlProblem) -> str:
-    """Return a stable hash of the serialisable control-problem definition."""
-    hasher = hashlib.sha256()
-    scalar_payload: dict[str, object] = {
-        "pulse_dt": float(cp.pulse_dt),
-        "pwr_levels": [float(level) for level in cp.pwr_levels],
-        "fidelity_mode": cp.fidelity_mode,
-        "basis": _basis_name(cp.basis),
-        "penalties": _penalty_hash_payload(cp),
-        "n_drifts": len(cp.drifts),
-        "n_operators": len(cp.operators),
-        "n_rho_init": len(cp.rho_init),
-        "n_rho_targ": len(cp.rho_targ),
-        "offsets": None if cp.offsets is None else [float(value) for value in cp.offsets],
-    }
-    hasher.update(json.dumps(scalar_payload, sort_keys=True, allow_nan=False).encode("utf-8"))
-    for field_name, arrays in (
-        ("drifts", cp.drifts),
-        ("operators", cp.operators),
-        ("rho_init", cp.rho_init),
-        ("rho_targ", cp.rho_targ),
-    ):
-        for index, array in enumerate(arrays):
-            _hash_array(
-                hasher,
-                f"{field_name}[{index}]",
-                np.asarray(array, dtype=np.complex128),
-            )
-    if cp.offset_operators is None:
-        hasher.update(b"offset_operators:none")
-    else:
-        for index, array in enumerate(cp.offset_operators):
-            _hash_array(
-                hasher,
-                f"offset_operators[{index}]",
-                np.asarray(array, dtype=np.complex128),
-            )
-    _hash_optional_array(
-        hasher,
-        "freeze",
-        None if cp.freeze is None else np.asarray(cp.freeze, dtype=np.bool_),
-    )
-    _hash_optional_array(
-        hasher,
-        "phase_cycle",
-        None if cp.phase_cycle is None else np.asarray(cp.phase_cycle, dtype=np.float64),
-    )
-    return hasher.hexdigest()
 
 
 def waveform_from_result(
