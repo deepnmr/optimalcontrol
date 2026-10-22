@@ -13,7 +13,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize
 
-from examples._figures import save_figure
+from examples._figures import quantise, save_figure
 from optimalcontrol.grape import ControlProblem, grape_xy_and_gradient
 from optimalcontrol.io import export_bruker_shape as _write_bruker_shape
 from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm, vec
@@ -63,9 +63,9 @@ def plot_wide_profile(
     """Write Ix, -Iy, Iz transfer profiles over the full -6..6 ppm window."""
     ppm = wide_profile["ppm"]
     figure, axis = plt.subplots(1, 1, figsize=(9.0, 4.5), constrained_layout=True)
-    axis.plot(ppm, wide_profile["x"], label="Ix -> Ix")
-    axis.plot(ppm, wide_profile["y"], label="Iy -> -Iy")
-    axis.plot(ppm, wide_profile["z"], label="Iz -> -Iz")
+    axis.plot(ppm, quantise(wide_profile["x"]), label="Ix -> Ix")
+    axis.plot(ppm, quantise(wide_profile["y"]), label="Iy -> -Iy")
+    axis.plot(ppm, quantise(wide_profile["z"]), label="Iz -> -Iz")
     axis.axvline(METHYL_PPM_LO, color="black", linestyle=":", linewidth=0.8)
     axis.axvline(METHYL_PPM_HI, color="black", linestyle=":", linewidth=0.8)
     axis.axvline(WATER_PPM, color="tab:gray", linestyle="--", linewidth=0.8)
@@ -96,9 +96,9 @@ def plot_wide_components(
     figure, axes = plt.subplots(3, 1, figsize=(9.0, 9.0), sharex=True, constrained_layout=True)
     for axis, name in zip(axes, ("Ix", "Iy", "Iz"), strict=True):
         final = component_profile[name]
-        axis.plot(ppm, final[:, 0], label="Mx", color="tab:blue")
-        axis.plot(ppm, final[:, 1], label="My", color="tab:orange")
-        axis.plot(ppm, final[:, 2], label="Mz", color="tab:green")
+        axis.plot(ppm, quantise(final[:, 0]), label="Mx", color="tab:blue")
+        axis.plot(ppm, quantise(final[:, 1]), label="My", color="tab:orange")
+        axis.plot(ppm, quantise(final[:, 2]), label="Mz", color="tab:green")
         axis.axvline(METHYL_PPM_LO, color="black", linestyle=":", linewidth=0.8)
         axis.axvline(METHYL_PPM_HI, color="black", linestyle=":", linewidth=0.8)
         axis.axvline(WATER_PPM, color="tab:gray", linestyle="--", linewidth=0.8)
@@ -310,9 +310,9 @@ def plot_time_evolution(
         trajectory = time_evolution[name]
         for col in range(n_cols):
             axis = axes[row, col]
-            axis.plot(time_us, trajectory[:, col, 0], label="Mx", color="tab:blue")
-            axis.plot(time_us, trajectory[:, col, 1], label="My", color="tab:orange")
-            axis.plot(time_us, trajectory[:, col, 2], label="Mz", color="tab:green")
+            axis.plot(time_us, quantise(trajectory[:, col, 0]), label="Mx", color="tab:blue")
+            axis.plot(time_us, quantise(trajectory[:, col, 1]), label="My", color="tab:orange")
+            axis.plot(time_us, quantise(trajectory[:, col, 2]), label="Mz", color="tab:green")
             axis.axhline(0.0, color="black", linewidth=0.5)
             axis.set_ylim(-1.05, 1.05)
             if row == 0:
