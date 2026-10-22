@@ -187,8 +187,8 @@ def curvilinear_reparameterise(wfm: RealArray, bounds: tuple[float, float]) -> R
     return np.asarray(midpoint + half_width * np.tanh(waveform), dtype=np.float64)
 
 
-def _has_hermitian_igenerators(cp: ControlProblem) -> bool:
-    """Return True when ``1j * generator`` is Hermitian for every waveform.
+def _has_hermitian_igenerators(cp: ControlProblem, *, wfm: RealArray | None = None) -> bool:
+    """Return True when ``1j * generator`` is Hermitian at the waveform scale.
 
     This holds exactly when ``1j * drift`` and every power-scaled
     ``1j * operator`` are Hermitian, i.e. coherent (unitary) dynamics without
@@ -198,7 +198,11 @@ def _has_hermitian_igenerators(cp: ControlProblem) -> bool:
     ``is_anti_hermitian_slice``, so both implementations always select the
     same propagator algorithm.
     """
-    candidates = [_single_drift(cp)] + list(_control_direction_stack(cp))
+    directions = _control_direction_stack(cp)
+    if wfm is not None:
+        amplitudes = np.maximum(1.0, np.max(np.abs(wfm), axis=0))
+        directions = directions * amplitudes[:, None, None]
+    candidates = [_single_drift(cp)] + list(directions)
     return all(_is_anti_hermitian(matrix) for matrix in candidates)
 
 
@@ -206,9 +210,10 @@ def _propagators_and_derivatives(
     cp: ControlProblem,
     generators: Array,
     control_directions: Array,
+    wfm: RealArray,
 ) -> tuple[Array, Array]:
     """Return slice propagators and their control derivatives, fast path first."""
-    if _has_hermitian_igenerators(cp):
+    if _has_hermitian_igenerators(cp, wfm=wfm):
         propagators, eigenvalues, eigenvectors = _propagators_via_eigh(generators, cp.pulse_dt)
         d_propagators = _derivative_propagators_via_eigh(
             eigenvalues, eigenvectors, control_directions, cp.pulse_dt
@@ -227,7 +232,7 @@ def forward_propagators(cp: ControlProblem, wfm: RealArray) -> list[Array]:
     effective_waveform = _effective_waveform(cp, wfm)
 
     generators = _slice_generator_stack(cp, effective_waveform)
-    if _has_hermitian_igenerators(cp):
+    if _has_hermitian_igenerators(cp, wfm=effective_waveform):
         propagators_stack, _, _ = _propagators_via_eigh(generators, cp.pulse_dt)
     else:
         propagators_stack = np.asarray(expm(generators * cp.pulse_dt), dtype=np.complex128)
@@ -340,7 +345,9 @@ def _single_value_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[floa
 
     generators = _slice_generator_stack(cp, effective_waveform)
     control_directions = _control_direction_stack(cp)
-    propagators, d_propagators = _propagators_and_derivatives(cp, generators, control_directions)
+    propagators, d_propagators = _propagators_and_derivatives(
+        cp, generators, control_directions, effective_waveform
+    )
 
     gradient: RealArray = np.zeros((n_steps, n_channels), dtype=np.float64)
     values: list[float] = []

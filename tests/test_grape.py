@@ -18,6 +18,7 @@ from optimalcontrol.grape import (
     grape_gradient,
     grape_hessian,
     grape_xy,
+    grape_xy_and_gradient,
     grape_xy_hilbert,
     grape_xy_liouville,
     phase_only_gradient,
@@ -27,6 +28,33 @@ from optimalcontrol.grape import (
 )
 from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm, place_operator, vec
 from optimalcontrol.states import normalise_2norm, normalise_hs, state_from_label
+
+
+def test_large_waveform_preserves_small_control_dissipation() -> None:
+    """Waveform amplification must not hide dissipation behind the coherence gate."""
+    cp = ControlProblem(
+        drifts=[np.zeros((2, 2), dtype=np.complex128)],
+        operators=[-1e-13 * np.eye(2, dtype=np.complex128)],
+        rho_init=[np.array([1.0, 0.0], dtype=np.complex128)],
+        rho_targ=[np.array([1.0, 0.0], dtype=np.complex128)],
+        pulse_dt=1.0,
+        pwr_levels=[1.0],
+        freeze=None,
+        basis="hilbert",
+        fidelity_mode="real",
+    )
+    waveform = np.array([[1e13]], dtype=np.float64)
+
+    fidelity = grape_xy(cp, waveform)
+    value, gradient = grape_xy_and_gradient(cp, waveform)
+    hessian = grape_hessian(cp, waveform)
+
+    np.testing.assert_allclose(fidelity, np.exp(-1.0), atol=1e-12, rtol=0.0)
+    np.testing.assert_allclose(value, np.exp(-1.0), atol=1e-12, rtol=0.0)
+    # Express derivatives in units of the amplified control, not the raw waveform.
+    np.testing.assert_allclose(gradient * 1e13, -np.exp(-1.0), atol=1e-9, rtol=0.0)
+    assert hessian is not None
+    np.testing.assert_allclose(hessian * 1e26, np.exp(-1.0), atol=1e-6, rtol=0.0)
 
 
 def _basic_control_problem() -> ControlProblem:
@@ -608,7 +636,7 @@ def test_hermitian_fast_path_matches_pade_fallback(
     fast_gradient = grape_gradient(cp, waveform)
     fast_propagators = forward_propagators(cp, waveform)
 
-    monkeypatch.setattr(grape_module, "_has_hermitian_igenerators", lambda _cp: False)
+    monkeypatch.setattr(grape_module, "_has_hermitian_igenerators", lambda _cp, **_kw: False)
     slow_fidelity = grape_xy(cp, waveform)
     slow_gradient = grape_gradient(cp, waveform)
     slow_propagators = forward_propagators(cp, waveform)

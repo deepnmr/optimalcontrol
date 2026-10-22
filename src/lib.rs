@@ -146,22 +146,26 @@ fn is_anti_hermitian_slice(values: &[Complex64], dim: usize) -> bool {
 /// Anti-Hermiticity of a member's drift and all its control operators.
 ///
 /// The step generators are drift + sum(w_k * control_k) with real waveform
-/// weights, so checking the drift and controls once covers every time slice.
+/// weights. Scale controls by their maximum waveform amplitudes so the tolerance
+/// floor cannot hide dissipation amplified by the waveform.
 fn member_is_anti_hermitian(
     drift: &[Complex64],
     operators: &[Complex64],
     dim: usize,
-    channels: usize,
+    amplitudes: &[f64],
 ) -> bool {
     let matrix_len = dim * dim;
     if !is_anti_hermitian_slice(drift, dim) {
         return false;
     }
-    (0..channels).all(|channel| {
-        is_anti_hermitian_slice(
-            &operators[channel * matrix_len..(channel + 1) * matrix_len],
-            dim,
-        )
+    amplitudes.iter().enumerate().all(|(channel, &amplitude)| {
+        let operator = &operators[channel * matrix_len..(channel + 1) * matrix_len];
+        if amplitude == 1.0 {
+            is_anti_hermitian_slice(operator, dim)
+        } else {
+            let scaled: Vec<Complex64> = operator.iter().map(|value| value * amplitude).collect();
+            is_anti_hermitian_slice(&scaled, dim)
+        }
     })
 }
 
@@ -657,6 +661,15 @@ fn grape_fidelity_vectors(
         &drifts, &operators, &waveform, &rho_init, &rho_targ, dt, mode,
     )?;
     let (members, pairs) = (inputs.members, inputs.pairs);
+    let amplitudes: Vec<f64> = (0..inputs.channels)
+        .map(|channel| {
+            inputs.waveform[channel..]
+                .iter()
+                .step_by(inputs.channels)
+                .map(|value| value.abs())
+                .fold(1.0, f64::max)
+        })
+        .collect();
 
     // Collect per-member values in index order and reduce serially so the
     // fidelity is bitwise reproducible run-to-run; a parallel f64 sum
@@ -666,8 +679,7 @@ fn grape_fidelity_vectors(
         .into_par_iter()
         .map(|member| {
             let member = inputs.member(member);
-            if member_is_anti_hermitian(member.drift, member.operators, member.dim, member.channels)
-            {
+            if member_is_anti_hermitian(member.drift, member.operators, member.dim, &amplitudes) {
                 dispatch_dim!(member.dim, member_fidelity_eigen, member)
             } else {
                 member_fidelity_expm(member)
@@ -682,6 +694,15 @@ fn grape_fidelity_vectors(
 
 /// Shared parallel driver returning per-pair values and gradients per member.
 fn all_member_pair_results(inputs: &VectorInputs<'_>) -> PyResult<Vec<MemberPairResults>> {
+    let amplitudes: Vec<f64> = (0..inputs.channels)
+        .map(|channel| {
+            inputs.waveform[channel..]
+                .iter()
+                .step_by(inputs.channels)
+                .map(|value| value.abs())
+                .fold(1.0, f64::max)
+        })
+        .collect();
     // With fewer members than worker threads, recover parallelism by
     // decomposing the time slices of each member concurrently instead. Tiny
     // problems stay serial: the fork/join overhead outweighs ~1 us slices.
@@ -689,12 +710,7 @@ fn all_member_pair_results(inputs: &VectorInputs<'_>) -> PyResult<Vec<MemberPair
         .into_par_iter()
         .map(|member| {
             let member = inputs.member(member);
-            if !member_is_anti_hermitian(
-                member.drift,
-                member.operators,
-                member.dim,
-                member.channels,
-            ) {
+            if !member_is_anti_hermitian(member.drift, member.operators, member.dim, &amplitudes) {
                 return Err(PyValueError::new_err(
                     "Rust gradient acceleration requires anti-Hermitian generators",
                 ));
