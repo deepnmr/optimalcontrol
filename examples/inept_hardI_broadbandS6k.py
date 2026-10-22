@@ -83,12 +83,12 @@ def _full_waveform() -> npt.NDArray[np.float64]:
     i180_start, final90_start, n_total = _sequence_layout()
     waveform = np.zeros((n_total, 4), dtype=np.float64)
     waveform[0:I90_STEPS, 0] = 1.0
-    waveform[i180_start:i180_start + I180_STEPS, 0] = -1.0
-    waveform[final90_start:final90_start + I90_STEPS, 1] = 1.0
+    waveform[i180_start : i180_start + I180_STEPS, 0] = -1.0
+    waveform[final90_start : final90_start + I90_STEPS, 1] = 1.0
 
     s_center = i180_start + I180_STEPS / 2.0
     s_start = int(round(s_center - S_PULSE_XY.shape[0] / 2.0))
-    waveform[s_start:s_start + S_PULSE_XY.shape[0], 2:4] = S_PULSE_XY
+    waveform[s_start : s_start + S_PULSE_XY.shape[0], 2:4] = S_PULSE_XY
     return waveform
 
 

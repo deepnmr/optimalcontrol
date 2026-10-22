@@ -173,9 +173,7 @@ def dead_time_propagation(
     return _apply_liouville_propagator(rho_arr, propagator, "dead-time propagator")
 
 
-def _overlap(
-    rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]
-) -> np.complex128:
+def _overlap(rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]) -> np.complex128:
     """Return the Hilbert-Schmidt overlap <rho_t, rho_f>."""
     rho_f_arr = np.asarray(rho_f, dtype=np.complex128)
     rho_t_arr = np.asarray(rho_t, dtype=np.complex128)
@@ -184,23 +182,17 @@ def _overlap(
     return np.complex128(np.vdot(rho_t_arr, rho_f_arr))
 
 
-def fidelity_real(
-    rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]
-) -> float:
+def fidelity_real(rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]) -> float:
     """Return Re(Tr(rho_t.conj().T @ rho_f)) for pre-normalised states."""
     return float(np.real(_overlap(rho_f, rho_t)))
 
 
-def fidelity_imag(
-    rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]
-) -> float:
+def fidelity_imag(rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]) -> float:
     """Return Im(Tr(rho_t.conj().T @ rho_f)) for pre-normalised states."""
     return float(np.imag(_overlap(rho_f, rho_t)))
 
 
-def fidelity_abs2(
-    rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]
-) -> float:
+def fidelity_abs2(rho_f: npt.NDArray[np.complex128], rho_t: npt.NDArray[np.complex128]) -> float:
     """Return |Tr(rho_t.conj().T @ rho_f)|^2 for pre-normalised states."""
     overlap = _overlap(rho_f, rho_t)
     return float(np.real(overlap.conjugate() * overlap))

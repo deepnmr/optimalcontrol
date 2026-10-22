@@ -27,9 +27,7 @@ def run() -> npt.NDArray[np.float64]:
     J_hz = 100.0
     n_values = np.linspace(0.0, 3.0, 300)
 
-    gain = np.array(
-        [rope_gain_over_inept(float(n), J_hz) for n in n_values], dtype=np.float64
-    )
+    gain = np.array([rope_gain_over_inept(float(n), J_hz) for n in n_values], dtype=np.float64)
 
     fig, ax = plt.subplots(figsize=(7, 4))
     ax.plot(n_values, gain, linewidth=2)
@@ -43,9 +41,7 @@ def run() -> npt.NDArray[np.float64]:
 
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
     os.makedirs(output_dir, exist_ok=True)
-    fig.savefig(
-        os.path.join(output_dir, "rope_gain_Ia_2IbSc.png"), dpi=150, bbox_inches="tight"
-    )
+    fig.savefig(os.path.join(output_dir, "rope_gain_Ia_2IbSc.png"), dpi=150, bbox_inches="tight")
     plt.close(fig)
 
     return gain

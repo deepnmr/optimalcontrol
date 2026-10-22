@@ -138,9 +138,7 @@ def component_profiles(signed: RealArray, rf_time_product: float) -> dict[str, R
     waveform_xy = np.column_stack((signed, np.zeros_like(signed)))
     scales = np.array([1.0], dtype=np.float64)
     dt = 1.0 / signed.size
-    offset_t = np.linspace(
-        -WIDE_HALF_WIDTH, WIDE_HALF_WIDTH, WIDE_POINTS, dtype=np.float64
-    )
+    offset_t = np.linspace(-WIDE_HALF_WIDTH, WIDE_HALF_WIDTH, WIDE_POINTS, dtype=np.float64)
     initials = {
         "Ix": np.array([1.0, 0.0, 0.0]),
         "Iy": np.array([0.0, 1.0, 0.0]),
@@ -327,9 +325,7 @@ def run() -> RealArray:
     plot_reburp(signed, rf_time_product, profiles, output_dir)
     plot_wide_profile(profiles, output_dir)
     plot_wide_components(component_profiles(signed, rf_time_product), output_dir)
-    plot_time_evolution(
-        time_evolution_profiles(signed, rf_time_product), output_dir
-    )
+    plot_time_evolution(time_evolution_profiles(signed, rf_time_product), output_dir)
 
     in_passband = profiles["iz_to_mz"] < PASSBAND_INVERSION
     inverted = profiles["offset_t"][in_passband]
@@ -337,9 +333,7 @@ def run() -> RealArray:
     passband_hi = float(inverted.max()) if inverted.size else 0.0
     universal = (profiles["x"] + profiles["y"] + profiles["z"]) / 3.0
     universal_min = float(np.min(universal[in_passband])) if inverted.size else 0.0
-    summary = np.array(
-        [rf_time_product, passband_lo, passband_hi, universal_min], dtype=np.float64
-    )
+    summary = np.array([rf_time_product, passband_lo, passband_hi, universal_min], dtype=np.float64)
     return np.concatenate((signed, summary))
 
 

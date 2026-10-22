@@ -28,9 +28,7 @@ from optimalcontrol.states import normalise_2norm
 
 def _ensemble_control_problem() -> ControlProblem:
     rho_init = np.array([1.0, 0.0], dtype=np.complex128)
-    rho_targ = normalise_2norm(
-        np.array([0.35 + 0.15j, 0.88 - 0.28j], dtype=np.complex128)
-    )
+    rho_targ = normalise_2norm(np.array([0.35 + 0.15j, 0.88 - 0.28j], dtype=np.complex128))
     return ControlProblem(
         drifts=[
             np.complex128(-1j) * 0.2 * Iz(),
@@ -227,9 +225,7 @@ def test_ensemble_fidelity_single_member_matches_grape_xy() -> None:
 def test_ensemble_gradient_averages_expanded_problem_gradients() -> None:
     cp = _ensemble_control_problem()
     waveform = np.array([[0.12], [-0.04], [0.08]], dtype=np.float64)
-    member_gradients = [
-        grape_gradient(problem, waveform) for problem in _drift_power_product(cp)
-    ]
+    member_gradients = [grape_gradient(problem, waveform) for problem in _drift_power_product(cp)]
     expected = np.mean(np.asarray(member_gradients, dtype=np.float64), axis=0)
 
     gradient = ensemble_gradient(cp, waveform)
@@ -259,9 +255,7 @@ def test_ensemble_penalties_applied_once_on_every_path(
         np.testing.assert_allclose(value, expected_value, rtol=1e-12)
         np.testing.assert_allclose(gradient, expected_gradient, rtol=1e-9, atol=1e-14)
         np.testing.assert_allclose(ensemble_fidelity(cp, waveform), expected_value, rtol=1e-12)
-        np.testing.assert_allclose(
-            ensemble_gradient(cp, waveform), gradient, rtol=1e-9, atol=1e-14
-        )
+        np.testing.assert_allclose(ensemble_gradient(cp, waveform), gradient, rtol=1e-9, atol=1e-14)
         results[disable_rust] = (value, gradient)
 
     np.testing.assert_allclose(results["0"][0], results["1"][0], rtol=1e-12)

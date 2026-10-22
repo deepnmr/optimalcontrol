@@ -291,7 +291,7 @@ def _hash_array(hasher: "hashlib._Hash", name: str, value: object) -> None:
 def _hash_optional_array(hasher: "hashlib._Hash", name: str, value: object | None) -> None:
     """Add an optional array payload to a problem hash."""
     if value is None:
-        hasher.update(f"{name}:none".encode("utf-8"))
+        hasher.update(f"{name}:none".encode())
         return
     _hash_array(hasher, name, value)
 

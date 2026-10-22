@@ -29,9 +29,7 @@ def run() -> npt.NDArray[np.float64]:
     J_hz = 100.0
 
     rope_eff = np.array([rope_g(float(n)) for n in n_values], dtype=np.float64)
-    inept_eff = np.array(
-        [inept_max_efficiency(float(n), J_hz) for n in n_values], dtype=np.float64
-    )
+    inept_eff = np.array([inept_max_efficiency(float(n), J_hz) for n in n_values], dtype=np.float64)
 
     fig, ax = plt.subplots(figsize=(7, 4))
     ax.plot(n_values, rope_eff, label="ROPE g(n)", linewidth=2)
@@ -46,9 +44,7 @@ def run() -> npt.NDArray[np.float64]:
 
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
     os.makedirs(output_dir, exist_ok=True)
-    fig.savefig(
-        os.path.join(output_dir, "rope_efficiency_vs_n.png"), dpi=150, bbox_inches="tight"
-    )
+    fig.savefig(os.path.join(output_dir, "rope_efficiency_vs_n.png"), dpi=150, bbox_inches="tight")
     plt.close(fig)
 
     return rope_eff

@@ -92,10 +92,9 @@ def _control_problem() -> ControlProblem:
         ka_prime=0.0,
         kc_prime=0.0,
     )
-    drift = (
-        liouvillian_comm(drift_hamiltonian(system) + shift_hamiltonian(system))
-        + relaxation_liouvillian(system)
-    )
+    drift = liouvillian_comm(
+        drift_hamiltonian(system) + shift_hamiltonian(system)
+    ) + relaxation_liouvillian(system)
     controls = control_operators(system)
     return ControlProblem(
         drifts=[drift],
@@ -110,9 +109,7 @@ def _control_problem() -> ControlProblem:
     )
 
 
-def _state_trajectory(
-    cp: ControlProblem, wfm: npt.NDArray[np.float64]
-) -> npt.NDArray[np.float64]:
+def _state_trajectory(cp: ControlProblem, wfm: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """Return trajectories for Iz, Ix, 2IySz, and 2IzSz."""
     propagators = forward_propagators(cp, wfm)
     states = forward_states(cp.rho_init[0], propagators)

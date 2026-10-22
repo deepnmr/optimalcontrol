@@ -15,6 +15,7 @@ try:
 except ImportError as _exc:
     raise ImportError("matplotlib is required for optimalcontrol.plotting") from _exc
 
+
 def _root_figure(ax: matplotlib.axes.Axes) -> matplotlib.figure.Figure:
     """Return the top-level Figure owning ax; unlike get_figure(root=True), works on mpl < 3.10."""
     fig = ax.get_figure()
@@ -91,9 +92,7 @@ def plot_rope_efficiency(
         raise ValueError("J_hz must be positive")
 
     rope_eff = np.array([rope_g(n) for n in n_values], dtype=np.float64)
-    inept_eff = np.array(
-        [inept_max_efficiency(n, J_hz) for n in n_values], dtype=np.float64
-    )
+    inept_eff = np.array([inept_max_efficiency(n, J_hz) for n in n_values], dtype=np.float64)
     n_arr = np.asarray(n_values, dtype=np.float64)
 
     fig, axes = _figure_and_axes(ax)
@@ -104,5 +103,3 @@ def plot_rope_efficiency(
     axes.set_title("ROPE vs INEPT Efficiency")
     axes.legend()
     return fig
-
-

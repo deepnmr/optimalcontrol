@@ -368,9 +368,7 @@ def wide_component_profile(
     }
     profile: dict[str, RealArray] = {"ppm": ppm}
     for name, initial in initials.items():
-        final = propagate_bloch_ensemble(
-            initial, waveform_xy, offsets_hz, scales, rf_max_hz, dt
-        )[0]
+        final = propagate_bloch_ensemble(initial, waveform_xy, offsets_hz, scales, rf_max_hz, dt)[0]
         profile[name] = np.asarray(final, dtype=np.float64)
     return profile
 
@@ -445,9 +443,7 @@ def _control_problem(
 def _collapse_symmetric_gradient(gradient: RealArray) -> RealArray:
     """Apply the mirror-parameterization chain rule to a full gradient."""
     half = N_STEPS // 2
-    return np.asarray(
-        gradient[:half, 0] + gradient[half:, 0][::-1], dtype=np.float64
-    )
+    return np.asarray(gradient[:half, 0] + gradient[half:, 0][::-1], dtype=np.float64)
 
 
 def _constraint_score(metrics: PulseMetrics) -> float:
@@ -474,9 +470,7 @@ def refine_duration(
     mean is high.
     """
     duration_s = duration_us * 1e-6
-    base_offsets = np.linspace(
-        METHYL_OFFSET_LO_HZ, METHYL_OFFSET_HI_HZ, 81, dtype=np.float64
-    )
+    base_offsets = np.linspace(METHYL_OFFSET_LO_HZ, METHYL_OFFSET_HI_HZ, 81, dtype=np.float64)
     validation_offsets = np.linspace(
         METHYL_OFFSET_LO_HZ,
         METHYL_OFFSET_HI_HZ,
@@ -490,24 +484,16 @@ def refine_duration(
         dtype=np.float64,
     )
     best = np.asarray(half_seed, dtype=np.float64).copy()
-    best_metrics, best_profiles = evaluate_pulse(
-        signed_amplitude(best), duration_s=duration_s
-    )
+    best_metrics, best_profiles = evaluate_pulse(signed_amplitude(best), duration_s=duration_s)
 
     best_score = _constraint_score(best_metrics)
     for _ in range(max_outer):
         x_indices = np.argsort(best_profiles["methyl_x"])[:30]
         y_indices = np.argsort(best_profiles["methyl_y"])[:30]
         z_indices = np.argsort(best_profiles["methyl_z"])[:30]
-        x_offsets = np.concatenate(
-            (base_offsets, np.repeat(validation_offsets[x_indices], 30))
-        )
-        y_offsets = np.concatenate(
-            (base_offsets, np.repeat(validation_offsets[y_indices], 30))
-        )
-        z_offsets = np.concatenate(
-            (base_offsets, np.repeat(validation_offsets[z_indices], 30))
-        )
+        x_offsets = np.concatenate((base_offsets, np.repeat(validation_offsets[x_indices], 30)))
+        y_offsets = np.concatenate((base_offsets, np.repeat(validation_offsets[y_indices], 30)))
+        z_offsets = np.concatenate((base_offsets, np.repeat(validation_offsets[z_indices], 30)))
         cp_x = _control_problem(x_offsets, [Ix()], [Ix()], duration_s)
         cp_y = _control_problem(y_offsets, [-Iy()], [Iy()], duration_s)
         cp_z = _control_problem(z_offsets, [Iz()], [-Iz()], duration_s)
@@ -531,9 +517,7 @@ def refine_duration(
 
         def callback(half: RealArray) -> None:
             nonlocal local_best, local_metrics, local_profiles, local_score
-            metrics, profiles = evaluate_pulse(
-                signed_amplitude(half), duration_s=duration_s
-            )
+            metrics, profiles = evaluate_pulse(signed_amplitude(half), duration_s=duration_s)
             candidate_score = _constraint_score(metrics)
             if candidate_score > local_score:
                 local_best = np.asarray(half, dtype=np.float64).copy()
@@ -632,9 +616,7 @@ def plot_diagnostics(
     axes[0].set_ylabel("Amplitude (%)")
     phase_axis.set_ylabel("Phase (deg)")
     phase_axis.set_yticks([0.0, 180.0])
-    axes[0].set_title(
-        f"Symmetric binary-phase methyl 180: {DURATION_US:.0f} us, 10 kHz max"
-    )
+    axes[0].set_title(f"Symmetric binary-phase methyl 180: {DURATION_US:.0f} us, 10 kHz max")
 
     axes[1].plot(methyl_ppm, profiles["methyl_x"], label="Ix -> Ix")
     axes[1].plot(methyl_ppm, profiles["methyl_y"], label="-Iy -> Iy")

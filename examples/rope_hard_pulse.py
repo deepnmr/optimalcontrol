@@ -93,9 +93,7 @@ def run() -> npt.NDArray[np.float64]:
     )
     ax.set_xlabel(r"$t \cdot J$")
     ax.set_ylabel(r"$u_1$")
-    ax.set_title(
-        rf"ROPE hard-pulse approximation: $n = {n}$, $\alpha = {alpha_u1_deg:.1f}°$"
-    )
+    ax.set_title(rf"ROPE hard-pulse approximation: $n = {n}$, $\alpha = {alpha_u1_deg:.1f}°$")
     ax.legend(fontsize=9)
     ax.set_ylim(-0.05, 1.15)
     ax.grid(True, alpha=0.3)

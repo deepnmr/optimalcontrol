@@ -50,11 +50,7 @@ PPM_LO = -6.0
 PPM_HI = 14.0
 PROFILE_POINTS = 2001
 
-SHAPE_PATH = (
-    Path(__file__).resolve().parent
-    / "output"
-    / "methyl_water_reburp_minlength_180.shape"
-)
+SHAPE_PATH = Path(__file__).resolve().parent / "output" / "methyl_water_reburp_minlength_180.shape"
 
 # 3-9-19 WATERGATE hard-pulse parameters.
 W3919_RF_HZ = 36000.0  # 36 kHz hard pulse
@@ -133,7 +129,7 @@ IZ = np.array([0.0, 0.0, 1.0], dtype=np.float64)
 
 
 def _draw_panel(
-    axis: "plt.Axes",
+    axis: plt.Axes,
     ppm: RealArray,
     reburp: RealArray,
     w3919: RealArray,
@@ -172,17 +168,26 @@ def plot_comparison(output_dir: Path) -> Path:
 
     figure, axes = plt.subplots(1, 3, figsize=(21.0, 5.0), constrained_layout=True)
     _draw_panel(
-        axes[0], ppm, reburp_mx, w3919_mx,
+        axes[0],
+        ppm,
+        reburp_mx,
+        w3919_mx,
         "final Mx  (from Ix;  +1 = refocus)",
         "Mx (Ix -> Ix) vs offset",
     )
     _draw_panel(
-        axes[1], ppm, reburp_my, w3919_my,
+        axes[1],
+        ppm,
+        reburp_my,
+        w3919_my,
         "final My  (from -Iy;  +1 = refocus)",
         "My (-Iy -> Iy) vs offset",
     )
     _draw_panel(
-        axes[2], ppm, reburp_mz, w3919_mz,
+        axes[2],
+        ppm,
+        reburp_mz,
+        w3919_mz,
         "final Mz  (from Iz;  -1 = full inversion)",
         "Mz (Iz -> -Iz) vs offset",
     )

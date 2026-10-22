@@ -48,9 +48,7 @@ def run() -> npt.NDArray[np.float64]:
     )
     ax_ctrl.axvline((T - switching_time) * J_hz, linestyle=":", linewidth=1.5, color="C2")
     ax_ctrl.set_ylabel("Dimensionless control")
-    ax_ctrl.set_title(
-        rf"Finite-time ROPE controls: $n = {n}$, $T = 0.263/J$ (JMR 2003)"
-    )
+    ax_ctrl.set_title(rf"Finite-time ROPE controls: $n = {n}$, $T = 0.263/J$ (JMR 2003)")
     ax_ctrl.legend()
     ax_ctrl.set_ylim(-0.1, 1.2)
     ax_ctrl.grid(True, alpha=0.3)

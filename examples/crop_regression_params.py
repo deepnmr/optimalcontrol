@@ -54,8 +54,7 @@ def run() -> npt.NDArray[np.float64]:
 
     fig, ax = plt.subplots(figsize=(7, 4))
     eta_curve = np.array(
-        [crop_eta(k * J_hz_plot, kc_over_ka * k * J_hz_plot, J_hz_plot)
-         for k in ka_over_J_grid],
+        [crop_eta(k * J_hz_plot, kc_over_ka * k * J_hz_plot, J_hz_plot) for k in ka_over_J_grid],
         dtype=np.float64,
     )
     ax.plot(ka_over_J_grid, eta_curve, linewidth=2, label="eta (kc/ka=0.75)")
