@@ -269,6 +269,39 @@ def test_kernel_is_scale_invariant_at_float_range_edges(scale, monkeypatch):
         _assert_parity(cp, waveform, monkeypatch)
 
 
+@pytest.mark.parametrize("scale", [1e-310, 1e-320, 5e-324])
+def test_kernel_direction_survives_subnormal_components(scale, monkeypatch):
+    # A subnormal radius carries few significant bits, so dividing the raw components
+    # by it does not give a unit direction; the direction must come from components
+    # rescaled by their largest magnitude. The zero-radius member stays the identity.
+    state = vec(normalise_hs(Ix()))
+    off_axis = np.array([[0.0, 1.0 - 1.0j], [1.0 + 1.0j, 0.0]])
+    cp = ControlProblem(
+        drifts=[
+            np.zeros((4, 4), dtype=complex),
+            liouvillian_comm(scale * off_axis),
+            liouvillian_comm(scale * Iz()),
+            liouvillian_comm(1e200 * Iz()),
+        ],
+        operators=[liouvillian_comm(Ix())],
+        rho_init=[state],
+        rho_targ=[state],
+        pulse_dt=1e-200,
+        pwr_levels=[1.0],
+        basis="liouville",
+    )
+    waveform = np.zeros((2, 1))
+    expected = _reference(cp, waveform, monkeypatch)
+    inputs = spin_half_inputs(cp, waveform)
+    assert inputs is not None
+    # Subnormal inputs raise the underflow flag in any arithmetic (the per-member path
+    # does too); only invalid, divide and overflow would indicate a lost direction.
+    with np.errstate(divide="raise", invalid="raise", over="raise"):
+        value, gradient = spin_half_value_gradient(inputs, need_gradient=True)
+    np.testing.assert_allclose(value, expected[0], rtol=1e-13, atol=1e-13)
+    np.testing.assert_allclose(gradient, expected[1], rtol=1e-13, atol=1e-14)
+
+
 @pytest.mark.parametrize("backend", ["0", "1"])
 def test_kernel_chunking_is_bitwise_invariant(backend, monkeypatch):
     monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", backend)

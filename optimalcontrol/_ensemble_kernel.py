@@ -143,14 +143,17 @@ def spin_half_value_gradient(
         h0 = 0.5 * (h[..., 0, 0] + h[..., 1, 1]).real
         hz = 0.5 * (h[..., 0, 0] - h[..., 1, 1]).real
         hx, hy = h[..., 0, 1].real, -h[..., 0, 1].imag
-        # hypot keeps r exact for components far below sqrt(tiny) or above sqrt(huge),
-        # where squaring would underflow to an apparent degeneracy or overflow; the
-        # eigenvectors are then built from the unit direction so every later
-        # intermediate is O(1) regardless of the Hamiltonian scale.
+        # The radius is the eigenvalue splitting and must stay finite at any scale:
+        # hypot never squares the components (squaring underflows to an apparent
+        # degeneracy below ~1e-154 and overflows above ~1e154). The unit direction is
+        # taken from the components rescaled by their largest magnitude so the division
+        # happens on O(1) numbers even when the raw components are subnormal.
         r = np.hypot(np.hypot(hx, hy), hz)
         zero = r == 0.0
-        safe_r = np.where(zero, 1.0, r)
-        ux, uy, uz = hx / safe_r, hy / safe_r, hz / safe_r
+        scale = np.where(zero, 1.0, np.maximum(np.maximum(np.abs(hx), np.abs(hy)), np.abs(hz)))
+        sx, sy, sz = hx / scale, hy / scale, hz / scale
+        unit = np.where(zero, 1.0, np.hypot(np.hypot(sx, sy), sz))
+        ux, uy, uz = sx / unit, sy / unit, sz / unit
         positive = uz >= 0.0
         rp = np.where(positive, 1.0 + uz, 1.0 - uz)
         norm = np.sqrt(2.0 * rp)
