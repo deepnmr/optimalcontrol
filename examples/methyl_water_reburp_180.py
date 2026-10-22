@@ -58,6 +58,11 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize
 
+from examples import _methyl_water_common as reburp_helpers
+from examples._methyl_water_common import _constraint_score as _constraint_score
+from examples._methyl_water_common import _smoothness as _smoothness
+from examples._methyl_water_common import write_bruker_shape as write_bruker_shape
+
 # The sibling module owns the dense physical evaluation, the constraint
 # constants, and the wide/time profile computations; all are step-count and
 # duration agnostic, so they are reused here rather than duplicated.
@@ -85,7 +90,6 @@ from examples.methyl_water_binary_symmetric_180 import (
     wide_transfer_profile,
 )
 from optimalcontrol.grape import ControlProblem, grape_xy_and_gradient
-from optimalcontrol.io import export_bruker_shape as write_bruker_shape
 from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm, vec
 from optimalcontrol.states import normalise_hs
 
@@ -212,13 +216,7 @@ OPTIMIZED_HALF_AMPLITUDE: RealArray = np.array(
 
 
 def signed_amplitude(half: RealArray = OPTIMIZED_HALF_AMPLITUDE) -> RealArray:
-    """Return the exactly symmetric signed RF-amplitude waveform."""
-    half_array = np.asarray(half, dtype=np.float64)
-    if half_array.shape != (N_STEPS // 2,):
-        raise ValueError(f"half waveform must have shape ({N_STEPS // 2},)")
-    if np.max(np.abs(half_array)) > 1.0 + 1e-12:
-        raise ValueError("signed amplitude exceeds the 10 kHz RF limit")
-    return np.asarray(np.concatenate((half_array, half_array[::-1])), dtype=np.float64)
+    return reburp_helpers.signed_amplitude_10khz(half, N_STEPS=N_STEPS)
 
 
 def _control_problem(
@@ -243,32 +241,8 @@ def _control_problem(
     )
 
 
-def _smoothness(signed: RealArray) -> tuple[float, RealArray]:
-    """Return the second-difference roughness and its gradient w.r.t. steps."""
-    d2 = np.diff(signed, 2)
-    value = float(np.sum(d2**2))
-    gradient = np.zeros(signed.size, dtype=np.float64)
-    gradient[:-2] += 2.0 * d2
-    gradient[1:-1] += -4.0 * d2
-    gradient[2:] += 2.0 * d2
-    return value, gradient
-
-
 def _collapse_symmetric_gradient(gradient: RealArray) -> RealArray:
-    """Apply the mirror-parameterization chain rule to a full step gradient."""
-    half = N_STEPS // 2
-    return np.asarray(gradient[:half] + gradient[half:][::-1], dtype=np.float64)
-
-
-def _constraint_score(metrics: PulseMetrics) -> float:
-    """Return the worst normalized constraint, with 0.999 as the pass boundary."""
-    return min(
-        metrics.methyl_x_min,
-        metrics.methyl_y_min,
-        metrics.methyl_z_min,
-        metrics.water_z_min,
-        1.0 - metrics.artifact_max_percent / 100.0,
-    )
+    return reburp_helpers._collapse_symmetric_gradient(gradient, N_STEPS=N_STEPS)
 
 
 def refine_duration(
@@ -335,16 +309,10 @@ def search_minimum_duration() -> tuple[float, RealArray, list[tuple[float, Pulse
 
 
 def export_bruker_shape(signed: RealArray, output_dir: Path) -> Path:
-    """Write the variable-amplitude, binary-phase Bruker shape file."""
-    amplitude, phase_deg = amplitude_phase(signed)
-    return write_bruker_shape(
-        output_dir / f"{PULSE_NAME}.shape",
-        PULSE_NAME,
-        100.0 * amplitude,
-        phase_deg,
-        maxy=180.0,
-        bwfac=None,
-        integfac=float(np.mean(amplitude)),
+    return reburp_helpers.export_bruker_shape(
+        signed,
+        output_dir,
+        PULSE_NAME=PULSE_NAME,
         extra_tags=[
             f"##$OPTIMALCONTROL_TOTAL_DURATION_S= {DURATION_S:.12e}",
             f"##$OPTIMALCONTROL_STEP_DURATION_S= {DT:.12e}",
@@ -356,6 +324,7 @@ def export_bruker_shape(signed: RealArray, output_dir: Path) -> Path:
             "##$OPTIMALCONTROL_SYMMETRIC= yes",
             "##$OPTIMALCONTROL_STYLE= reburp",
         ],
+        amplitude_phase=amplitude_phase,
     )
 
 
@@ -413,51 +382,29 @@ def plot_diagnostics(
 
 
 def plot_wide_profile(wide_profile: dict[str, RealArray], output_dir: Path) -> Path:
-    """Write Ix, -Iy, Iz transfer profiles over the full -6..6 ppm window."""
-    ppm = wide_profile["ppm"]
-    figure, axis = plt.subplots(1, 1, figsize=(9.0, 4.5), constrained_layout=True)
-    axis.plot(ppm, wide_profile["x"], label="Ix -> Ix")
-    axis.plot(ppm, wide_profile["y"], label="Iy -> -Iy")
-    axis.plot(ppm, wide_profile["z"], label="Iz -> -Iz")
-    axis.axvline(METHYL_PPM_LO, color="black", linestyle=":", linewidth=0.8)
-    axis.axvline(METHYL_PPM_HI, color="black", linestyle=":", linewidth=0.8)
-    axis.axvline(WATER_PPM, color="tab:gray", linestyle="--", linewidth=0.8)
-    axis.set_xlim(WIDE_PPM_LO, WIDE_PPM_HI)
-    axis.set_xlabel("1H shift (ppm)")
-    axis.set_ylabel("Transfer fidelity")
-    axis.set_title("Wide-offset transfer profile (dotted: methyl band, dashed: water)")
-    axis.legend()
-
-    figure_path = output_dir / f"{PULSE_NAME}_wide_profile.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
-    return figure_path
+    return reburp_helpers.plot_wide_profile(
+        wide_profile,
+        output_dir,
+        PULSE_NAME=PULSE_NAME,
+        METHYL_PPM_LO=METHYL_PPM_LO,
+        METHYL_PPM_HI=METHYL_PPM_HI,
+        WATER_PPM=WATER_PPM,
+        WIDE_PPM_LO=WIDE_PPM_LO,
+        WIDE_PPM_HI=WIDE_PPM_HI,
+    )
 
 
 def plot_wide_components(component_profile: dict[str, RealArray], output_dir: Path) -> Path:
-    """Write final Mx, My, Mz vs ppm for each initial Ix, Iy, Iz state."""
-    ppm = component_profile["ppm"]
-    figure, axes = plt.subplots(3, 1, figsize=(9.0, 9.0), sharex=True, constrained_layout=True)
-    for axis, name in zip(axes, ("Ix", "Iy", "Iz"), strict=True):
-        final = component_profile[name]
-        axis.plot(ppm, final[:, 0], label="Mx", color="tab:blue")
-        axis.plot(ppm, final[:, 1], label="My", color="tab:orange")
-        axis.plot(ppm, final[:, 2], label="Mz", color="tab:green")
-        axis.axvline(METHYL_PPM_LO, color="black", linestyle=":", linewidth=0.8)
-        axis.axvline(METHYL_PPM_HI, color="black", linestyle=":", linewidth=0.8)
-        axis.axvline(WATER_PPM, color="tab:gray", linestyle="--", linewidth=0.8)
-        axis.set_xlim(WIDE_PPM_LO, WIDE_PPM_HI)
-        axis.set_ylim(-1.05, 1.05)
-        axis.axhline(0.0, color="black", linewidth=0.5)
-        axis.set_ylabel(f"from {name}")
-    axes[0].legend(ncol=3, fontsize="small")
-    axes[0].set_title("Final Bloch components vs offset (dotted: methyl band, dashed: water)")
-    axes[-1].set_xlabel("1H shift (ppm)")
-
-    figure_path = output_dir / f"{PULSE_NAME}_wide_components.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
-    return figure_path
+    return reburp_helpers.plot_wide_components(
+        component_profile,
+        output_dir,
+        PULSE_NAME=PULSE_NAME,
+        METHYL_PPM_LO=METHYL_PPM_LO,
+        METHYL_PPM_HI=METHYL_PPM_HI,
+        WATER_PPM=WATER_PPM,
+        WIDE_PPM_LO=WIDE_PPM_LO,
+        WIDE_PPM_HI=WIDE_PPM_HI,
+    )
 
 
 def plot_time_evolution(time_evolution: dict[str, RealArray], output_dir: Path) -> Path:
