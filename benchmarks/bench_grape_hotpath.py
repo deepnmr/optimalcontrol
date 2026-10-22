@@ -12,8 +12,9 @@ from timeit import repeat
 import numpy as np
 import numpy.typing as npt
 
+from optimalcontrol._accelerator import _enabled
 from optimalcontrol.grape import ControlProblem, grape_gradient, grape_xy
-from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm
+from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm, vec
 from optimalcontrol.states import normalise_hs, state_from_label
 
 RealArray = npt.NDArray[np.float64]
@@ -67,6 +68,28 @@ def _density_problem() -> ControlProblem:
     return cp
 
 
+def _methyl_ensemble_problem() -> ControlProblem:
+    """Return a methyl-sized ensemble: 81 offsets, one channel, 200 steps."""
+    return ControlProblem(
+        drifts=[np.zeros((4, 4), dtype=np.complex128)],
+        operators=[2.0 * np.pi * 10_000.0 * liouvillian_comm(Ix())],
+        rho_init=[vec(normalise_hs(Ix())).reshape(-1)],
+        rho_targ=[vec(normalise_hs(Ix())).reshape(-1)],
+        pulse_dt=1.4e-3 / 200,
+        pwr_levels=[1.0],
+        basis="liouville",
+        fidelity_mode="real",
+        freeze=None,
+        offsets=np.linspace(-9240.0, -2040.0, 81).tolist(),
+        offset_operators=[2.0 * np.pi * liouvillian_comm(Iz())],
+    )
+
+
+def _methyl_waveform() -> RealArray:
+    """Return a deterministic one-channel, 200-step waveform in [-1, 1]."""
+    return np.random.default_rng(11).uniform(-1.0, 1.0, (200, 1))
+
+
 def _time_call(fn: Callable[[], float | RealArray], repeats: int) -> float:
     fn()
     return median(repeat(fn, number=repeats, repeat=5)) / repeats
@@ -78,6 +101,7 @@ def main() -> None:
     ens = _ensemble_problem()
     density = _density_problem()
 
+    print(f"backend={'rust' if _enabled() else 'numpy'}")
     print("case,seconds_per_call")
     print(f"single_fidelity,{_time_call(lambda: grape_xy(single, wfm), 20):.6e}")
     print(f"single_gradient,{_time_call(lambda: grape_gradient(single, wfm), 3):.6e}")
@@ -85,6 +109,13 @@ def main() -> None:
     print(f"ensemble_gradient,{_time_call(lambda: grape_gradient(ens, wfm), 1):.6e}")
     print(f"density_fidelity,{_time_call(lambda: grape_xy(density, wfm), 20):.6e}")
     print(f"density_gradient,{_time_call(lambda: grape_gradient(density, wfm), 3):.6e}")
+    methyl = _methyl_ensemble_problem()
+    methyl_wfm = _methyl_waveform()
+    print(f"methyl_ensemble_value,{_time_call(lambda: grape_xy(methyl, methyl_wfm), 3):.6e}")
+    print(
+        f"methyl_ensemble_value_gradient,"
+        f"{_time_call(lambda: grape_gradient(methyl, methyl_wfm), 3):.6e}"
+    )
 
 
 if __name__ == "__main__":

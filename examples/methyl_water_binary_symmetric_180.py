@@ -380,7 +380,7 @@ def time_evolution_profiles(
 
     For every requested offset the pulse is applied to each axis-aligned
     initial state, and the complete Bloch vector is recorded after every
-    pulse step by re-propagating successively longer waveform prefixes.
+    pulse step by carrying the running Bloch state forward one step at a time.
     The trajectory for key ``"Ix"`` has shape ``(n_steps + 1, n_offsets, 3)``
     where the last axis indexes Mx, My, Mz.
     """
@@ -405,11 +405,18 @@ def time_evolution_profiles(
     for name, initial in initials.items():
         trajectory = np.empty((n_steps + 1, offsets_hz.size, 3), dtype=np.float64)
         trajectory[0] = initial
-        for step in range(1, n_steps + 1):
-            result = propagate_bloch_ensemble(
-                initial, waveform_xy[:step], offsets_hz, scales, rf_max_hz, dt
-            )
-            trajectory[step] = result[0]
+        for col in range(offsets_hz.size):
+            state = initial
+            for step in range(n_steps):
+                state = propagate_bloch_ensemble(
+                    state,
+                    waveform_xy[step : step + 1],
+                    offsets_hz[col : col + 1],
+                    scales,
+                    rf_max_hz,
+                    dt,
+                )[0, 0]
+                trajectory[step + 1, col] = state
         trajectories[name] = trajectory
     return trajectories
 

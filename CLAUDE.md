@@ -68,12 +68,17 @@ cargo clippy --locked --all-targets -- -D warnings  # Rust lint gate, warnings d
 3. `ensemble.py` — any of `len(drifts)>1`, RF power levels, `offsets`+`offset_operators`,
    or `phase_cycle` makes `_has_ensemble_axes` true; `cartesian_product_ensemble` expands
    to single problems and results are averaged. Penalties (`penalties.py`) are stripped
-   before member evaluation and subtracted once from the mean.
+   before member evaluation and subtracted once from the mean. On the NumPy path, spin-1/2
+   Liouville ensembles go to `_ensemble_kernel.py` as a third rung after the two Rust rungs:
+   closed-form two-level eigenpairs batched over members, with the same Daleckii-Krein
+   derivative. Anything else declines to the per-member loop.
 4. `_accelerator.py` — the only place that touches `_rust`. Every public entry point
    (`vector_fidelity`, `vector_value_gradient`, `problem_vector_*`) returns `None` when the
    Rust path can't handle the problem, and callers fall through to NumPy. Validation
    happens Python-side *before* dispatch so both paths raise identically; the seedless
    Rust kernels in particular do not check finiteness themselves (the GRAPE ones do).
+   `_ensemble_kernel.py` reuses `_metadata_supported` read-only and never reads the env
+   flag itself; `ensemble.py` only calls it when `_enabled()` is False.
 5. `optimizers.py` — `lbfgs_grape`, `newton_raphson`, and `run_grape(cp, wfm0, method=)`
    which returns `(io.Waveform, OptimResult)`. Its pieces live in `_checkpoint.py`
    (`OptimResult` and checkpoint persistence), `_line_search.py` (strong-Wolfe cubic line
