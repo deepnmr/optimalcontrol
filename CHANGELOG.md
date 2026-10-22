@@ -58,9 +58,8 @@
   (+ deriv) and `distortion_single_pole` are unchanged.
 - Internal cleanup with no behaviour change: shared scalar validation through
   `_validation`, one anti-Hermitian check shared by `grape` and `_accelerator`,
-  one adjoint step in `_seedless_kernel`, the Bloch fallback uses
-  `scipy.spatial.transform.Rotation`, and `ocseed.Band.state_pairs` derives from
-  `bloch_pairs`.
+  one adjoint step in `_seedless_kernel`, and `ocseed.Band.state_pairs` derives
+  from `bloch_pairs`.
 - Vectorise the NumPy Bloch fallback using the Rust kernel's Rodrigues formula.
   A 512x801 ensemble drops from 3.0 s to 20 ms (more than 50x faster) and agrees
   with Rust to ~1e-13.
