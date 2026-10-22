@@ -249,6 +249,26 @@ def test_kernel_errstate_clean(monkeypatch):
         _assert_parity(cp, waveform, monkeypatch)
 
 
+@pytest.mark.parametrize("scale", [1e-200, 1e-160, 1e155, 1e200])
+def test_kernel_is_scale_invariant_at_float_range_edges(scale, monkeypatch):
+    # Squaring Hamiltonian components of this size underflows (an apparent exact
+    # degeneracy that replaces the evolution by the identity) or overflows (NaN),
+    # while dt*H stays ordinary and the per-member path is exact.
+    state = vec(normalise_hs(Ix()))
+    cp = ControlProblem(
+        drifts=[liouvillian_comm(scale * Iz()), liouvillian_comm(0.5 * scale * Iz())],
+        operators=[liouvillian_comm(scale * Ix())],
+        rho_init=[state],
+        rho_targ=[state],
+        pulse_dt=1.0 / scale,
+        pwr_levels=[1.0],
+        basis="liouville",
+    )
+    waveform = np.array([[0.0], [0.3], [-0.7]])
+    with np.errstate(all="raise"):
+        _assert_parity(cp, waveform, monkeypatch)
+
+
 @pytest.mark.parametrize("backend", ["0", "1"])
 def test_kernel_chunking_is_bitwise_invariant(backend, monkeypatch):
     monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", backend)

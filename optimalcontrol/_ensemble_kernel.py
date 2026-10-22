@@ -143,16 +143,21 @@ def spin_half_value_gradient(
         h0 = 0.5 * (h[..., 0, 0] + h[..., 1, 1]).real
         hz = 0.5 * (h[..., 0, 0] - h[..., 1, 1]).real
         hx, hy = h[..., 0, 1].real, -h[..., 0, 1].imag
-        r = np.sqrt((hx * hx + hy * hy) + hz * hz)
-        positive = hz >= 0.0
-        rp = np.where(positive, r + hz, r - hz)
-        norm = np.sqrt(2.0 * r * rp)
-        norm = np.where(norm == 0.0, 1.0, norm)
-        wp0 = np.where(positive, rp, hx - 1j * hy) / norm
-        wp1 = np.where(positive, hx + 1j * hy, rp) / norm
-        wm0 = np.where(positive, -(hx - 1j * hy), rp) / norm
-        wm1 = np.where(positive, rp, -(hx + 1j * hy)) / norm
+        # hypot keeps r exact for components far below sqrt(tiny) or above sqrt(huge),
+        # where squaring would underflow to an apparent degeneracy or overflow; the
+        # eigenvectors are then built from the unit direction so every later
+        # intermediate is O(1) regardless of the Hamiltonian scale.
+        r = np.hypot(np.hypot(hx, hy), hz)
         zero = r == 0.0
+        safe_r = np.where(zero, 1.0, r)
+        ux, uy, uz = hx / safe_r, hy / safe_r, hz / safe_r
+        positive = uz >= 0.0
+        rp = np.where(positive, 1.0 + uz, 1.0 - uz)
+        norm = np.sqrt(2.0 * rp)
+        wp0 = np.where(positive, rp, ux - 1j * uy) / norm
+        wp1 = np.where(positive, ux + 1j * uy, rp) / norm
+        wm0 = np.where(positive, -(ux - 1j * uy), rp) / norm
+        wm1 = np.where(positive, rp, -(ux + 1j * uy)) / norm
         # The degenerate case uses the identity basis.
         wm0, wm1 = np.where(zero, 1.0, wm0), np.where(zero, 0.0, wm1)
         wp0, wp1 = np.where(zero, 0.0, wp0), np.where(zero, 1.0, wp1)
