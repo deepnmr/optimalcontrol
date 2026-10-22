@@ -246,7 +246,8 @@ def ensemble_fidelity(cp: ControlProblem, wfm: RealArray) -> float:
     from the ensemble mean. Penalties are stripped before member evaluation so
     every acceleration path returns the same penalised value.
     """
-    from optimalcontrol._accelerator import problem_vector_fidelity, vector_fidelity
+    from optimalcontrol._accelerator import _enabled, problem_vector_fidelity, vector_fidelity
+    from optimalcontrol._ensemble_kernel import spin_half_inputs, spin_half_value_gradient
 
     waveform = np.asarray(wfm, dtype=np.float64)
     if cp.penalties is not None:
@@ -260,6 +261,11 @@ def ensemble_fidelity(cp: ControlProblem, wfm: RealArray) -> float:
     accelerated = vector_fidelity(problems, waveform)
     if accelerated is not None:
         return accelerated
+    if not _enabled():
+        inputs = spin_half_inputs(cp, waveform)
+        if inputs is not None:
+            value, _ = spin_half_value_gradient(inputs, need_gradient=False)
+            return value
     values = [grape_xy(problem, waveform) for problem in problems]
     return float(np.mean(np.asarray(values, dtype=np.float64)))
 
@@ -281,9 +287,11 @@ def ensemble_xy_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[float,
     so every acceleration path returns the same penalised result.
     """
     from optimalcontrol._accelerator import (
+        _enabled,
         problem_vector_value_gradient,
         vector_value_gradient,
     )
+    from optimalcontrol._ensemble_kernel import spin_half_inputs, spin_half_value_gradient
 
     waveform = np.asarray(wfm, dtype=np.float64)
     if cp.penalties is not None:
@@ -303,6 +311,12 @@ def ensemble_xy_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[float,
         value, gradient = accelerated
         _zero_frozen(gradient, cp.freeze)
         return value, gradient
+    if not _enabled():
+        inputs = spin_half_inputs(cp, waveform)
+        if inputs is not None:
+            value, gradient = spin_half_value_gradient(inputs, need_gradient=True)
+            _zero_frozen(gradient, cp.freeze)
+            return value, gradient
     value_sum = 0.0
     gradient = np.zeros_like(waveform, dtype=np.float64)
     for problem in problems:
