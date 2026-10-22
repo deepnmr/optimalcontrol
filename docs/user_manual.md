@@ -66,7 +66,7 @@ Python.
 python3 --version
 ```
 
-You need **Python 3.10 or newer**.
+You need **Python 3.11 or newer**.
 
 If no prebuilt wheel matches your environment, `pip` compiles the Rust extension
 from source, which needs a Rust toolchain. On macOS with Homebrew:
@@ -100,7 +100,7 @@ pip install -e ".[dev]"        # adds pytest, ruff, mypy, matplotlib
 python3 -c "import optimalcontrol; print(optimalcontrol.__version__)"
 ```
 
-This prints a version string. **Any version from 0.4 on has the Seedless route
+This prints a version string. **Any version from 0.5 on has the Seedless route
 of [§4](#4-route-b--your-first-seedless-pulse);** older ones do not. Confirm with:
 
 ```bash
@@ -149,8 +149,11 @@ common mistake and it fails quietly — the optimiser stalls instead of raising.
 **3. States get normalised.** Use `normalise_hs(...)` (Hilbert–Schmidt) on
 density matrices before handing them to a `ControlProblem`.
 
-**4. `pwr_levels` and `operators` must be the same length.** One RF level per
-control channel. Mismatches raise immediately.
+**4. `pwr_levels` length picks its meaning.** With one entry per control channel
+(same length as `operators`), the values scale each channel. A length that differs
+from the operator count (and is greater than 1) isn't an error: it turns `pwr_levels`
+into an RF-power ensemble axis, one member per level. See
+[`guide_ensembles_penalties.md`](guide_ensembles_penalties.md).
 
 **5. `fidelity_mode` decides what "success" means.** `"real"` requires the sign
 to match; `"abs2"` ignores global phase; `"imag"` takes the imaginary part.
@@ -592,7 +595,8 @@ Theory in `docs/guide_rope_crop.md`; the underlying papers in
 
 `examples/` holds 24 paper-reproduction scripts. **Running one before you write
 your own code is the fastest way to see a whole workflow.** Each is directly
-executable as a module:
+executable as a module with `python -m examples.<name>`, run from the
+repository root:
 
 ```bash
 ls examples/*.py
@@ -688,7 +692,9 @@ It isn't. `xycite` reports `max|mz|`, where **0.0 is perfect**. See
 [§4-2](#4-2-a-single-band-inversion).
 
 **`pwr_levels length ... must match operator count`.**
-One entry in `pwr_levels` per entry in `operators`.
+This only fires when `pwr_levels` has a single entry but there are several
+`operators`. Give one entry per operator, or two or more levels for an RF-power
+ensemble.
 
 **`waveform must have shape (n_steps, n_channels)`.**
 Optimiser input is time-down-the-rows. You are probably holding an exported
@@ -713,7 +719,10 @@ reporting.
 **Lint and type checks.**
 
 ```bash
-ruff check .
+ruff format --check optimalcontrol/ tests/ examples/ benchmarks/
+ruff check optimalcontrol/ tests/ examples/ benchmarks/
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
 mypy optimalcontrol
 ```
 

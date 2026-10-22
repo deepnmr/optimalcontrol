@@ -2,19 +2,20 @@
 
 Example scripts in `examples/` reproduce the numerical curves and pulse shapes
 used by the ROPE and CROP paper guides. Each script has a `run()` function for
-tests and saves a PNG under `examples/output/` when executed.
+tests and saves a PNG under `examples/output/` when run from the repository root with
+`python -m examples.<name>`.
 
 Run one figure script directly:
 
 ```bash
-python examples/rope_sodium_formate.py
+python -m examples.rope_sodium_formate
 ```
 
 Or regenerate all committed example outputs:
 
 ```bash
-for script in examples/*.py; do
-  python "$script"
+for script in examples/[a-z]*.py; do
+  python -m "examples.$(basename "$script" .py)"
 done
 ```
 
@@ -44,11 +45,27 @@ done
 | `examples/crop_efficiency_vs_ka.py` | `examples/output/crop_efficiency_vs_ka.png` | PNAS CROP efficiency `eta` versus `ka/J` for several `kc/ka` ratios |
 | `examples/crop_truncated_waveform.py` | `examples/output/crop_truncated_waveform.png` | Truncated CROP amplitude and irradiation-frequency waveforms for two parameter sets |
 | `examples/crop_lossless_limit.py` | `examples/output/crop_lossless_limit.png` | Approach to the decoherence-free limit as `kc/ka -> 1` |
-| `examples/crop_regression_params.py` | `examples/output/crop_regression_params.png` | Stored CROP regression parameter values used by `tests/test_crop.py` |
+| `examples/crop_regression_params.py` | `examples/output/crop_regression_params.png` | Stored CROP regression parameter values |
+
+## Pulse Design Examples
+
+| Script | Output | What it does |
+|---|---|---|
+| `examples/grape_broadband_180.py` | `examples/output/grape_broadband_180.png`, `examples/output/grape_broadband_180.shape` | Generic 72-step, 540 us broadband UR-180 GRAPE pulse |
+| `examples/phase_only_iy_inversion_10khz.py` | `examples/output/phase_only_iy_inversion_10khz.png`, `examples/output/phase_only_iy_inversion_10khz.shape` | Shortest phase-only 10 kHz `Iy -> -Iy` pulse found over 20 kHz |
+| `examples/hmqc_oc_180_artifact.py` | `examples/output/hmqc_oc_180_artifact.png`, `examples/output/hmqc_oc_180_artifact.shape` | Band-selective OC 180 that suppresses methyl-HMQC artifacts (Kay 2019) |
+| `examples/inept_hardI_broadbandS6k.py` | `examples/output/inept_hardI_broadbandS6k_band_profile.png`, `examples/output/inept_hardI_broadbandS6k.shape` | INEPT-like `Iz -> 2IzSz` with hard I pulses and a broadband S 180 |
+| `examples/methyl_water_binary_symmetric_180.py` | `examples/output/methyl_water_binary_symmetric_180.png`, `examples/output/methyl_water_binary_symmetric_180_time_evolution.png`, `examples/output/methyl_water_binary_symmetric_180.shape` | Shortest grid-searched 0/180 symmetric methyl 180 preserving water |
+| `examples/methyl_water_reburp_180.py` | `examples/output/methyl_water_reburp_180.png`, `examples/output/methyl_water_reburp_180_time_evolution.png`, `examples/output/methyl_water_reburp_180.shape` | REBURP-style methyl 180 preserving water |
+| `examples/methyl_water_reburp_minpower_180.py` | `examples/output/methyl_water_reburp_minpower_180.png` | Minimum max-power REBURP-style methyl 180 over water |
+| `examples/methyl_water_reburp_minlength_180.py` | `examples/output/methyl_water_reburp_minlength_180.png` | Minimum-length REBURP-style methyl 180 over water at 10 kHz |
+| `examples/methyl_pc9_sideband_180.py` | `examples/output/methyl_pc9_sideband_180.png`, `examples/output/methyl_pc9_sideband_180_regime.png` | Methyl Kay sideband analysis of a PC9 180 pulse |
+| `examples/reburp_pulse.py` | `examples/output/reburp_pulse.png`, `examples/output/reburp_pulse_wide_profile.png`, `examples/output/reburp_pulse_wide_components.png`, `examples/output/reburp_pulse_time_evolution.png` | Textbook REBURP (Geen & Freeman) reference plots |
+| `examples/compare_3919_reburp_myprofile.py` | `examples/output/compare_3919_reburp_myprofile.png` | My refocusing profile: 3-9-19 WATERGATE vs min-length REBURP |
 
 ## Snapshot Tests
 
-`tests/test_examples.py` imports every example module, calls `run()`, and checks
+`tests/test_examples.py` imports the 20 snapshot-listed examples, calls `run()`, and checks
 the returned numerical array against `examples/expected/*.npz`. When an example
 is intentionally changed, regenerate the corresponding `.npz` snapshot by
 running the example through its `run()` function and storing the returned array
