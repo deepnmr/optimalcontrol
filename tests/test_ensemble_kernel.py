@@ -5,13 +5,18 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from optimalcontrol import _ensemble_kernel as kernel
 from optimalcontrol._accelerator import RUST_ACCELERATOR_AVAILABLE, vector_value_gradient
-from optimalcontrol._ensemble_kernel import spin_half_inputs, spin_half_value_gradient
+from optimalcontrol._ensemble_kernel import (
+    _chunk_members,
+    spin_half_inputs,
+    spin_half_value_gradient,
+)
 from optimalcontrol._problem import ControlProblem
 from optimalcontrol._propagation import _control_direction_stack
 from optimalcontrol.ensemble import cartesian_product_ensemble
 from optimalcontrol.grape import _single_value_and_gradient
-from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm, vec
+from optimalcontrol.operators import Ix, Iy, Iz, L_op, R_op, liouvillian_comm, vec
 from optimalcontrol.states import normalise_hs
 
 
@@ -242,6 +247,71 @@ def test_kernel_errstate_clean(monkeypatch):
     waveform[0] = 0.0
     with np.errstate(all="raise"):
         _assert_parity(cp, waveform, monkeypatch)
+
+
+@pytest.mark.parametrize("backend", ["0", "1"])
+def test_kernel_chunking_is_bitwise_invariant(backend, monkeypatch):
+    monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", backend)
+    inputs = spin_half_inputs(_methyl_problem(), _waveform())
+    assert inputs is not None
+    value, gradient = spin_half_value_gradient(inputs, need_gradient=True)
+    for chunk in (1, 7, 1000):
+        monkeypatch.setattr(kernel, "_CHUNK_OVERRIDE", chunk)
+        chunked_value, chunked_gradient = spin_half_value_gradient(inputs, need_gradient=True)
+        assert chunked_value == value
+        assert np.array_equal(chunked_gradient, gradient)
+
+
+def test_chunk_members_policy():
+    assert _chunk_members(200, 1, 1, 81) == 81
+    assert _chunk_members(200, 1, 1, 100000) == 1044
+    assert _chunk_members(200, 1, 100, 100000) == 17
+    assert _chunk_members(200, 1, 1, 5, budget_bytes=1) == 1
+    for sizes in ([50, 100, 200, 400, 800], [1, 2, 3, 4], [1, 10, 100, 1000]):
+        for axis in range(3):
+            values = [
+                _chunk_members(
+                    *[sizes[i] if j == axis else (200, 1, 1)[j] for j in range(3)], 100000
+                )
+                for i in range(len(sizes))
+            ]
+            assert values == sorted(values, reverse=True)
+
+
+def _one_drift_problem(generator):
+    return replace(
+        _methyl_problem(),
+        drifts=[generator],
+        offsets=None,
+        offset_operators=None,
+        pwr_levels=[1.0],
+    )
+
+
+def _reconstruction_residual(generator):
+    hermitian = 1j * generator
+    block = hermitian[:2, :2]
+    return float(np.max(np.abs(L_op(block) - R_op(block) - hermitian)))
+
+
+def test_kernel_commutator_gate_is_scale_relative():
+    base = liouvillian_comm(Iz())
+    below = base + 1j * 0.5e-12 * max(1.0, float(np.max(np.abs(base)))) * np.eye(4)
+    above = base + 1j * 2e-12 * max(1.0, float(np.max(np.abs(base)))) * np.eye(4)
+    for generator, accepted in [(below, True), (above, False)]:
+        scale = max(1.0, float(np.max(np.abs(generator))))
+        residual = _reconstruction_residual(generator)
+        assert (residual <= 1e-12 * scale) is accepted
+        inputs = spin_half_inputs(_one_drift_problem(generator), _waveform())
+        assert (inputs is not None) is accepted
+
+
+def test_kernel_hermitian_defect_declines_at_anti_hermitian_threshold():
+    base = liouvillian_comm(Iz())
+    generator = base + 7.5e-13 * max(1.0, float(np.max(np.abs(base)))) * np.eye(4)
+    scale = max(1.0, float(np.max(np.abs(generator))))
+    assert _reconstruction_residual(generator) <= 1e-12 * scale
+    assert spin_half_inputs(_one_drift_problem(generator), _waveform()) is None
 
 
 def test_kernel_liouville_density_matrices(monkeypatch):
