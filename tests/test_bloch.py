@@ -7,6 +7,24 @@ from optimalcontrol._accelerator import RUST_ACCELERATOR_AVAILABLE
 from optimalcontrol.bloch import propagate_bloch_ensemble
 
 
+@pytest.mark.parametrize("disable_rust", ["0", "1"])
+def test_tiny_field_long_duration_pi_rotation(
+    monkeypatch: pytest.MonkeyPatch, disable_rust: str
+) -> None:
+    monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", disable_rust)
+
+    result = propagate_bloch_ensemble(
+        np.array([0.0, 0.0, 1.0]),
+        np.array([[1.0, 0.0]]),
+        np.array([0.0]),
+        np.array([1.0]),
+        1e-200,
+        5e199,
+    )
+
+    np.testing.assert_allclose(result[0, 0, 2], -1.0, rtol=0.0, atol=1e-12)
+
+
 def test_rust_bloch_ensemble_matches_numpy_fallback(monkeypatch) -> None:
     assert RUST_ACCELERATOR_AVAILABLE
     initial = np.array([0.0, -1.0, 0.0], dtype=np.float64)

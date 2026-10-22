@@ -300,15 +300,17 @@ where
                         // cancellation-free sinc form, well-conditioned for
                         // near-degenerate eigenvalue pairs and identical to
                         // the Python expression in grape.py.
-                        let half_gap = 0.5 * dt * (eigenvalues[row] - eigenvalues[col]);
+                        let theta_r = dt * eigenvalues[row];
+                        let theta_c = dt * eigenvalues[col];
+                        let half_gap = 0.5 * (theta_r - theta_c);
+                        let midpoint = 0.5 * (theta_r + theta_c);
                         let sinc = if half_gap == 0.0 {
                             1.0
                         } else {
                             half_gap.sin() / half_gap
                         };
-                        let divided = minus_i_dt
-                            * (minus_i_dt * (0.5 * (eigenvalues[row] + eigenvalues[col]))).exp()
-                            * sinc;
+                        let divided =
+                            minus_i_dt * (Complex64::new(0.0, -1.0) * midpoint).exp() * sinc;
                         weighted[(row, col)] *= divided;
                     }
                 }
@@ -609,6 +611,19 @@ fn vector_inputs<'a>(
     let waveform_shape = waveform.shape().to_vec();
     let init_shape = rho_init.shape().to_vec();
     let target_shape = rho_targ.shape().to_vec();
+    for (name, contiguous) in [
+        ("drifts", drifts.is_c_contiguous()),
+        ("operators", operators.is_c_contiguous()),
+        ("waveform", waveform.is_c_contiguous()),
+        ("rho_init", rho_init.is_c_contiguous()),
+        ("rho_targ", rho_targ.is_c_contiguous()),
+    ] {
+        if !contiguous {
+            return Err(PyValueError::new_err(format!(
+                "{name} must be a C-contiguous array"
+            )));
+        }
+    }
     let drifts = drifts.as_slice()?;
     let operators = operators.as_slice()?;
     let waveform = waveform.as_slice()?;
@@ -762,7 +777,12 @@ fn grape_value_gradient_vectors(
 }
 
 fn rotate_bloch(mut state: [f64; 3], field: [f64; 3], dt: f64) -> [f64; 3] {
-    let norm = (field[0] * field[0] + field[1] * field[1] + field[2] * field[2]).sqrt();
+    let m = field[0].abs().max(field[1].abs()).max(field[2].abs());
+    let norm = if m == 0.0 {
+        0.0
+    } else {
+        m * ((field[0] / m).powi(2) + (field[1] / m).powi(2) + (field[2] / m).powi(2)).sqrt()
+    };
     if norm == 0.0 {
         return state;
     }
@@ -805,6 +825,18 @@ fn bloch_ensemble(
         return Err(PyValueError::new_err(
             "initial must have shape (3,) and waveform_xy shape (steps, 2)",
         ));
+    }
+    for (name, contiguous) in [
+        ("initial", initial.is_c_contiguous()),
+        ("waveform_xy", waveform_xy.is_c_contiguous()),
+        ("offsets_hz", offsets_hz.is_c_contiguous()),
+        ("b1_scales", b1_scales.is_c_contiguous()),
+    ] {
+        if !contiguous {
+            return Err(PyValueError::new_err(format!(
+                "{name} must be a C-contiguous array"
+            )));
+        }
     }
     let initial = initial.as_slice()?;
     let waveform = waveform_xy.as_slice()?;
@@ -856,7 +888,12 @@ fn spin_propagator(ux: f64, uy: f64, offset: f64, scale: f64, rf: f64, dt: f64) 
     let fx = scale * rf * ux;
     let fy = scale * rf * uy;
     let fz = offset;
-    let fnorm = (fx * fx + fy * fy + fz * fz).sqrt();
+    let m = fx.abs().max(fy.abs()).max(fz.abs());
+    let fnorm = if m == 0.0 {
+        0.0
+    } else {
+        m * ((fx / m).powi(2) + (fy / m).powi(2) + (fz / m).powi(2)).sqrt()
+    };
     if fnorm == 0.0 {
         return (Spin::identity(), Spin::zeros());
     }
@@ -985,6 +1022,17 @@ fn seedless_inputs<'a>(
             "waveform_xy must have shape (steps, 2)",
         ));
     }
+    for (name, contiguous) in [
+        ("waveform_xy", waveform_xy.is_c_contiguous()),
+        ("offsets_hz", offsets_hz.is_c_contiguous()),
+        ("b1_scales", b1_scales.is_c_contiguous()),
+    ] {
+        if !contiguous {
+            return Err(PyValueError::new_err(format!(
+                "{name} must be a C-contiguous array"
+            )));
+        }
+    }
     let waveform = waveform_xy.as_slice()?;
     let offsets = offsets_hz.as_slice()?;
     let scales = b1_scales.as_slice()?;
@@ -1014,6 +1062,16 @@ fn seedless_pair_value_gradient(
         return Err(PyValueError::new_err(
             "init_bloch and targ_bloch must have shape (3,)",
         ));
+    }
+    for (name, contiguous) in [
+        ("init_bloch", init_bloch.is_c_contiguous()),
+        ("targ_bloch", targ_bloch.is_c_contiguous()),
+    ] {
+        if !contiguous {
+            return Err(PyValueError::new_err(format!(
+                "{name} must be a C-contiguous array"
+            )));
+        }
     }
     let i = init_bloch.as_slice()?;
     let t = targ_bloch.as_slice()?;

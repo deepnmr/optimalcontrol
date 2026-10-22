@@ -111,11 +111,12 @@ def _derivative_propagators_via_eigh(
     well-conditioned for near-degenerate eigenvalue pairs and matches the
     Rust kernel expression exactly.
     """
-    half_gap = 0.5 * dt * (eigenvalues[:, :, None] - eigenvalues[:, None, :])
+    theta = dt * eigenvalues
+    half_gap = 0.5 * (theta[:, :, None] - theta[:, None, :])
     safe_gap = np.where(half_gap == 0.0, 1.0, half_gap)
     sinc = np.where(half_gap == 0.0, 1.0, np.sin(safe_gap) / safe_gap)
-    midpoint = 0.5 * (eigenvalues[:, :, None] + eigenvalues[:, None, :])
-    divided = np.complex128(-1j * dt) * np.exp(np.complex128(-1j * dt) * midpoint) * sinc
+    midpoint = 0.5 * (theta[:, :, None] + theta[:, None, :])
+    divided = np.complex128(-1j * dt) * np.exp(np.complex128(-1j) * midpoint) * sinc
 
     adjoint_vectors = eigenvectors.conj().transpose(0, 2, 1)
     hermitian_directions = np.complex128(1j) * control_directions

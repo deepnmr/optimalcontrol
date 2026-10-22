@@ -155,7 +155,9 @@ def _np_propagators(
     fx = scale_flat[:, None] * rf_hz * ux[None, :]
     fy = scale_flat[:, None] * rf_hz * uy[None, :]
     fz = off_flat[:, None] * np.ones(n)[None, :]
-    fnorm = np.sqrt(fx * fx + fy * fy + fz * fz)
+    m = np.maximum(np.maximum(np.abs(fx), np.abs(fy)), np.abs(fz))
+    safe_m = np.where(m == 0.0, 1.0, m)
+    fnorm = m * np.sqrt((fx / safe_m) ** 2 + (fy / safe_m) ** 2 + (fz / safe_m) ** 2)
     inv = np.where(fnorm > 0.0, 1.0 / np.where(fnorm > 0.0, fnorm, 1.0), 0.0)
     half = math.pi * fnorm * dt
     cos_h = np.cos(half)

@@ -9,6 +9,20 @@ from optimalcontrol._accelerator import RUST_ACCELERATOR_AVAILABLE
 from optimalcontrol._types import Array, RealArray
 
 
+@pytest.mark.parametrize("disable_rust", ["0", "1"])
+def test_tiny_field_long_duration_pi_rotation(
+    monkeypatch: pytest.MonkeyPatch, disable_rust: str
+) -> None:
+    monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", disable_rust)
+    iz = np.array([0.0, 0.0, 1.0])
+
+    fidelity, _ = kernel.s2s_value_grad(
+        np.array([[1.0, 0.0]]), np.array([0.0]), np.array([1.0]), 1e-200, 5e199, iz, iz
+    )
+
+    np.testing.assert_allclose(fidelity, -1.0, rtol=0.0, atol=1e-12)
+
+
 @pytest.mark.parametrize("backend", ["numpy", "rust"])
 @pytest.mark.parametrize("steps", [1, 2, 17, 64])
 def test_suppression_matches_sum_of_independent_prefixes(

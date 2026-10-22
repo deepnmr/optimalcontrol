@@ -30,6 +30,29 @@ from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm, place_operato
 from optimalcontrol.states import normalise_2norm, normalise_hs, state_from_label
 
 
+@pytest.mark.parametrize("disable_rust", ["0", "1"])
+def test_extreme_eigenvalues_with_finite_eigenphases(
+    monkeypatch: pytest.MonkeyPatch, disable_rust: str
+) -> None:
+    monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", disable_rust)
+    cp = ControlProblem(
+        drifts=[-1j * 1e308 * np.diag([1.0, -1.0]).astype(np.complex128)],
+        operators=[-1j * 1e308 * np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128)],
+        rho_init=[np.array([1.0, 0.0], dtype=np.complex128)],
+        rho_targ=[np.array([0.0, 1.0], dtype=np.complex128)],
+        pulse_dt=1e-308,
+        pwr_levels=[1.0],
+        freeze=None,
+        basis="hilbert",
+        fidelity_mode="imag",
+    )
+
+    _, gradient = grape_xy_and_gradient(cp, np.array([[0.0]]))
+
+    assert np.all(np.isfinite(gradient))
+    np.testing.assert_allclose(gradient, -np.sin(1.0), rtol=0.0, atol=1e-9)
+
+
 def test_large_waveform_preserves_small_control_dissipation() -> None:
     """Waveform amplification must not hide dissipation behind the coherence gate."""
     cp = ControlProblem(
