@@ -379,3 +379,37 @@ def test_demo_prints_ok_line(capsys) -> None:
     demo()
 
     assert any(line.startswith("demo ok") for line in capsys.readouterr().out.splitlines())
+
+
+def _seedless_spec(b1_weights: tuple[float, ...], b1_scales: tuple[float, ...]) -> SeedlessSpec:
+    band = Band(ppm_lo=-1.0, ppm_hi=1.0, restraint="suppress", targ=None)
+    return SeedlessSpec(
+        spectrometer_mhz=600.0,
+        carrier_ppm=0.0,
+        rf_max_hz=1000.0,
+        duration_s=1e-3,
+        n_steps=4,
+        bands=[band],
+        b1_scales=b1_scales,
+        b1_weights=b1_weights,
+    )
+
+
+def test_b1_weights_reject_negative_entry() -> None:
+    with pytest.raises(ValueError, match="b1_weights entries must be finite and non-negative"):
+        _seedless_spec((0.5, -0.25, 0.75), (0.95, 1.0, 1.03))
+
+
+def test_b1_weights_reject_nan_entry() -> None:
+    with pytest.raises(ValueError, match="b1_weights entries must be finite and non-negative"):
+        _seedless_spec((0.5, float("nan"), 0.5), (0.95, 1.0, 1.03))
+
+
+def test_b1_scales_reject_negative_entry() -> None:
+    with pytest.raises(ValueError, match="b1_scales entries must be finite and non-negative"):
+        _seedless_spec((0.25, 0.5, 0.25), (0.95, -1.0, 1.03))
+
+
+def test_universal_rotation_rejects_nan_angle() -> None:
+    with pytest.raises(ValueError, match="rotation angle must be finite"):
+        Band(ppm_lo=-1.0, ppm_hi=1.0, restraint="universal", rotation=("x", float("nan")))

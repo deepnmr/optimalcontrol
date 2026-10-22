@@ -92,12 +92,23 @@ def single_transition_operator(label: str) -> npt.NDArray[np.complex128]:
 
 
 def normalise_hs(v: npt.NDArray[np.complex128]) -> npt.NDArray[np.complex128]:
-    """Normalise a matrix by its Hilbert-Schmidt norm sqrt(Tr(v.conj().T @ v))."""
+    """Normalise a matrix by its Hilbert-Schmidt norm sqrt(Tr(v.conj().T @ v)).
+
+    For entries with peak magnitude in [1e-150, 1e150] the direct formula is
+    used unchanged. Outside that range the matrix is first divided by its peak
+    magnitude so the squared norm cannot overflow or underflow; the result is
+    the same matrix up to rounding.
+    """
     arr = np.asarray(v, dtype=np.complex128)
-    norm = float(np.sqrt(np.real(np.trace(arr.conj().T @ arr))))
-    if norm == 0.0:
+    peak = float(np.max(np.abs(arr))) if arr.size else 0.0
+    if peak == 0.0:
         raise ValueError("Cannot normalise a zero-norm array")
-    return arr / norm
+    if 1e-150 <= peak <= 1e150:
+        norm = float(np.sqrt(np.real(np.trace(arr.conj().T @ arr))))
+        return arr / norm
+    scaled = arr / peak
+    norm = float(np.sqrt(np.real(np.trace(scaled.conj().T @ scaled))))
+    return scaled / norm
 
 
 def normalise_2norm(v: npt.NDArray[np.complex128]) -> npt.NDArray[np.complex128]:

@@ -122,6 +122,8 @@ class Band:
             raise ValueError("s2s restraint requires init and targ axis labels")
         if self.restraint == "universal" and self.rotation is None:
             raise ValueError("universal restraint requires a rotation (axis, angle_deg)")
+        if self.rotation is not None and not math.isfinite(self.rotation[1]):
+            raise ValueError("rotation angle must be finite")
 
     def state_pairs(self) -> list[tuple[ComplexArray, ComplexArray]]:
         """Return (init, targ) operator pairs describing this band's transfers."""
@@ -171,6 +173,10 @@ class SeedlessSpec:
             raise ValueError("at least one band is required")
         if len(self.b1_scales) != len(self.b1_weights):
             raise ValueError("b1_scales and b1_weights must have equal length")
+        if not all(math.isfinite(w) and w >= 0.0 for w in self.b1_weights):
+            raise ValueError("b1_weights entries must be finite and non-negative")
+        if not all(math.isfinite(s) and s >= 0.0 for s in self.b1_scales):
+            raise ValueError("b1_scales entries must be finite and non-negative")
         if not math.isclose(sum(self.b1_weights), 1.0, rel_tol=0.0, abs_tol=1e-9):
             raise ValueError("b1_weights must sum to 1")
         self._lx = liouvillian_comm(Ix())

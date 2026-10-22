@@ -83,3 +83,17 @@ def test_single_transition_is_unnormalised_and_normalises_to_unit_hs_norm() -> N
     normalised = normalise_hs(op)
 
     npt.assert_allclose(np.trace(normalised.conj().T @ normalised).real, 1.0, rtol=1e-12)
+
+
+def test_normalise_hs_scale_safe_outside_double_range() -> None:
+    expected = np.eye(2, dtype=np.complex128) / np.sqrt(2.0)
+    for scale in (1e-200, 1e200):
+        npt.assert_allclose(
+            normalise_hs(scale * np.eye(2, dtype=np.complex128)), expected, atol=1e-12
+        )
+
+
+def test_normalise_hs_in_range_bits_unchanged() -> None:
+    arr = np.array([[1.0, 2.0 + 1.0j], [-0.5j, 3.0]], dtype=np.complex128)
+    pre_change = arr / np.sqrt(np.real(np.trace(arr.conj().T @ arr)))
+    np.testing.assert_array_equal(normalise_hs(arr), pre_change)
