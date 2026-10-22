@@ -257,8 +257,12 @@ def _generators_coherent(problem: Any, wfm: RealArray) -> bool:
     anyway: skipping the ensemble marshalling and kernel round-trip here avoids
     paying that cost on every gradient call of a relaxation problem. The check
     mirrors the Rust ``member_is_anti_hermitian`` tolerance on power-scaled
-    controls at the maximum waveform amplitude for each channel.
+    controls at the maximum waveform amplitude for each channel. A waveform that
+    is not two-dimensional is declined here so the NumPy path raises its
+    validation error, as it does when the accelerator is disabled.
     """
+    if np.ndim(wfm) != 2:
+        return False
     amplitudes = np.maximum(1.0, np.max(np.abs(wfm), axis=0))
     levels = np.asarray(problem.pwr_levels, dtype=np.float64)
     if levels.size > 1 and levels.size != len(problem.operators):

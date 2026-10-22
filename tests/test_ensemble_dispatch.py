@@ -161,7 +161,6 @@ _VALIDATION_CASES = [
     "three_d_waveform",
     "scalar_waveform",
 ]
-_PREEXISTING_NATIVE_GRADIENT_DIVERGENCE = {"three_d_waveform", "scalar_waveform"}
 
 
 def _invalid_case(name: str) -> tuple[ControlProblem, np.ndarray]:
@@ -206,10 +205,6 @@ def test_validation_messages_identical_on_both_paths(
 ) -> None:
     fallback = _capture_messages(monkeypatch, "1", name)
     assert fallback["grape_xy"]
-    if name in _PREEXISTING_NATIVE_GRADIENT_DIVERGENCE:
-        # The native gradient path raises a different error for these inputs
-        # on the untouched tree too; that pre-existing difference is a follow-up.
-        return
     native = _capture_messages(monkeypatch, "0", name)
     assert native == fallback
 

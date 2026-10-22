@@ -79,6 +79,9 @@
 - Add the `methyl_ensemble_*` rows to `benchmarks/bench_grape_hotpath.py`, plus
   `tests/test_ensemble_kernel.py`, `tests/test_ensemble_dispatch.py` and
   `tests/test_methyl_time_evolution.py`.
+- A waveform that is not two-dimensional now raises the same "waveform must be
+  two-dimensional" `ValueError` on the native ensemble gradient path as everywhere
+  else, instead of a `TypeError` or an unrelated `zip()` error.
 
 ## v0.5.0 - 2026-08-15
 
