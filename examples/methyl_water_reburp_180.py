@@ -59,7 +59,7 @@ import numpy.typing as npt
 from scipy.optimize import minimize
 
 from examples import _methyl_water_common as reburp_helpers
-from examples._figures import save_figure
+from examples._figures import quantise, save_figure
 from examples._methyl_water_common import _constraint_score as _constraint_score
 from examples._methyl_water_common import _smoothness as _smoothness
 from examples._methyl_water_common import write_bruker_shape as write_bruker_shape
@@ -349,22 +349,22 @@ def plot_diagnostics(
     phase_axis.set_yticks([0.0, 180.0])
     axes[0].set_title(f"REBURP-style binary-phase methyl 180: {DURATION_US:.0f} us, 10 kHz max")
 
-    axes[1].plot(methyl_ppm, profiles["methyl_x"], label="Ix -> Ix")
-    axes[1].plot(methyl_ppm, profiles["methyl_y"], label="-Iy -> Iy")
-    axes[1].plot(methyl_ppm, profiles["methyl_z"], label="Iz -> -Iz")
+    axes[1].plot(methyl_ppm, quantise(profiles["methyl_x"]), label="Ix -> Ix")
+    axes[1].plot(methyl_ppm, quantise(profiles["methyl_y"]), label="-Iy -> Iy")
+    axes[1].plot(methyl_ppm, quantise(profiles["methyl_z"]), label="Iz -> -Iz")
     axes[1].axhline(MIN_METHYL_FIDELITY, color="black", linestyle=":")
     axes[1].set_xlim(METHYL_PPM_LO, METHYL_PPM_HI)
     axes[1].set_ylim(0.9985, 1.0001)
     axes[1].set_ylabel("Transfer fidelity")
     axes[1].legend()
 
-    axes[2].semilogy(methyl_ppm, profiles["artifact_percent"], color="tab:green")
+    axes[2].semilogy(methyl_ppm, quantise(profiles["artifact_percent"]), color="tab:green")
     axes[2].axhline(MAX_ARTIFACT_PERCENT, color="black", linestyle=":")
     axes[2].set_xlim(METHYL_PPM_LO, METHYL_PPM_HI)
     axes[2].set_ylabel("Kay artifact (%)")
     axes[2].set_xlabel("Methyl 1H shift (ppm)")
 
-    axes[3].plot(profiles["water_offsets_hz"], profiles["water_z"], marker="o")
+    axes[3].plot(profiles["water_offsets_hz"], quantise(profiles["water_z"]), marker="o")
     axes[3].axhline(MIN_WATER_FIDELITY, color="black", linestyle=":")
     axes[3].set_ylim(0.9985, 1.0001)
     axes[3].set_xlabel("Offset from water at 4.7 ppm (Hz)")
@@ -427,9 +427,9 @@ def plot_time_evolution(time_evolution: dict[str, RealArray], output_dir: Path) 
         trajectory = time_evolution[name]
         for col in range(n_cols):
             axis = axes[row, col]
-            axis.plot(time_us, trajectory[:, col, 0], label="Mx", color="tab:blue")
-            axis.plot(time_us, trajectory[:, col, 1], label="My", color="tab:orange")
-            axis.plot(time_us, trajectory[:, col, 2], label="Mz", color="tab:green")
+            axis.plot(time_us, quantise(trajectory[:, col, 0]), label="Mx", color="tab:blue")
+            axis.plot(time_us, quantise(trajectory[:, col, 1]), label="My", color="tab:orange")
+            axis.plot(time_us, quantise(trajectory[:, col, 2]), label="Mz", color="tab:green")
             axis.axhline(0.0, color="black", linewidth=0.5)
             axis.set_ylim(-1.05, 1.05)
             if row == 0:

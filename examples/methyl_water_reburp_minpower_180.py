@@ -74,7 +74,7 @@ import numpy.typing as npt
 from scipy.optimize import minimize as minimize
 
 from examples import _methyl_water_common as minpower_helpers
-from examples._figures import save_figure
+from examples._figures import quantise, save_figure
 from examples._methyl_water_common import _smoothness as _smoothness
 from examples._methyl_water_common import write_bruker_shape as write_bruker_shape
 
@@ -372,22 +372,22 @@ def plot_diagnostics(
         f"Min-power REBURP-style methyl 180: {DURATION_US:.0f} us, {RF_MAX_HZ / 1000.0:.1f} kHz max"
     )
 
-    axes[1].plot(methyl_ppm, profiles["methyl_x"], label="Ix -> Ix")
-    axes[1].plot(methyl_ppm, profiles["methyl_y"], label="-Iy -> Iy")
-    axes[1].plot(methyl_ppm, profiles["methyl_z"], label="Iz -> -Iz")
+    axes[1].plot(methyl_ppm, quantise(profiles["methyl_x"]), label="Ix -> Ix")
+    axes[1].plot(methyl_ppm, quantise(profiles["methyl_y"]), label="-Iy -> Iy")
+    axes[1].plot(methyl_ppm, quantise(profiles["methyl_z"]), label="Iz -> -Iz")
     axes[1].axhline(MIN_METHYL_FIDELITY, color="black", linestyle=":")
     axes[1].set_xlim(METHYL_PPM_LO, METHYL_PPM_HI)
     axes[1].set_ylim(0.9985, 1.0001)
     axes[1].set_ylabel("Transfer fidelity")
     axes[1].legend()
 
-    axes[2].semilogy(methyl_ppm, profiles["artifact_percent"], color="tab:green")
+    axes[2].semilogy(methyl_ppm, quantise(profiles["artifact_percent"]), color="tab:green")
     axes[2].axhline(MAX_ARTIFACT_PERCENT, color="black", linestyle=":")
     axes[2].set_xlim(METHYL_PPM_LO, METHYL_PPM_HI)
     axes[2].set_ylabel("Kay artifact (%)")
     axes[2].set_xlabel("Methyl 1H shift (ppm)")
 
-    axes[3].plot(profiles["water_offsets_hz"], profiles["water_z"], marker="o")
+    axes[3].plot(profiles["water_offsets_hz"], quantise(profiles["water_z"]), marker="o")
     axes[3].axhline(MIN_WATER_FIDELITY, color="black", linestyle=":")
     axes[3].set_ylim(0.9985, 1.0001)
     axes[3].set_xlabel("Offset from water at 4.7 ppm (Hz)")
