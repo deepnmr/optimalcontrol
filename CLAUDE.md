@@ -30,6 +30,7 @@ cargo clippy --locked --all-targets -- -D warnings  # Rust lint gate, warnings d
 .venv/bin/python -c "from optimalcontrol.ocseed import demo; demo()"               # quick smoke: "demo ok (...)"
 .venv/bin/python -m examples.methyl_water_binary_symmetric_180                     # run an example
 .venv/bin/python benchmarks/bench_grape_hotpath.py
+.venv/bin/python benchmarks/bench_bloch.py   # Bloch ensemble timing, both backends (OPTIMALCONTROL_DISABLE_RUST=1 for NumPy)
 ```
 
 - `tests/test_rust_accelerator.py` fails under `OPTIMALCONTROL_DISABLE_RUST=1` by design (it
@@ -85,6 +86,9 @@ cargo clippy --locked --all-targets -- -D warnings  # Rust lint gate, warnings d
    scaled-unitary kernel (Rust or NumPy); `fast=False` routes through the 4×4 Liouville
    GRAPE core as a cross-check. Ensemble members are offset-major (`offset[m // n_b1]`,
    `b1[m % n_b1]`). `bloch.py` is the independent forward model used for verification only.
+   The NumPy fallback of `propagate_bloch_ensemble` is a vectorised Rodrigues update that
+   mirrors `src/lib.rs` `rotate_bloch` (same expression order, agrees to ~1e-13), with one
+   `_rotate` call per step over the whole ensemble.
 7. `io.py` — `Waveform` container, CSV/JSON/Bruker JCAMP export and import. It's a facade
    over `_io_common.py` (the `Waveform` class and path/format helpers), `_io_bruker.py`
    (Bruker shape export) and `_io_jcamp.py` (JCAMP-DX and FAPT import).
@@ -94,8 +98,10 @@ cargo clippy --locked --all-targets -- -D warnings  # Rust lint gate, warnings d
    contract (units: ppm for bands/carrier, Hz for RF, seconds for duration).
 
 Example helpers shared across scripts live in `examples/_methyl_water_common.py` (the
-methyl/water search, refinement and plotting code), `examples/_figures.py` (deterministic
-PNG saving) and `examples/_phase_waveforms.py` (phase to x/y waveform conversion).
+methyl/water search, refinement and plotting code), `examples/_figures.py` (`save_figure`
+writes PNGs with version-free metadata; `quantise` rounds Bloch-derived curves to 12
+decimals at the plot call so both backends render identical PNGs, and library return values
+are never rounded) and `examples/_phase_waveforms.py` (phase to x/y waveform conversion).
 
 The public import paths are frozen by `tests/test_public_surface.py`: every pre-refactor
 import must still resolve, so move code into private modules and re-export it.
