@@ -75,9 +75,11 @@ def test_suppression_uses_one_adjoint_step_per_pulse_step(
     assert calls == steps
 
 
-def _error_text(monkeypatch: pytest.MonkeyPatch, backend: str, call: Callable[[], object]) -> str:
+def _error_text(
+    monkeypatch: pytest.MonkeyPatch, backend: str, call: Callable[[], object], match: str
+) -> str:
     monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", "1" if backend == "numpy" else "0")
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(ValueError, match=match) as excinfo:
         call()
     return str(excinfo.value)
 
@@ -95,6 +97,7 @@ def test_s2s_rejects_non_finite_init_bloch(monkeypatch: pytest.MonkeyPatch, back
         lambda: kernel.s2s_value_grad(
             np.ones((3, 2)), offsets, scales, 1000.0, 1e-5, np.array([np.nan, 0.0, 1.0]), targ
         ),
+        r"^init_bloch entries must be finite$",
     )
     assert "finite" in message
 
@@ -115,7 +118,12 @@ def test_kernels_reject_1d_waveform_with_shape_message(
             np.ones(6), offsets, scales, 1000.0, 1e-5
         ),
     }
-    message = _error_text(monkeypatch, backend, calls[kernel_name])
+    message = _error_text(
+        monkeypatch,
+        backend,
+        calls[kernel_name],
+        r"^waveform_xy must have shape \(n_steps, 2\), got \(6,\)$",
+    )
     assert re.search(r"shape \(n_steps, 2\)", message)
 
 
@@ -134,6 +142,11 @@ def test_backends_raise_identical_message(monkeypatch: pytest.MonkeyPatch, case:
             np.ones(6), offsets, scales, 1000.0, 1e-5
         ),
     }
-    numpy_message = _error_text(monkeypatch, "numpy", calls[case])
-    rust_message = _error_text(monkeypatch, "rust", calls[case])
+    expected_messages = {
+        "s2s_nan_init": r"^init_bloch entries must be finite$",
+        "s2s_1d": r"^waveform_xy must have shape \(n_steps, 2\), got \(6,\)$",
+        "suppress_1d": r"^waveform_xy must have shape \(n_steps, 2\), got \(6,\)$",
+    }
+    numpy_message = _error_text(monkeypatch, "numpy", calls[case], expected_messages[case])
+    rust_message = _error_text(monkeypatch, "rust", calls[case], expected_messages[case])
     assert numpy_message == rust_message
