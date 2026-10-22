@@ -3,14 +3,17 @@
 import numpy as np
 import pytest
 
+from optimalcontrol._accelerator import RUST_ACCELERATOR_AVAILABLE
 from optimalcontrol.bloch import propagate_bloch_ensemble
 
 
 def test_rust_bloch_ensemble_matches_numpy_fallback(monkeypatch) -> None:
+    assert RUST_ACCELERATOR_AVAILABLE
     initial = np.array([0.0, -1.0, 0.0], dtype=np.float64)
     waveform = np.array([[1.0, 0.0], [0.5, 0.5], [-0.2, 0.8]], dtype=np.float64)
     offsets = np.array([-1200.0, 0.0, 1700.0], dtype=np.float64)
     scales = np.array([0.85, 1.0, 1.15], dtype=np.float64)
+    monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", "0")
     native = propagate_bloch_ensemble(initial, waveform, offsets, scales, 7500.0, 7.5e-6)
 
     monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", "1")

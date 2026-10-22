@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from optimalcontrol._accelerator import RUST_ACCELERATOR_AVAILABLE
 from optimalcontrol.ensemble import (
     cartesian_product_ensemble,
     correlated_rho_drift,
@@ -247,6 +248,7 @@ def test_ensemble_penalties_applied_once_on_every_path(
     penalty_value, penalty_gradient = total_penalty(waveform, cp.penalties)
     bare = replace(cp, penalties=None)
 
+    assert RUST_ACCELERATOR_AVAILABLE
     results = {}
     for disable_rust in ("0", "1"):
         monkeypatch.setenv("OPTIMALCONTROL_DISABLE_RUST", disable_rust)
