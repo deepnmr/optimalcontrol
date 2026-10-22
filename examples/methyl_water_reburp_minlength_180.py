@@ -80,6 +80,7 @@ import numpy.typing as npt
 from scipy.optimize import minimize as minimize
 
 from examples import _methyl_water_common as minlength_helpers
+from examples._figures import save_figure
 from examples._methyl_water_common import _smoothness as _smoothness
 from examples._methyl_water_common import write_bruker_shape as write_bruker_shape
 
@@ -406,8 +407,7 @@ def plot_diagnostics(
     )
 
     figure_path = output_dir / f"{PULSE_NAME}.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 

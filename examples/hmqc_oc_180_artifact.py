@@ -77,6 +77,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.linalg import expm
 
+from examples._figures import save_figure
 from optimalcontrol.grape import ControlProblem, grape_xy, grape_xy_and_gradient
 from optimalcontrol.io import export_bruker_shape as write_bruker_shape
 from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm, vec
@@ -606,8 +607,7 @@ def _plot_figure(wfm_xy: RealArray, profile: dict[str, RealArray], output_dir: P
     ax_art.set_title("HMQC methyl artifact intensity (Eq. 6)")
     ax_art.legend(fontsize=8, loc="upper center")
 
-    fig.savefig(figure_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    save_figure(fig, figure_path, dpi=150, bbox_inches="tight")
     return figure_path
 
 

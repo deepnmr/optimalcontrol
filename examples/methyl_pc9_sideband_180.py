@@ -63,6 +63,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize_scalar
 
+from examples._figures import save_figure
 from examples.methyl_water_binary_symmetric_180 import (
     MAX_ARTIFACT_PERCENT,
     METHYL_PPM_HI,
@@ -273,8 +274,7 @@ def plot_diagnostics(
     axes[3].set_ylabel("Water Iz -> Iz")
 
     figure_path = output_dir / f"{PULSE_NAME}.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 
@@ -318,8 +318,7 @@ def plot_regime(sweep: dict[str, RealArray], bwfac_us: float, output_dir: Path) 
     axis.set_title("180-degree PC9: neither selective nor hard timing passes both constraints")
 
     figure_path = output_dir / f"{PULSE_NAME}_regime.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 

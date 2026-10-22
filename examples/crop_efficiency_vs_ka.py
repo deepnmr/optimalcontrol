@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 
+from examples._figures import save_figure
 from optimalcontrol.crop import crop_eta
 
 
@@ -50,8 +51,9 @@ def run() -> npt.NDArray[np.float64]:
 
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
     os.makedirs(output_dir, exist_ok=True)
-    fig.savefig(os.path.join(output_dir, "crop_efficiency_vs_ka.png"), dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    save_figure(
+        fig, os.path.join(output_dir, "crop_efficiency_vs_ka.png"), dpi=150, bbox_inches="tight"
+    )
 
     return eta_array
 

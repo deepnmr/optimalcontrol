@@ -28,6 +28,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize
 
+from examples._figures import save_figure
 from optimalcontrol.bloch import propagate_bloch_ensemble
 from optimalcontrol.grape import ControlProblem, grape_gradient, grape_xy, phase_only_gradient
 from optimalcontrol.io import export_bruker_shape as write_bruker_shape
@@ -385,8 +386,7 @@ def _plot_figure(
     )
 
     fig_path = output_dir / f"{PULSE_NAME}.png"
-    fig.savefig(fig_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    save_figure(fig, fig_path, dpi=150, bbox_inches="tight")
     summary = np.array(
         [bandwidth_hz, centre_y, min_y, edge_values[0], edge_values[1]],
         dtype=np.float64,

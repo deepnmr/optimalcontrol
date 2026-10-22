@@ -40,6 +40,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 
+from examples._figures import save_figure
 from optimalcontrol.bloch import propagate_bloch_ensemble
 
 RealArray = npt.NDArray[np.float64]
@@ -195,8 +196,7 @@ def plot_comparison(output_dir: Path) -> Path:
     figure.suptitle("3-9-19 WATERGATE vs OC reburp min-length 180 (1.2 GHz)")
 
     figure_path = output_dir / "compare_3919_reburp_myprofile.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 

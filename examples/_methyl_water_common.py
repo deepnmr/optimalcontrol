@@ -13,6 +13,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize
 
+from examples._figures import save_figure
 from optimalcontrol.grape import ControlProblem, grape_xy_and_gradient
 from optimalcontrol.io import export_bruker_shape as _write_bruker_shape
 from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm, vec
@@ -75,8 +76,7 @@ def plot_wide_profile(
     axis.legend()
 
     figure_path = output_dir / f"{PULSE_NAME}_wide_profile.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 
@@ -111,8 +111,7 @@ def plot_wide_components(
     axes[-1].set_xlabel("1H shift (ppm)")
 
     figure_path = output_dir / f"{PULSE_NAME}_wide_components.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 
@@ -326,8 +325,7 @@ def plot_time_evolution(
     figure.suptitle(title)
 
     figure_path = output_dir / f"{PULSE_NAME}_time_evolution.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 
@@ -362,8 +360,7 @@ def plot_pareto(
     axis.legend()
 
     figure_path = output_dir / f"{PULSE_NAME}_pareto.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 

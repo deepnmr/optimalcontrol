@@ -50,6 +50,7 @@ import numpy.typing as npt
 from scipy.optimize import minimize
 
 from examples import _methyl_water_common as binary_helpers
+from examples._figures import save_figure
 from examples._methyl_water_common import _constraint_score as _constraint_score
 from optimalcontrol.bloch import propagate_bloch_ensemble
 from optimalcontrol.grape import ControlProblem, grape_xy_and_gradient
@@ -638,8 +639,7 @@ def plot_diagnostics(
     )
 
     figure_path = output_dir / f"{PULSE_NAME}.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 
@@ -708,8 +708,7 @@ def plot_time_evolution(time_evolution: dict[str, RealArray], output_dir: Path) 
     figure.suptitle(f"Bloch-component time evolution ({DURATION_US:.0f} us pulse)")
 
     figure_path = output_dir / f"{PULSE_NAME}_time_evolution.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 

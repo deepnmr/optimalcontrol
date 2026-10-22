@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 
+from examples._figures import save_figure
 from optimalcontrol.grape import ControlProblem, grape_xy
 from optimalcontrol.io import export_bruker_shape as write_bruker_shape
 from optimalcontrol.operators import Ix, Iy, Iz, place_operator
@@ -209,8 +210,7 @@ def run() -> npt.NDArray[np.float64]:
     )
 
     fig_path = output_dir / f"{PULSE_NAME}_band_profile.png"
-    fig.savefig(fig_path, dpi=160, bbox_inches="tight")
-    plt.close(fig)
+    save_figure(fig, fig_path, dpi=160, bbox_inches="tight")
 
     print(f"Saved Bruker shape {shape_path}")
     print(f"Saved figure {fig_path}")
