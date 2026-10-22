@@ -95,7 +95,10 @@ def rope_V(r1: float, r2: float, n: float) -> float:
 
 
 def rope_u_ratio(r1: float, r2: float, n: float) -> float:
-    """Return the unconstrained optimal control ratio u2/u1 = g*r1/r2."""
+    """Return the unconstrained optimal control ratio u2/u1 = g*r1/r2.
+
+    Implements the ROPE (JMR 2003) symbol ``u2/u1 = g r1 / r2`` from docs/equations.md.
+    """
     if r1 == 0.0:
         _validate_nonnegative("n", n)
         return 0.0
@@ -106,7 +109,10 @@ def rope_u_ratio(r1: float, r2: float, n: float) -> float:
 
 
 def rope_trajectory_invariant(expect_2IySz: float, expect_Ix: float, n: float) -> float:
-    """Return <2IySz>/<Ix> for comparison with the optimal invariant g(n)."""
+    """Return <2IySz>/<Ix> for comparison with the optimal invariant g(n).
+
+    Implements the ROPE (JMR 2003) ratio ``r2 / r1`` of the table symbols r1 and r2.
+    """
     if expect_2IySz == 0.0:
         _validate_nonnegative("n", n)
         return 0.0
