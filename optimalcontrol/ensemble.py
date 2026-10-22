@@ -185,7 +185,7 @@ def expand_phase_cycle(cp: ControlProblem) -> list[ControlProblem]:
         factors = _phase_factors(row, len(cp.rho_init))
         rho_init = [
             np.asarray(factor * np.asarray(state, dtype=np.complex128), dtype=np.complex128)
-            for factor, state in zip(factors, cp.rho_init)
+            for factor, state in zip(factors, cp.rho_init, strict=True)
         ]
         expanded.append(replace(cp, rho_init=rho_init, phase_cycle=None))
     return expanded
@@ -216,7 +216,7 @@ def correlated_rho_match(cp: ControlProblem) -> list[ControlProblem]:
             rho_init=[np.asarray(rho_init, dtype=np.complex128).copy()],
             rho_targ=[np.asarray(rho_targ, dtype=np.complex128).copy()],
         )
-        for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ)
+        for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ, strict=True)
     ]
 
 
@@ -237,7 +237,7 @@ def correlated_rho_drift(cp: ControlProblem) -> list[ControlProblem]:
             rho_init=[np.asarray(rho_init, dtype=np.complex128).copy()],
             rho_targ=[np.asarray(rho_targ, dtype=np.complex128).copy()],
         )
-        for drift, rho_init, rho_targ in zip(cp.drifts, cp.rho_init, cp.rho_targ)
+        for drift, rho_init, rho_targ in zip(cp.drifts, cp.rho_init, cp.rho_targ, strict=True)
     ]
 
 

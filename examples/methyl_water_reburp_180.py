@@ -437,10 +437,8 @@ def plot_wide_profile(wide_profile: dict[str, RealArray], output_dir: Path) -> P
 def plot_wide_components(component_profile: dict[str, RealArray], output_dir: Path) -> Path:
     """Write final Mx, My, Mz vs ppm for each initial Ix, Iy, Iz state."""
     ppm = component_profile["ppm"]
-    figure, axes = plt.subplots(
-        3, 1, figsize=(9.0, 9.0), sharex=True, constrained_layout=True
-    )
-    for axis, name in zip(axes, ("Ix", "Iy", "Iz")):
+    figure, axes = plt.subplots(3, 1, figsize=(9.0, 9.0), sharex=True, constrained_layout=True)
+    for axis, name in zip(axes, ("Ix", "Iy", "Iz"), strict=True):
         final = component_profile[name]
         axis.plot(ppm, final[:, 0], label="Mx", color="tab:blue")
         axis.plot(ppm, final[:, 1], label="My", color="tab:orange")

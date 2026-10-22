@@ -931,6 +931,7 @@ def lbfgs_direction(state: LBFGSState, grad: RealArray) -> RealArray:
         reversed(flat_s_history),
         reversed(flat_y_history),
         reversed(memory["rho_history"]),
+        strict=True,
     ):
         if step.shape != q.shape or curvature.shape != q.shape:
             raise ValueError("L-BFGS history shapes must match gradient shape")
@@ -949,6 +950,7 @@ def lbfgs_direction(state: LBFGSState, grad: RealArray) -> RealArray:
         flat_y_history,
         memory["rho_history"],
         reversed(alpha_values),
+        strict=True,
     ):
         beta = rho * float(np.dot(curvature, r))
         r += step * (alpha - beta)

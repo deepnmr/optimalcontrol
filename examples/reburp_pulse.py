@@ -253,10 +253,8 @@ def plot_wide_profile(profiles: dict[str, RealArray], output_dir: Path) -> Path:
 def plot_wide_components(component_profile: dict[str, RealArray], output_dir: Path) -> Path:
     """Write final Mx, My, Mz vs ``offset * T`` for each initial Ix, Iy, Iz."""
     offset_t = component_profile["offset_t"]
-    figure, axes = plt.subplots(
-        3, 1, figsize=(9.0, 9.0), sharex=True, constrained_layout=True
-    )
-    for axis, name in zip(axes, ("Ix", "Iy", "Iz")):
+    figure, axes = plt.subplots(3, 1, figsize=(9.0, 9.0), sharex=True, constrained_layout=True)
+    for axis, name in zip(axes, ("Ix", "Iy", "Iz"), strict=True):
         final = component_profile[name]
         axis.plot(offset_t, final[:, 0], label="Mx", color="tab:blue")
         axis.plot(offset_t, final[:, 1], label="My", color="tab:orange")

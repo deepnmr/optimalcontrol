@@ -84,7 +84,7 @@ def test_expand_power_levels_scales_operators_and_resets_channel_power() -> None
     problems = expand_power_levels(cp)
 
     assert len(problems) == 2
-    for level, problem in zip(cp.pwr_levels, problems):
+    for level, problem in zip(cp.pwr_levels, problems, strict=True):
         assert problem.pwr_levels == [1.0]
         np.testing.assert_allclose(
             problem.operators[0],
@@ -102,7 +102,7 @@ def test_expand_offsets_adds_offset_operator_to_each_drift() -> None:
     problems = expand_offsets(cp)
 
     assert len(problems) == 2
-    for offset, problem in zip(cp.offsets, problems):
+    for offset, problem in zip(cp.offsets, problems, strict=True):
         assert problem.offsets is None
         assert problem.offset_operators is None
         expected = np.complex128(offset) * cp.offset_operators[0]

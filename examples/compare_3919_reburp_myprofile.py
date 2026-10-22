@@ -105,7 +105,7 @@ def watergate_3919_waveform() -> RealArray:
     tips = np.array([3.0, 9.0, 19.0, 19.0, 9.0, 3.0]) * W3919_UNIT_DEG
     signs = [1.0, 1.0, 1.0, -1.0, -1.0, -1.0]
     segments: list[RealArray] = []
-    for index, (tip, sign) in enumerate(zip(tips, signs)):
+    for index, (tip, sign) in enumerate(zip(tips, signs, strict=True)):
         segments.append(_pulse_block(tip, sign))
         if index != len(tips) - 1:
             segments.append(_delay_block())

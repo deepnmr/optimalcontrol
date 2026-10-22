@@ -212,7 +212,7 @@ def validate_control_problem(cp: ControlProblem) -> None:
         if dim != generator_dim:
             raise ValueError(f"operators[{index}] dimension {dim} does not match {generator_dim}")
 
-    for index, (rho_init, rho_targ) in enumerate(zip(cp.rho_init, cp.rho_targ)):
+    for index, (rho_init, rho_targ) in enumerate(zip(cp.rho_init, cp.rho_targ, strict=True)):
         init_shape = np.asarray(rho_init).shape
         target_shape = np.asarray(rho_targ).shape
         if init_shape != target_shape:
@@ -929,7 +929,7 @@ def _single_value_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[floa
 
     gradient: RealArray = np.zeros((n_steps, n_channels), dtype=np.float64)
     values: list[float] = []
-    for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ):
+    for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ, strict=True):
         init = np.asarray(rho_init, dtype=np.complex128)
         targ = np.asarray(rho_targ, dtype=np.complex128)
         layout = _propagator_layout(init, propagators[0])
@@ -1124,7 +1124,7 @@ def grape_hessian(cp: ControlProblem, wfm: RealArray) -> RealArray | None:
     )
 
     hessian: RealArray = np.zeros((n_params, n_params), dtype=np.float64)
-    for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ):
+    for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ, strict=True):
         current, first_states, second_states = _hessian_state_sweep(
             rho_init,
             propagators,
@@ -1174,7 +1174,7 @@ def _grape_xy_core(cp: ControlProblem, wfm: RealArray) -> float:
 
     propagators = forward_propagators(cp, wfm)
     values: list[float] = []
-    for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ):
+    for rho_init, rho_targ in zip(cp.rho_init, cp.rho_targ, strict=True):
         current = np.asarray(rho_init, dtype=np.complex128)
         for propagator in propagators:
             current = _apply_propagator(current, propagator)

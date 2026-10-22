@@ -82,10 +82,10 @@ def _vector_inputs(problems: Sequence[Any], wfm: RealArray) -> _KernelInputs | N
             or len(problem.rho_targ) != len(target_states)
         ):
             return None
-        for actual, expected in zip(problem.rho_init, init_states):
+        for actual, expected in zip(problem.rho_init, init_states, strict=True):
             if not np.array_equal(np.asarray(actual), expected):
                 return None
-        for actual, expected in zip(problem.rho_targ, target_states):
+        for actual, expected in zip(problem.rho_targ, target_states, strict=True):
             if not np.array_equal(np.asarray(actual), expected):
                 return None
 
@@ -100,7 +100,9 @@ def _vector_inputs(problems: Sequence[Any], wfm: RealArray) -> _KernelInputs | N
                     np.stack(
                         [
                             float(level) * np.asarray(operator, dtype=np.complex128)
-                            for level, operator in zip(problem.pwr_levels, problem.operators)
+                            for level, operator in zip(
+                                problem.pwr_levels, problem.operators, strict=True
+                            )
                         ]
                     )
                     for problem in problems

@@ -279,7 +279,7 @@ class SeedlessSpec:
         pairs = band.state_pairs()
         cost = 0.0
         grad = np.zeros(self.n_steps, dtype=np.float64)
-        for scale, weight in zip(self.b1_scales, self.b1_weights):
+        for scale, weight in zip(self.b1_scales, self.b1_weights, strict=True):
             cp = self._control_problem(pairs, offsets, scale)
             fidelity, grad_xy = grape_xy_and_gradient(cp, wfm_xy)
             cost += weight * (1.0 - fidelity)
@@ -297,7 +297,7 @@ class SeedlessSpec:
         cost = 0.0
         grad = np.zeros(self.n_steps, dtype=np.float64)
         n_off = float(offsets.size)
-        for scale, weight in zip(self.b1_scales, self.b1_weights):
+        for scale, weight in zip(self.b1_scales, self.b1_weights, strict=True):
             for offset in offsets:
                 cp = self._control_problem(iz_pair, np.array([offset]), scale)
                 mz, grad_xy = grape_xy_and_gradient(cp, wfm_xy)

@@ -210,7 +210,7 @@ def fidelity_avg(
         raise ValueError("At least one source-target pair is required")
 
     values = np.array(
-        [fidelity_real(rho_f, rho_t) for rho_f, rho_t in zip(rho_f_list, rho_t_list)],
+        [fidelity_real(rho_f, rho_t) for rho_f, rho_t in zip(rho_f_list, rho_t_list, strict=True)],
         dtype=np.float64,
     )
     if weights is None:
