@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- Raise the Python floor to 3.11. Pin `mcp>=2.0,<3` and add lower bounds for
+  NumPy and SciPy.
+- MCP tools now surface failures as `ToolError`, validate `n_seeds`, and publish a
+  typed band schema.
+- Validate Seedless kernel inputs (Bloch finiteness, waveform shape) before
+  dispatch, so Rust and NumPy raise identical messages.
+- Validate `basis` against `dense`, `liouville` and `hilbert`.
+- `ControlProblem.freeze` now defaults to `None`.
+- Split large modules into `_problem`, `_propagation`, `_hessian`, `_checkpoint`,
+  `_line_search`, `_lbfgs`, `_newton` and `_io_common` / `_io_bruker` /
+  `_io_jcamp`. Public import paths are unchanged and frozen by
+  `tests/test_public_surface.py`.
+- Checkpoints: unsigned checkpoints that carry history are refused, and
+  `save_checkpoint(..., cp=)` binds a checkpoint to its problem.
+- `dir_diff_expm` validates `dt > 0`. Invalid `pwr_levels` now give one unified
+  message.
+- Make the coherence gate waveform-aware on both backends; dissipation is never
+  dropped.
+- Native kernels use scale-safe field norms and eigenphases, and check that
+  arrays are C-contiguous.
+- Validate Seedless B1 weights, B1 scales and rotation angles; `normalise_hs` is
+  scale-safe.
+- Example PNGs are written without the Matplotlib version string, so output is
+  deterministic. Examples share helper modules instead of duplicated code, and
+  orphan PNGs are removed.
+- Ship `LICENSE` and `py.typed`; trim the sdist.
+- CI: Python 3.11/3.12 matrix, formatting gates, a full-suite NumPy fallback job
+  and a packaging job. Adopt `ruff format` plus the B/UP/NPY rule sets, `cargo
+  fmt`, and zero Clippy allows.
 - Report exhausted GRAPE line searches as `line_search_failed`, without marking
   the unchanged waveform as converged.
 - Verify MCP pulse designs across every configured B1 scale when reporting and
