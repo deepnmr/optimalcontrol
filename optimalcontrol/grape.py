@@ -732,6 +732,7 @@ def grape_xy_and_gradient(cp: ControlProblem, wfm: RealArray) -> tuple[float, Re
     """
     waveform = np.asarray(wfm, dtype=np.float64)
     if _has_ensemble_axes(cp):
+        # ensemble imports grape_xy from this module, so this import must stay function-local.
         from optimalcontrol.ensemble import ensemble_xy_and_gradient
 
         bare_cp = replace(cp, penalties=None)

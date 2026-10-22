@@ -13,6 +13,7 @@ from optimalcontrol._lbfgs import LBFGSState as LBFGSState
 from optimalcontrol._lbfgs import _copy_lbfgs_state as _copy_lbfgs_state
 from optimalcontrol._line_search import _as_real_array as _as_real_array
 from optimalcontrol._problem import ControlProblem as ControlProblem
+from optimalcontrol._problem import _hash_control_problem
 from optimalcontrol._problem import validate_waveform as validate_waveform
 from optimalcontrol._types import Array, RealArray
 
@@ -61,8 +62,6 @@ def _validate_checkpoint_path(path: str) -> Path:
 
 def _checkpoint_signature(cp: ControlProblem, optimizer_name: str) -> str:
     """Return a signature binding a checkpoint to its problem and optimizer."""
-    from optimalcontrol.io import _hash_control_problem
-
     payload = f"{optimizer_name}\0{_hash_control_problem(cp)}".encode()
     return hashlib.sha256(payload).hexdigest()
 

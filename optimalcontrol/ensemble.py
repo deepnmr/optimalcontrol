@@ -6,19 +6,17 @@ from typing import TypeVar
 
 import numpy as np
 
+from optimalcontrol._problem import ControlProblem
+from optimalcontrol._problem import _has_rf_power_ensemble as _has_rf_power_ensemble
+from optimalcontrol._problem import _validate_offset_operators as _validate_offset_operators
+from optimalcontrol._problem import _validate_phase_cycle as _validate_phase_cycle
+from optimalcontrol._problem import (
+    _validate_same_drift_dimensions as _validate_same_drift_dimensions,
+)
 from optimalcontrol._types import Array, RealArray
 from optimalcontrol._validation import validate_finite_floats as _validate_float_values
 from optimalcontrol._validation import validate_nonempty as _validate_nonempty
-from optimalcontrol.grape import (
-    ControlProblem,
-    _has_rf_power_ensemble,
-    _validate_offset_operators,
-    _validate_phase_cycle,
-    _validate_same_drift_dimensions,
-    _zero_frozen,
-    grape_xy,
-    grape_xy_and_gradient,
-)
+from optimalcontrol.grape import _zero_frozen, grape_xy, grape_xy_and_gradient
 from optimalcontrol.penalties import total_penalty
 
 ProblemT = TypeVar("ProblemT")

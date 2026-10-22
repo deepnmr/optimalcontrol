@@ -55,6 +55,7 @@ from optimalcontrol._newton import _newton_step as _newton_step
 from optimalcontrol._newton import _positive_definite_shift as _positive_definite_shift
 from optimalcontrol._newton import _rfo_step as _rfo_step
 from optimalcontrol._newton import _solve_symmetric_system as _solve_symmetric_system
+from optimalcontrol._problem import _hash_control_problem
 from optimalcontrol._types import Array, RealArray
 
 
@@ -424,7 +425,8 @@ def run_grape(
     if optimizer is None:
         raise ValueError("method must be 'lbfgs' or 'newton'")
 
-    from optimalcontrol.io import _hash_control_problem, waveform_from_result
+    # io imports OptimResult from this module, so waveform_from_result stays a lazy import.
+    from optimalcontrol.io import waveform_from_result
 
     _hash_control_problem(cp)
     result = optimizer(cp, wfm0, **kwargs)
