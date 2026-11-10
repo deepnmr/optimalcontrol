@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- Start universal rotations about x or y from a symmetric construction
+  instead of raw random phases: `SeedlessSpec.optimize` (and
+  `design_grape_pulse` for three pairs forming such a rotation) first
+  optimises a half-length state-to-state pulse and mirrors it into the
+  full-length start (Luy et al., JMR 176, 179, 2005). A 180x/90x rotation over
+  18 kHz at 10 kHz RF in 1 ms went from trapped on every seed (infidelity
+  0.2-0.5, worst transfer near -1) to infidelity ~1e-3 on every seed. Results
+  for such specs change for a given `seed`; pass `phases0` for the old start.
+- Extend the MCP server beyond Seedless (`design_grape_pulse`: full
+  amplitude+phase GRAPE for an isolated spin-1/2 from `Ix`/`Iy`/`Iz` state
+  pairs over an offset × B1 ensemble with an RF cap, dense-grid Bloch
+  verification, Bruker `.shape` + design JSON; `inspect_waveform` /
+  `convert_waveform` for design JSON, waveform CSV/JSON and Bruker shape
+  files; `bloch_trajectory`; `waveform_spectrogram`; analytic `rope_pulse` /
+  `crop_pulse`). `bloch_offset_profile` now also reads GRAPE design JSONs and
+  optionally reports the transfer to a target state with its worst case over a
+  B1 grid; its Seedless behaviour is unchanged. New `docs/guide_mcp.md`.
+- Add `io.import_csv` (inverse of `export_csv`) and `io.import_bruker_shape`
+  (inverse of `export_bruker_shape`, returning amplitude percent, phase degrees
+  and the JCAMP tags).
+- Bump the version to 0.6.0 and the Claude Code plugin pin to `>=0.6.0`.
 - Report exhausted GRAPE line searches as `line_search_failed`, without marking
   the unchanged waveform as converged.
 - Verify MCP pulse designs across every configured B1 scale when reporting and

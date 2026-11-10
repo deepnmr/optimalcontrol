@@ -12,10 +12,13 @@ from optimalcontrol.grape import ControlProblem
 from optimalcontrol.io import (
     Waveform,
     export_bruker,
+    export_bruker_shape,
     export_csv,
     export_json,
     fapt_import,
     heterodyne_transform,
+    import_bruker_shape,
+    import_csv,
     import_jcamp_dx,
     import_json,
     waveform_from_result,
@@ -318,3 +321,55 @@ def test_fapt_import_allows_only_one_header_row(tmp_path: pathlib.Path) -> None:
     one_header = tmp_path / "one.fapt"
     one_header.write_text("freq amp phase time\n1 2 3 4\n5 6 7 8\n")
     assert fapt_import(one_header).times.shape[0] == 2
+
+
+def test_csv_export_import_round_trips_times_and_channels(tmp_path: pathlib.Path) -> None:
+    waveform = _waveform()
+    path = tmp_path / "waveform.csv"
+    export_csv(waveform, path)
+    loaded = import_csv(path)
+    assert loaded.channels == ["x", "y"]
+    np.testing.assert_allclose(loaded.times, waveform.times)
+    np.testing.assert_allclose(loaded.data, waveform.data)
+    assert loaded.metadata["format"] == "CSV"
+    assert loaded.problem_hash.startswith("csv:")
+
+
+def test_import_csv_rejects_missing_time_header(tmp_path: pathlib.Path) -> None:
+    path = tmp_path / "bad.csv"
+    path.write_text("x,y\n0.1,0.2\n")
+    with pytest.raises(ValueError, match="CSV header must start with 'time'"):
+        import_csv(path)
+    path.write_text("time,x,y\n0.0,0.1\n")
+    with pytest.raises(ValueError, match="CSV rows have 2 columns, expected 3"):
+        import_csv(path)
+
+
+def test_bruker_shape_export_import_round_trips_amplitude_phase_and_tags(
+    tmp_path: pathlib.Path,
+) -> None:
+    amplitude = np.array([100.0, 50.0, 0.0], dtype=np.float64)
+    phase = np.array([0.0, 90.0, 180.0], dtype=np.float64)
+    path = export_bruker_shape(
+        tmp_path / "pulse.shape",
+        "demo",
+        amplitude,
+        phase,
+        extra_tags=["##$OPTIMALCONTROL_TOTAL_DURATION_S= 1.5e-04"],
+    )
+    loaded_amplitude, loaded_phase, tags = import_bruker_shape(path)
+    np.testing.assert_allclose(loaded_amplitude, amplitude)
+    np.testing.assert_allclose(loaded_phase, phase)
+    assert tags["TITLE"] == "demo"
+    assert tags["NPOINTS"] == "3"
+    assert float(tags["$OPTIMALCONTROL_TOTAL_DURATION_S"]) == pytest.approx(1.5e-4)
+
+
+def test_import_bruker_shape_rejects_wrong_column_count(tmp_path: pathlib.Path) -> None:
+    path = tmp_path / "three.shape"
+    path.write_text("##TITLE= x\n##NPOINTS= 1\n##XYPOINTS= (XY..XY)\n1, 2, 3\n##END=\n")
+    with pytest.raises(ValueError, match="XYPOINTS table has 3 columns, expected 2"):
+        import_bruker_shape(path)
+    path.write_text("##TITLE= x\n##NPOINTS= 2\n##XYPOINTS= (XY..XY)\n1, 2\n##END=\n")
+    with pytest.raises(ValueError, match="NPOINTS=2 does not match 1 parsed rows"):
+        import_bruker_shape(path)

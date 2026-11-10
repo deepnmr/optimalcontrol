@@ -1,7 +1,7 @@
 {
   "name": "optimalcontrol",
-  "description": "NMR pulse design via the optimalcontrol Seedless route: design band/restraint pulses and verify them with an independent Bloch model, directly from Claude.",
-  "version": "0.5.0",
+  "description": "NMR pulse design with the optimalcontrol package: Seedless band/restraint and GRAPE pulse design, independent Bloch verification, waveform file I/O, trajectories/spectrograms, and analytic ROPE/CROP pulses, directly from Claude.",
+  "version": "0.6.0",
   "author": {
     "name": "deepnmr"
   },
@@ -9,7 +9,7 @@
   "mcpServers": {
     "optimalcontrol": {
       "command": "uvx",
-      "args": ["--from", "optimalcontrol-nmr[mcp]>=0.5.0", "optimalcontrol-mcp"]
+      "args": ["--from", "optimalcontrol-nmr[mcp]>=0.6.0", "optimalcontrol-mcp"]
     }
   }
 }

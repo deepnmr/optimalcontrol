@@ -28,7 +28,7 @@ model (:func:`propagate_bloch_ensemble`) is used for worst-case verification.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -135,6 +135,22 @@ class Band:
             return [(_axis_bloch(self.init), _axis_bloch(self.targ))]
         # suppress and xycite both start from Iz; targ is used only by suppress.
         return [(_CARDINAL["z"], _CARDINAL["z"])]
+
+
+@dataclass(frozen=True)
+class _HalfRotationBand(Band):
+    """State-to-state stand-in for a ``"universal"`` band about x or y.
+
+    Takes the transverse axis perpendicular to the rotation axis through half
+    the rotation angle; :meth:`SeedlessSpec._symmetric_start` turns a pulse that
+    does this into a full universal rotation.
+    """
+
+    def bloch_pairs(self) -> list[tuple[RealArray, RealArray]]:
+        assert self.rotation is not None
+        axis, angle_deg = self.rotation
+        start = _CARDINAL["y" if "x" in axis.lower() else "x"]
+        return [(start, _rotation_matrix(axis, angle_deg / 2.0) @ start)]
 
 
 @dataclass
@@ -317,13 +333,70 @@ class SeedlessSpec:
             grad += band.weight * band_grad
         return total, grad
 
+    def _symmetric_start(self, max_iter: int, seed: int | None) -> RealArray | None:
+        """Return a universal-rotation starting point built from a half-length pulse.
+
+        Random starts almost always trap a broadband universal rotation in a
+        wrong-sign local minimum, while state-to-state problems converge
+        reliably. So optimise a half-length pulse ``V`` that takes the
+        transverse axis ``a`` (perpendicular to the rotation axis) through half
+        the angle, then prepend its time reverse with the RF component along
+        ``a`` negated: that prefix is ``R_a(pi) V^-1 R_a(pi)^-1`` at every
+        offset, so the whole is ``R_{Va}(pi) R_a(pi)``, the full rotation
+        (Luy et al., J. Magn. Reson. 176, 179, 2005). ``"suppress"`` bands
+        survive the construction and are kept in the half problem; other
+        bands are left to the full-length refinement.
+
+        Returns ``None`` (caller falls back to random phases) unless every
+        universal band rotates about the same transverse axis and ``n_steps``
+        is even.
+        """
+        axes = {
+            band.rotation[0].strip().lstrip("+-").lower()
+            for band in self.bands
+            if band.restraint == "universal" and band.rotation is not None
+        }
+        if self.n_steps % 2 or len(axes) != 1 or not axes <= {"x", "y"}:
+            return None
+        half_bands: list[Band] = []
+        for band in self.bands:
+            if band.restraint == "universal":
+                half_bands.append(
+                    _HalfRotationBand(
+                        band.ppm_lo,
+                        band.ppm_hi,
+                        "s2s",
+                        n_offsets=band.n_offsets,
+                        init="z",  # placeholders: bloch_pairs() is overridden
+                        targ="z",
+                        rotation=band.rotation,
+                        weight=band.weight,
+                    )
+                )
+            elif band.restraint == "suppress":
+                half_bands.append(band)
+        half = replace(
+            self, duration_s=self.duration_s / 2.0, n_steps=self.n_steps // 2, bands=half_bands
+        )
+        phases, _ = half.optimize(max_iter=max_iter, seed=seed)
+        mirrored = -phases[::-1] if axes == {"x"} else math.pi - phases[::-1]
+        return np.concatenate([mirrored, phases])
+
     def optimize(
         self,
         phases0: RealArray | None = None,
         max_iter: int = 200,
         seed: int | None = 0,
     ) -> tuple[RealArray, float]:
-        """Optimise the phase-only waveform; return (phases, final infidelity)."""
+        """Optimise the phase-only waveform; return (phases, final infidelity).
+
+        Without ``phases0`` the start is random phases drawn from ``seed`` --
+        except when the spec holds universal rotations about x or y, which
+        start from the symmetric construction of :meth:`_symmetric_start`
+        (itself seeded by ``seed``, costing one extra half-length optimisation).
+        """
+        if phases0 is None:
+            phases0 = self._symmetric_start(max_iter, seed)
         if phases0 is None:
             rng = np.random.default_rng(seed)
             phases0 = rng.uniform(-math.pi, math.pi, size=self.n_steps)

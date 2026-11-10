@@ -30,7 +30,9 @@ subsystem in depth.
 ## MCP server (use from Claude and other LLM clients)
 
 The package ships an [MCP](https://modelcontextprotocol.io/) server exposing the
-Seedless route, so an LLM client can design and verify pulses conversationally.
+Seedless and GRAPE design routes, Bloch verification, waveform file I/O and the
+analytic ROPE/CROP pulses, so an LLM client can design, verify and convert
+pulses conversationally.
 
 **Easiest — install as a Claude Code plugin** (this repository is its own
 plugin marketplace; requires [uv](https://docs.astral.sh/uv/), no `pip install`
@@ -49,14 +51,30 @@ claude mcp add optimalcontrol -- optimalcontrol-mcp   # Claude Code
 ```
 
 No standing server is involved — the client launches `optimalcontrol-mcp` on
-demand and talks to it over stdio. Two tools are exposed:
+demand and talks to it over stdio. Units everywhere: RF and offsets in Hz
+(offsets relative to the carrier), Seedless band edges and carrier in ppm,
+durations in seconds. Tools (full reference with units in
+`docs/guide_mcp.md`):
 
 - `design_seedless_pulse` — declarative band/restraint input; runs a multi-seed
-  phase-only optimisation, verifies the winner against the independent Bloch
-  model, and writes a Bruker `.shape` file plus a design JSON. Returns file
-  paths and summary numbers only.
-- `bloch_offset_profile` — reloads a design JSON and computes the mx/my/mz
-  offset response with the independent Bloch model.
+  constant-amplitude phase-only optimisation, verifies the winner against the
+  independent Bloch model, and writes a Bruker `.shape` file plus a design JSON.
+- `design_grape_pulse` — full amplitude+phase GRAPE for an isolated spin-1/2:
+  `Ix`/`Iy`/`Iz` state pairs (one pair = state-to-state, three = universal
+  rotation) over an offset × B1 ensemble with an RF cap; Bloch-verified on a
+  dense grid; writes `.shape` + design JSON.
+- `bloch_offset_profile` — reloads either design JSON and computes the mx/my/mz
+  offset response (optionally the transfer to a target and its worst case over
+  a B1 grid) with the independent Bloch model.
+- `inspect_waveform` / `convert_waveform` — summarise and convert design JSONs,
+  waveform CSV/JSON and Bruker `.shape` files between each other.
+- `bloch_trajectory` — Bloch-vector time course at chosen offsets, written to
+  CSV/JSON.
+- `waveform_spectrogram` — time–frequency power map of the complex envelope.
+- `rope_pulse` / `crop_pulse` — sample the analytic ROPE/CROP controls to CSV
+  and report their efficiencies.
+
+Every tool writes large arrays to files and returns paths and summary numbers.
 
 Any MCP-capable client works; for others, register the same
 `optimalcontrol-mcp` command in that client's server configuration.
