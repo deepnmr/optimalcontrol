@@ -99,8 +99,11 @@ cargo clippy --locked --all-targets -- -D warnings  # Rust lint gate, warnings d
    (Bruker shape export) and `_io_jcamp.py` (JCAMP-DX and FAPT import).
    `plotting.py` is optional (matplotlib), `analysis.py` gives trajectories/spectrograms.
 8. `mcp_server.py` — mcp SDK **2.0** (`from mcp.server import MCPServer`; `FastMCP` no
-   longer exists). Two tools wrap the Seedless route; docstrings are the user-facing
-   contract (units: ppm for bands/carrier, Hz for RF, seconds for duration).
+   longer exists). Nine tools: Seedless + single-spin GRAPE design, Bloch profile /
+   trajectory, waveform inspect/convert (design JSON, CSV/JSON, Bruker shape),
+   spectrogram, analytic ROPE/CROP. Docstrings are the user-facing contract (units:
+   Hz for RF and offsets, ppm only for Seedless bands/carrier, seconds for duration);
+   large arrays go to files. Reference: `docs/guide_mcp.md`.
 
 Example helpers shared across scripts live in `examples/_methyl_water_common.py` (the
 methyl/water search, refinement and plotting code), `examples/_figures.py` (`save_figure`
@@ -127,7 +130,8 @@ version must match `pyproject.toml` and `optimalcontrol/__init__.py`). Exposed f
   `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`; promote CHANGELOG `Unreleased`;
   tag `vX.Y.Z`; `maturin build --release --sdist -o dist`; `twine upload`. CI checks changes;
   publishing remains manual.
-- `.claude-plugin/plugin.json` pins `>=0.5.0` and carries its own `version`.
+- `.claude-plugin/plugin.json` pins `>=0.6.0` and carries its own `version` (also
+  `marketplace.json`).
 - Pushing to `deepnmr/optimalcontrol` needs `gh auth switch -u deepnmr`; switch back to
   `dleess` afterwards.
 - `scripts/ralph/` and `dev/` are finished agent-loop scaffolding, excluded from the sdist.

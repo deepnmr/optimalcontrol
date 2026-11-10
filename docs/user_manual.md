@@ -331,7 +331,7 @@ spec = SeedlessSpec(
     ],
 )
 
-# Phase-only optimisation from a random start is NOT globally convergent.
+# Phase-only optimisation is NOT globally convergent.
 # Run several seeds and keep the best -- see the note below.
 best_phases, best_infidelity = None, float("inf")
 for seed in range(4):
@@ -345,20 +345,26 @@ print("worst-case     :", {k: round(v, 4) for k, v in
 ```
 
 ```
-best infidelity: 0.00093
-worst-case     : {'band0:universal': 0.996, 'band1:suppress': 0.9995}
+best infidelity: 0.00092
+worst-case     : {'band0:universal': 0.9944, 'band1:suppress': 0.9996}
 ```
 
-The methyl band gets a 180° rotation about x good to ~0.996 worst-case, while
-water `Iz` is held to ~0.9995 — all from one 3 ms phase-only waveform.
+The methyl band gets a 180° rotation about x good to ~0.994 worst-case, while
+water `Iz` is held to ~0.9996 — all from one 3 ms phase-only waveform.
 
-> **Why the multi-start loop is not optional.** On this exact problem, four of
-> six random seeds converge to a **wrong-sign local minimum**: `evaluate()`
-> returns a `universal` value near **−1.0**, meaning the band is being rotated
-> to the *opposite* of the target. The cost function is non-convex and L-BFGS-B
-> finds the nearest minimum, not the best one. A **negative** universal fidelity
-> is the signature — see [§11](#11-troubleshooting). Always run several seeds,
-> always check `evaluate()`, and never ship the first waveform that returns.
+> **Why the multi-start loop stays.** The cost function is non-convex and
+> L-BFGS-B finds the nearest minimum, not the best one. Started from raw random
+> phases, four of six seeds on this exact problem converge to a **wrong-sign
+> local minimum** (`evaluate()` returns a `universal` value near **−1.0**: the
+> band is rotated to the *opposite* of the target). `optimize()` therefore
+> starts universal rotations about x or y from a *symmetric construction*: it
+> first optimises a half-length state-to-state pulse (these converge reliably)
+> and mirrors it into a full-length start (Luy et al., *J. Magn. Reson.* 176,
+> 179, 2005). With it all six seeds reach 0.993–0.998 here. Rotations about z,
+> mixed rotation axes, odd `n_steps`, or your own `phases0` still use the plain
+> start, so keep the loop, always check `evaluate()`, and treat a **negative**
+> universal fidelity as the signature of a trapped run — see
+> [§11](#11-troubleshooting).
 
 ### 4-4. Calibrate B1 to your own hardware
 
@@ -754,6 +760,7 @@ silently.
 | `docs/equations.md` | The underlying equations |
 | `docs/source_notes.md` | The source papers and how this package maps to them |
 | `docs/spinach_mapping.md` | Mapping to the Spinach (MATLAB) API |
+| `docs/guide_mcp.md` | The MCP server: every tool, its inputs and units, for LLM clients |
 
 You have now installed the package, optimised a pulse two different ways, read
 the results, checked them against an independent model, and written a shape file.

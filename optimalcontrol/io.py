@@ -147,6 +147,36 @@ def export_csv(wfm: Waveform, path: str | Path) -> None:
             writer.writerow(row)
 
 
+def import_csv(path: str | Path) -> Waveform:
+    """Load a waveform from the CSV layout written by :func:`export_csv`.
+
+    The first row is a header ``time,<channel>,...``; every later row holds one
+    time value followed by one finite number per channel.
+    """
+    input_file = _input_path(path)
+    payload = input_file.read_bytes()
+    rows = list(csv.reader(payload.decode("utf-8").splitlines()))
+    rows = [row for row in rows if any(cell.strip() for cell in row)]
+    if not rows:
+        raise ValueError("CSV file contains no data")
+    header = [cell.strip() for cell in rows[0]]
+    if len(header) < 2 or header[0].lower() != "time":
+        raise ValueError("CSV header must start with 'time' followed by channel labels")
+    channels = _validate_channels(header[1:])
+    table = _numeric_table([",".join(row) for row in rows[1:]], "CSV")
+    if table.shape[1] != len(header):
+        raise ValueError(f"CSV rows have {table.shape[1]} columns, expected {len(header)}")
+    metadata: dict[str, object] = {"format": "CSV", "source_path": str(input_file)}
+    return Waveform(
+        channels=channels,
+        units="a.u.",
+        times=np.asarray(table[:, 0], dtype=np.float64),
+        data=np.asarray(table[:, 1:].T, dtype=np.float64),
+        metadata=metadata,
+        problem_hash=_source_hash("csv", payload),
+    )
+
+
 def export_json(wfm: Waveform, path: str | Path) -> None:
     """Write a waveform JSON file containing all dataclass fields."""
     payload: dict[str, object] = {
@@ -179,6 +209,32 @@ def import_json(path: str | Path) -> Waveform:
         metadata=metadata,
         problem_hash=_payload_string(payload, "problem_hash"),
     )
+
+
+def import_bruker_shape(path: str | Path) -> tuple[RealArray, RealArray, dict[str, str]]:
+    """Read a Bruker shape-library JCAMP file written by :func:`export_bruker_shape`.
+
+    Returns ``(amplitude_percent, phase_deg, tags)``: the two ``##XYPOINTS``
+    columns and the flat ``##KEY= value`` tags (keys upper-cased, without the
+    leading ``##``). Only the two-column amplitude/phase layout is accepted.
+    """
+    input_file = _input_path(path)
+    tags, xy_lines = _parse_jcamp(input_file.read_text(encoding="utf-8"))
+    table = _numeric_table(xy_lines, "Bruker shape XYPOINTS")
+    if table.shape[1] != 2:
+        raise ValueError(
+            f"Bruker shape XYPOINTS table has {table.shape[1]} columns, expected 2"
+            " (amplitude percent, phase degrees)"
+        )
+    n_points = int(table.shape[0])
+    expected_points_raw = tags.get("NPOINTS")
+    if expected_points_raw is not None and int(float(expected_points_raw)) != n_points:
+        raise ValueError(
+            f"Bruker shape NPOINTS={expected_points_raw} does not match {n_points} parsed rows"
+        )
+    amplitude_percent = np.asarray(table[:, 0], dtype=np.float64)
+    phase_deg = np.asarray(table[:, 1], dtype=np.float64)
+    return amplitude_percent, phase_deg, tags
 
 
 def heterodyne_transform(wfm: Waveform, carrier_hz: float) -> Waveform:

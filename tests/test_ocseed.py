@@ -375,6 +375,36 @@ def test_per_step_evaluation_matches_prefix_reference_with_linear_work(
     assert propagated_steps == steps
 
 
+@pytest.mark.parametrize("rotation", [("x", 180.0), ("-y", 90.0)])
+def test_broadband_universal_rotation_avoids_wrong_sign_minimum(rotation) -> None:
+    # Raw random phases trap this problem at infidelity 0.2-0.5 with a worst
+    # transfer near -1 on every seed; the symmetric half-pulse start must not.
+    spec = SeedlessSpec(
+        spectrometer_mhz=600.0,
+        carrier_ppm=4.7,
+        rf_max_hz=10_000.0,
+        duration_s=1.0e-3,
+        n_steps=200,
+        bands=[Band(-10.0, 20.0, "universal", n_offsets=21, rotation=rotation)],
+        b1_scales=(0.9, 1.0, 1.1),
+    )
+    phases, infidelity = spec.optimize(max_iter=150, seed=0)
+    assert infidelity < 0.01
+    waveform = spec.waveform_xy(phases)
+    assert min(spec.evaluate(waveform, b1_scale=s)["band0:universal"] for s in spec.b1_scales) > 0.9
+
+
+def test_symmetric_start_needs_one_transverse_axis_and_even_steps() -> None:
+    def spec(n_steps: int, *rotations: tuple[str, float]) -> SeedlessSpec:
+        bands = [Band(float(i), i + 0.5, "universal", rotation=r) for i, r in enumerate(rotations)]
+        return SeedlessSpec(600.0, 0.0, 10_000.0, 1.0e-4, n_steps, bands)
+
+    assert spec(8, ("x", 180.0))._symmetric_start(2, 0) is not None
+    assert spec(7, ("x", 180.0))._symmetric_start(2, 0) is None
+    assert spec(8, ("z", 90.0))._symmetric_start(2, 0) is None
+    assert spec(8, ("x", 180.0), ("y", 180.0))._symmetric_start(2, 0) is None
+
+
 def test_demo_prints_ok_line(capsys) -> None:
     demo()
 
