@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from optimalcontrol.io import Waveform, _xy_channel_indices
+from optimalcontrol.io import Waveform, xy_channel_indices
 from optimalcontrol.rope import inept_max_efficiency, rope_g
 
 try:
@@ -14,6 +14,7 @@ try:
     import matplotlib.pyplot as plt
 except ImportError as _exc:
     raise ImportError("matplotlib is required for optimalcontrol.plotting") from _exc
+
 
 def _root_figure(ax: matplotlib.axes.Axes) -> matplotlib.figure.Figure:
     """Return the top-level Figure owning ax; unlike get_figure(root=True), works on mpl < 3.10."""
@@ -52,7 +53,7 @@ def plot_xy_controls(
     -------
     matplotlib.figure.Figure
     """
-    x_index, y_index = _xy_channel_indices(wfm)
+    x_index, y_index = xy_channel_indices(wfm)
 
     fig, axes = _figure_and_axes(ax)
     times = wfm.times
@@ -91,9 +92,7 @@ def plot_rope_efficiency(
         raise ValueError("J_hz must be positive")
 
     rope_eff = np.array([rope_g(n) for n in n_values], dtype=np.float64)
-    inept_eff = np.array(
-        [inept_max_efficiency(n, J_hz) for n in n_values], dtype=np.float64
-    )
+    inept_eff = np.array([inept_max_efficiency(n, J_hz) for n in n_values], dtype=np.float64)
     n_arr = np.asarray(n_values, dtype=np.float64)
 
     fig, axes = _figure_and_axes(ax)
@@ -104,5 +103,3 @@ def plot_rope_efficiency(
     axes.set_title("ROPE vs INEPT Efficiency")
     axes.legend()
     return fig
-
-

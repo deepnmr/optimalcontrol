@@ -13,11 +13,14 @@ carrier), ppm only for Seedless band edges and carrier, seconds for durations.
 
 from __future__ import annotations
 
+import functools
 import json
 import math
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, ParamSpec, TypeVar
 
 import numpy as np
 
@@ -38,7 +41,7 @@ from optimalcontrol.io import (
     import_csv,
     import_json,
 )
-from optimalcontrol.ocseed import Band, SeedlessSpec, _axis_bloch, _rotation_matrix
+from optimalcontrol.ocseed import Band, SeedlessSpec, _rotation_matrix, axis_bloch
 from optimalcontrol.operators import Ix, Iy, Iz, liouvillian_comm, vec
 from optimalcontrol.optimizers import run_grape
 from optimalcontrol.penalties import PenaltySpec
@@ -55,6 +58,8 @@ from optimalcontrol.states import normalise_hs, state_from_label
 
 try:
     from mcp.server import MCPServer
+    from mcp.server.mcpserver.exceptions import ToolError
+    from typing_extensions import TypedDict  # pydantic needs this form on Python < 3.12
 except ImportError as exc:  # pragma: no cover
     raise ImportError(
         'MCP support requires the optional "mcp" dependency: pip install "optimalcontrol-nmr[mcp]"'
@@ -83,6 +88,45 @@ _BRUKER_RF_TAGS = ("$OCSEED_RF_MAX_HZ", "$OPTIMALCONTROL_RF_HZ")
 
 
 # --------------------------------------------------------------------------- helpers
+
+
+class _BandRequired(TypedDict):
+    ppm_lo: float
+    ppm_hi: float
+    restraint: Literal["universal", "s2s", "xycite", "suppress"]
+
+
+class BandSpec(_BandRequired, total=False):
+    n_offsets: int
+    init: str
+    targ: str
+    rotation: list[Any]
+    weight: float
+    per_step: bool
+
+
+@contextmanager
+def _tool_errors() -> Iterator[None]:
+    try:
+        yield
+    except (ValueError, KeyError, TypeError, OSError) as exc:
+        raise ToolError(str(exc)) from exc
+
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _tool(fn: Callable[_P, _R]) -> Callable[_P, _R]:
+    """Register ``fn`` as an MCP tool whose input/IO failures surface as ``ToolError``."""
+
+    @functools.wraps(fn)
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        with _tool_errors():
+            return fn(*args, **kwargs)
+
+    server.tool()(wrapper)
+    return wrapper
 
 
 def _make_spec(spec_dict: dict[str, Any]) -> SeedlessSpec:
@@ -119,7 +163,7 @@ def _parse_state_label(label: str) -> tuple[float, str]:
 
 def _bloch_vector(label: str) -> RealArray:
     sign, axis = _parse_state_label(label)
-    return _axis_bloch(("-" if sign < 0 else "") + axis)
+    return axis_bloch(("-" if sign < 0 else "") + axis)
 
 
 def _density_state(label: str) -> Array:
@@ -188,8 +232,7 @@ def _write_shape(
     if rf_max_hz is not None:
         tags.append(f"##$OPTIMALCONTROL_RF_HZ= {rf_max_hz:.12e}")
     tags.append(
-        "##$OPTIMALCONTROL_NOTE= Set pulse length to TOTAL_DURATION_S "
-        "and calibrate 100% to RF_HZ."
+        "##$OPTIMALCONTROL_NOTE= Set pulse length to TOTAL_DURATION_S and calibrate 100% to RF_HZ."
     )
     return export_bruker_shape(
         path,
@@ -434,14 +477,14 @@ def _transverse_rotation(pairs: list[tuple[RealArray, RealArray]]) -> tuple[str,
 # --------------------------------------------------------------------------- tools
 
 
-@server.tool()
+@_tool
 def design_seedless_pulse(
     spectrometer_mhz: float,
     carrier_ppm: float,
     rf_max_hz: float,
     duration_s: float,
     n_steps: int,
-    bands: list[dict[str, Any]],
+    bands: list[BandSpec],
     out_dir: str,
     name: str = "pulse",
     n_seeds: int = 4,
@@ -471,6 +514,8 @@ def design_seedless_pulse(
     value means a wrong-sign local minimum: retry with more n_seeds, or give
     the problem more duration_s / n_steps / rf_max_hz.
     """
+    if n_seeds < 1:
+        raise ValueError("n_seeds must be >= 1")
     spec_dict: dict[str, Any] = {
         "spectrometer_mhz": spectrometer_mhz,
         "carrier_ppm": carrier_ppm,
@@ -530,7 +575,7 @@ def design_seedless_pulse(
     }
 
 
-@server.tool()
+@_tool
 def design_grape_pulse(
     init: list[str],
     targ: list[str],
@@ -601,8 +646,10 @@ def design_grape_pulse(
             "(the GRAPE engine reads exactly 2 entries as per-channel power levels)"
         )
     offsets = _offset_grid(offset_lo_hz, offset_hi_hz, n_offsets)
-    density_pairs = [(_density_state(a), _density_state(b)) for a, b in zip(init, targ)]
-    bloch_pairs = [(_bloch_vector(a), _bloch_vector(b)) for a, b in zip(init, targ)]
+    density_pairs = [
+        (_density_state(a), _density_state(b)) for a, b in zip(init, targ, strict=True)
+    ]
+    bloch_pairs = [(_bloch_vector(a), _bloch_vector(b)) for a, b in zip(init, targ, strict=True)]
     dt = duration_s / n_steps
 
     cp = _grape_problem(density_pairs, offsets, scales, rf_max_hz, dt, amplitude_penalty_weight)
@@ -717,7 +764,7 @@ def design_grape_pulse(
     }
 
 
-@server.tool()
+@_tool
 def bloch_offset_profile(
     design_json: str,
     offset_lo_hz: float,
@@ -781,7 +828,7 @@ def bloch_offset_profile(
     return response
 
 
-@server.tool()
+@_tool
 def inspect_waveform(
     path: str,
     duration_s: float | None = None,
@@ -823,7 +870,7 @@ def inspect_waveform(
     }
 
 
-@server.tool()
+@_tool
 def convert_waveform(
     path: str,
     out_path: str,
@@ -865,7 +912,7 @@ def convert_waveform(
     }
 
 
-@server.tool()
+@_tool
 def bloch_trajectory(
     path: str,
     offsets_hz: list[float],
@@ -953,7 +1000,7 @@ def bloch_trajectory(
     }
 
 
-@server.tool()
+@_tool
 def waveform_spectrogram(
     path: str,
     out_path: str,
@@ -998,7 +1045,7 @@ def waveform_spectrogram(
     }
 
 
-@server.tool()
+@_tool
 def rope_pulse(
     duration_s: float,
     k_hz: float,
@@ -1046,7 +1093,7 @@ def rope_pulse(
     }
 
 
-@server.tool()
+@_tool
 def crop_pulse(
     ka_hz: float,
     kc_hz: float,

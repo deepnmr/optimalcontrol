@@ -66,7 +66,7 @@ Python.
 python3 --version
 ```
 
-You need **Python 3.10 or newer**.
+You need **Python 3.11 or newer**.
 
 If no prebuilt wheel matches your environment, `pip` compiles the Rust extension
 from source, which needs a Rust toolchain. On macOS with Homebrew:
@@ -100,7 +100,7 @@ pip install -e ".[dev]"        # adds pytest, ruff, mypy, matplotlib
 python3 -c "import optimalcontrol; print(optimalcontrol.__version__)"
 ```
 
-This prints a version string. **Any version from 0.4 on has the Seedless route
+This prints a version string. **Any version from 0.5 on has the Seedless route
 of [§4](#4-route-b--your-first-seedless-pulse);** older ones do not. Confirm with:
 
 ```bash
@@ -149,8 +149,11 @@ common mistake and it fails quietly — the optimiser stalls instead of raising.
 **3. States get normalised.** Use `normalise_hs(...)` (Hilbert–Schmidt) on
 density matrices before handing them to a `ControlProblem`.
 
-**4. `pwr_levels` and `operators` must be the same length.** One RF level per
-control channel. Mismatches raise immediately.
+**4. `pwr_levels` length picks its meaning.** With one entry per control channel
+(same length as `operators`), the values scale each channel. A length that differs
+from the operator count (and is greater than 1) isn't an error: it turns `pwr_levels`
+into an RF-power ensemble axis, one member per level. See
+[`guide_ensembles_penalties.md`](guide_ensembles_penalties.md).
 
 **5. `fidelity_mode` decides what "success" means.** `"real"` requires the sign
 to match; `"abs2"` ignores global phase; `"imag"` takes the imaginary part.
@@ -184,7 +187,6 @@ cp = ControlProblem(
     rho_targ=[normalise_hs(Ix())],                    # target: Ix
     pulse_dt=0.1,                                     # duration of one time slice
     pwr_levels=[1.0, 1.0],                            # RF strength per channel
-    freeze=None,
     fidelity_mode="real",
     basis="dense",
 )
@@ -599,7 +601,8 @@ Theory in `docs/guide_rope_crop.md`; the underlying papers in
 
 `examples/` holds 24 paper-reproduction scripts. **Running one before you write
 your own code is the fastest way to see a whole workflow.** Each is directly
-executable as a module:
+executable as a module with `python -m examples.<name>`, run from the
+repository root:
 
 ```bash
 ls examples/*.py
@@ -695,7 +698,9 @@ It isn't. `xycite` reports `max|mz|`, where **0.0 is perfect**. See
 [§4-2](#4-2-a-single-band-inversion).
 
 **`pwr_levels length ... must match operator count`.**
-One entry in `pwr_levels` per entry in `operators`.
+This only fires when `pwr_levels` has a single entry but there are several
+`operators`. Give one entry per operator, or two or more levels for an RF-power
+ensemble.
 
 **`waveform must have shape (n_steps, n_channels)`.**
 Optimiser input is time-down-the-rows. You are probably holding an exported
@@ -711,16 +716,27 @@ OPTIMALCONTROL_DISABLE_RUST=1 python3 my_first_pulse.py
 ```
 
 Both paths give the same answers to well within physical significance, but not
-bit-for-bit — expect agreement in the first several digits, not the last. Rust is
-roughly an order of magnitude faster on realistic problems (the [§4-3](#4-3-two-bands-invert-the-methyls-keep-the-water)
-optimisation takes ~0.8 s native versus ~10 s in fallback on one development
-machine). If a result *only* reproduces on one path, that is a bug worth
-reporting.
+bit-for-bit — expect agreement in the first several digits, not the last. The Bloch
+fallback uses the same Rodrigues formula as the Rust kernel and agrees to ~1e-13.
+Bloch-vector verification (`propagate_bloch_ensemble`, `SeedlessSpec.evaluate`, the
+MCP profile tool) is vectorised on the NumPy path, so a 512-step x 801-offset
+ensemble takes about 20 ms in fallback versus about 1 ms native. Spin-1/2 GRAPE
+ensembles (every problem built from `liouvillian_comm` of single-spin operators, which
+covers all the examples and `ocseed`) are evaluated for all members in one batched
+closed-form pass on the NumPy path. On the `methyl_ensemble` benchmark row (81 offsets x
+200 steps, one channel) value+gradient takes about 1.8 ms native versus 13 ms in
+fallback (about 7x), and the value alone 1.0 ms versus 7.6 ms. Two-spin, density-matrix
+and relaxation problems still propagate member by member with eigendecompositions or
+`expm`, so expect a larger gap there. If a result *only* reproduces on one path, that is
+a bug worth reporting.
 
 **Lint and type checks.**
 
 ```bash
-ruff check .
+ruff format --check optimalcontrol/ tests/ examples/ benchmarks/
+ruff check optimalcontrol/ tests/ examples/ benchmarks/
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
 mypy optimalcontrol
 ```
 

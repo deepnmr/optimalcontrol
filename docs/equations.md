@@ -11,7 +11,7 @@ Conversions occur at clearly identified boundaries:
 | `drift_hamiltonian(sys)` input | Hz → rad/s | multiply `J_hz` by `2π` |
 | `shift_hamiltonian(sys)` input | Hz → rad/s | multiply `shifts_hz` values by `2π` |
 | `rope_n(kI, J)` inputs | Hz (both) | dimensionless ratio, no conversion needed |
-| `rope_Tcrit(n, J_hz)` | Hz → rad/s | multiply `J_hz` by `2π` internally |
+| `rope_Tcrit(n, J_hz)` | Hz → s | divides by `π·J_hz` (`arccot(2n) / (π·J)`) |
 | `crop_zeta(ka, kc, J_hz)` | Hz (all three) | dimensionless ratio, no conversion needed |
 | `inept_efficiency(t, J_hz, k_hz)` | Hz → rad/s | multiply by `π` where `pi*J*t` appears |
 | `RelaxationRates` fields | stored in rad/s | document units in field docstring |
@@ -49,7 +49,6 @@ vectorised form:
 Release checks use these tolerances unless a test documents a stricter analytical regression.
 
 - **Dense path:** `rtol = 1e-10` for gradient and propagator checks.
-- **Sparse path:** `rtol = 1e-8` for gradient and propagator checks.
 - **Analytical formula tests:** `rtol = 1e-8` unless a tighter tolerance is specified per story.
 - **Finite-difference gradient checks:** `rtol = 1e-5` (limited by step-size accuracy).
 

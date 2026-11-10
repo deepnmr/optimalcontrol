@@ -78,7 +78,10 @@ def crop_limit_Iz_to_Sz(eta: float, eta_prime: float) -> float:
 
 
 def crop_limit_single_transition(eta: float, eta_prime: float) -> float:
-    """Return the physical transfer limit for single-transition transfer."""
+    """Return the physical transfer limit for single-transition transfer.
+
+    Implements the CROP (PNAS 2003) single-transition limit ``sqrt(η² + η′²)``.
+    """
     _validate_nonnegative("eta", eta)
     _validate_nonnegative("eta_prime", eta_prime)
     return math.sqrt(eta * eta + eta_prime * eta_prime)
@@ -100,6 +103,7 @@ def single_transition_decomposition(sys: SpinSystem) -> dict[str, str]:
     For non-negative CROP rates, ``IzSbeta`` has transverse relaxation
     ``ka - kc`` and ``IzSalpha`` has ``ka + kc``. When ``kc = 0`` the rates are
     tied; the beta component is returned as the stable convention.
+    It uses the CROP (PNAS 2003) symbols ka and kc from docs/equations.md.
     """
     if len(sys.spins) != 2:
         raise ValueError("single_transition_decomposition requires a two-spin system")

@@ -29,6 +29,8 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize
 
+from examples._figures import quantise, save_figure
+from examples._phase_waveforms import phase_to_xy
 from optimalcontrol.bloch import propagate_bloch_ensemble
 from optimalcontrol.grape import ControlProblem, grape_gradient, grape_xy, phase_only_gradient
 from optimalcontrol.io import export_bruker_shape as write_bruker_shape
@@ -125,12 +127,7 @@ OPTIMIZED_PHASE_DEG = np.array(
 )
 
 
-def _phase_to_xy(phase_rad: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-    """Return a unit-amplitude Cartesian waveform from phase samples."""
-    return np.asarray(
-        np.column_stack((np.cos(phase_rad), np.sin(phase_rad))),
-        dtype=np.float64,
-    )
+_phase_to_xy = phase_to_xy
 
 
 def _control_problem(
@@ -373,9 +370,10 @@ def _plot_figure(
         ),
     ]
     for ax, data, title in panels:
+        plotted = quantise(data)
         if data is phase_error:
             image = ax.imshow(
-                data,
+                plotted,
                 origin="lower",
                 extent=extent,
                 aspect="auto",
@@ -385,12 +383,12 @@ def _plot_figure(
             )
             levels = [-2.0, -1.0, 0.0, 1.0, 2.0]
         else:
-            image = ax.imshow(data, **image_kwargs)
+            image = ax.imshow(plotted, **image_kwargs)
             levels = contour_levels
         contours = ax.contour(
             offsets / 1000.0,
             deviations,
-            data,
+            plotted,
             levels=levels,
             colors="black",
             linewidths=0.55,
@@ -414,8 +412,7 @@ def _plot_figure(
     )
 
     fig_path = output_dir / f"{PULSE_NAME}.png"
-    fig.savefig(fig_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    save_figure(fig, fig_path, dpi=150, bbox_inches="tight")
     summary = np.array(
         [oc_mean, oc_std, mxy_mean, mxy_std, phase_mean, phase_std],
         dtype=np.float64,

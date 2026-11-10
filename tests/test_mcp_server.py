@@ -10,6 +10,9 @@ import pytest
 
 pytest.importorskip("mcp")
 
+from mcp import Client
+from mcp.server.mcpserver.exceptions import ToolError
+
 from optimalcontrol.crop import crop_eta
 from optimalcontrol.io import export_bruker_shape
 from optimalcontrol.mcp_server import (
@@ -46,6 +49,112 @@ def _grape_inversion(tmp_path, **overrides):
     )
     kwargs.update(overrides)
     return design_grape_pulse(**kwargs)
+
+
+_SMALL_DESIGN = {
+    "spectrometer_mhz": 600.0,
+    "carrier_ppm": 0.0,
+    "rf_max_hz": 1000.0,
+    "duration_s": 1e-4,
+    "n_steps": 4,
+    "max_iter": 5,
+    "n_seeds": 1,
+}
+
+
+def _call(name, arguments):
+    async def run():
+        async with Client(server) as client:
+            return await client.call_tool(name, arguments)
+
+    return asyncio.run(run())
+
+
+def _find_enum_containing(node, value):
+    if isinstance(node, dict):
+        if value in node.get("enum", []):
+            return node["enum"]
+        return next((hit for v in node.values() if (hit := _find_enum_containing(v, value))), None)
+    if isinstance(node, list):
+        return next((hit for v in node if (hit := _find_enum_containing(v, value))), None)
+    return None
+
+
+def test_mcp_client_lists_all_tools():
+    async def run():
+        async with Client(server) as client:
+            return await client.list_tools()
+
+    tools = asyncio.run(run())
+    assert sorted(tool.name for tool in tools.tools) == [
+        "bloch_offset_profile",
+        "bloch_trajectory",
+        "convert_waveform",
+        "crop_pulse",
+        "design_grape_pulse",
+        "design_seedless_pulse",
+        "inspect_waveform",
+        "rope_pulse",
+        "waveform_spectrogram",
+    ]
+    design = next(tool for tool in tools.tools if tool.name == "design_seedless_pulse")
+    assert "s2s" in _find_enum_containing(design.input_schema, "s2s")
+
+
+def test_mcp_client_rejects_b1_weights_not_summing_to_one(tmp_path):
+    result = _call(
+        "design_seedless_pulse",
+        {
+            **_SMALL_DESIGN,
+            "bands": [{"ppm_lo": 0.0, "ppm_hi": 0.0, "restraint": "xycite", "n_offsets": 1}],
+            "out_dir": str(tmp_path),
+            "b1_scales": [1.0],
+            "b1_weights": [0.5],
+        },
+    )
+    assert result.is_error is True
+    assert "b1_weights must sum to 1" in result.content[0].text
+
+
+def test_mcp_client_rejects_zero_seeds(tmp_path):
+    result = _call(
+        "design_seedless_pulse",
+        {
+            **_SMALL_DESIGN,
+            "bands": [{"ppm_lo": 0.0, "ppm_hi": 0.0, "restraint": "xycite", "n_offsets": 1}],
+            "out_dir": str(tmp_path),
+            "n_seeds": 0,
+        },
+    )
+    assert result.is_error is True
+    assert "n_seeds must be >= 1" in result.content[0].text
+
+
+def test_mcp_client_rejects_s2s_band_without_init_targ(tmp_path):
+    result = _call(
+        "design_seedless_pulse",
+        {
+            **_SMALL_DESIGN,
+            "bands": [{"ppm_lo": 0.0, "ppm_hi": 0.0, "restraint": "s2s", "n_offsets": 1}],
+            "out_dir": str(tmp_path),
+        },
+    )
+    assert result.is_error is True
+    assert "s2s restraint requires init and targ" in result.content[0].text
+
+
+def test_mcp_client_reports_missing_design_file(tmp_path):
+    missing = tmp_path / "missing.json"
+    result = _call(
+        "bloch_offset_profile",
+        {
+            "design_json": str(missing),
+            "offset_lo_hz": -100.0,
+            "offset_hi_hz": 100.0,
+        },
+    )
+    assert result.is_error is True
+    assert str(missing) in result.content[0].text
 
 
 def test_design_then_profile(tmp_path):
@@ -116,21 +225,6 @@ def test_design_worst_case_covers_b1_ensemble(tmp_path, band_fields, duration_s,
     assert result["worst_case"][key] == pytest.approx(expected, abs=5e-5)
     design = json.loads((tmp_path / "pulse.json").read_text())
     assert design["worst_case"][key] == pytest.approx(expected, abs=1e-12)
-
-
-def test_server_registers_all_tools():
-    names = {tool.name for tool in asyncio.run(server.list_tools())}
-    assert names == {
-        "design_seedless_pulse",
-        "design_grape_pulse",
-        "bloch_offset_profile",
-        "inspect_waveform",
-        "convert_waveform",
-        "bloch_trajectory",
-        "waveform_spectrogram",
-        "rope_pulse",
-        "crop_pulse",
-    }
 
 
 def test_grape_design_writes_files_and_agrees_with_bloch(tmp_path):
@@ -205,7 +299,7 @@ def test_grape_design_broadband_universal_rotation_has_no_wrong_sign_region(tmp_
     ],
 )
 def test_transverse_rotation_detection(init, targ, expected):
-    pairs = [(_bloch_vector(a), _bloch_vector(b)) for a, b in zip(init, targ)]
+    pairs = [(_bloch_vector(a), _bloch_vector(b)) for a, b in zip(init, targ, strict=True)]
     found = _transverse_rotation(pairs)
     if expected is None:
         assert found is None
@@ -216,8 +310,13 @@ def test_transverse_rotation_detection(init, targ, expected):
 
 def test_grape_design_newton_method_runs(tmp_path):
     result = _grape_inversion(
-        tmp_path, n_steps=8, offset_lo_hz=-1000.0, offset_hi_hz=1000.0, method="newton",
-        max_iter=10, b1_scales=None,
+        tmp_path,
+        n_steps=8,
+        offset_lo_hz=-1000.0,
+        offset_hi_hz=1000.0,
+        method="newton",
+        max_iter=10,
+        b1_scales=None,
     )
     assert result["n_iter"] <= 10
     assert result["bloch_mean"] == pytest.approx(result["fidelity"], abs=2e-6)
@@ -240,7 +339,7 @@ def test_grape_design_newton_method_runs(tmp_path):
     ],
 )
 def test_grape_design_rejects_invalid_inputs(tmp_path, overrides, message):
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ToolError, match=message):
         _grape_inversion(tmp_path, **overrides)
     assert not (tmp_path / "inv.json").exists()
 
@@ -262,7 +361,7 @@ def test_profile_accepts_grape_json_with_targ_and_b1_grid(tmp_path):
     assert summary["worst_transfer"] <= summary["mean_transfer"]
     # the same 3 x 3 grid is what the design tool averaged
     assert summary["mean_transfer"] == pytest.approx(result["fidelity"], abs=2e-6)
-    with pytest.raises(ValueError, match="b1_scales requires targ"):
+    with pytest.raises(ToolError, match="b1_scales requires targ"):
         bloch_offset_profile(result["design_json"], -1.0, 1.0, 3, b1_scales=[1.0])
 
 
@@ -273,8 +372,16 @@ def test_profile_keeps_seedless_contract_and_accepts_targ(tmp_path):
         rf_max_hz=10_000.0,
         duration_s=120e-6,
         n_steps=16,
-        bands=[{"ppm_lo": -2.0, "ppm_hi": 2.0, "restraint": "s2s", "n_offsets": 3,
-                "init": "z", "targ": "-z"}],
+        bands=[
+            {
+                "ppm_lo": -2.0,
+                "ppm_hi": 2.0,
+                "restraint": "s2s",
+                "n_offsets": 3,
+                "init": "z",
+                "targ": "-z",
+            }
+        ],
         out_dir=str(tmp_path),
         n_seeds=1,
         max_iter=40,
@@ -327,12 +434,12 @@ def test_inspect_and_convert_round_trip_across_formats(tmp_path):
     assert again["mean_amplitude"] == pytest.approx(design_info["mean_amplitude"], abs=1e-9)
     assert again["duration_s"] == pytest.approx(120e-6)
 
-    with pytest.raises(ValueError, match="format must be one of bruker, csv, json"):
+    with pytest.raises(ToolError, match="format must be one of bruker, csv, json"):
         convert_waveform(result["design_json"], str(tmp_path / "x.txt"), "fapt")
     (tmp_path / "other.json").write_text('{"hello": 1}')
-    with pytest.raises(ValueError, match="neither a design JSON nor a waveform JSON"):
+    with pytest.raises(ToolError, match="neither a design JSON nor a waveform JSON"):
         inspect_waveform(str(tmp_path / "other.json"))
-    with pytest.raises(ValueError, match="file not found"):
+    with pytest.raises(ToolError, match="file not found"):
         inspect_waveform(str(tmp_path / "missing.json"))
 
 
@@ -346,9 +453,9 @@ def test_untagged_bruker_shape_needs_duration_and_rf(tmp_path):
     info = inspect_waveform(str(path))
     assert info["duration_s"] is None and info["rf_max_hz"] is None
     assert info["n_distinct_phases"] == 8
-    with pytest.raises(ValueError, match="duration_s is required: the bruker file"):
+    with pytest.raises(ToolError, match="duration_s is required: the bruker file"):
         convert_waveform(str(path), str(tmp_path / "plain.csv"), "csv")
-    with pytest.raises(ValueError, match="rf_max_hz is required: the bruker file"):
+    with pytest.raises(ToolError, match="rf_max_hz is required: the bruker file"):
         bloch_trajectory(str(path), [0.0], str(tmp_path / "t.csv"), duration_s=80e-6)
     trajectory = bloch_trajectory(
         str(path), [0.0], str(tmp_path / "t.csv"), duration_s=80e-6, rf_max_hz=5_000.0
@@ -371,7 +478,7 @@ def test_trajectory_matches_profile_endpoint(tmp_path):
     assert [float(x) for x in rows[1][3:]] == pytest.approx([0.0, 0.0, 1.0])
 
     profile = bloch_offset_profile(result["design_json"], -1000.0, 1500.0, 6, init="Iz")
-    for entry, expected in zip(csv_result["final"], (0, 2, 5)):
+    for entry, expected in zip(csv_result["final"], (0, 2, 5), strict=True):
         assert entry["mz"] == pytest.approx(profile["mz"][expected], abs=2e-4)
 
     json_result = bloch_trajectory(
@@ -381,9 +488,9 @@ def test_trajectory_matches_profile_endpoint(tmp_path):
     assert len(payload["time_s"]) == 17 and len(payload["mz"][0]) == 3
     assert payload["mz"][-1][1] == pytest.approx(json_result["final"][1]["mz"], abs=1e-4)
 
-    with pytest.raises(ValueError, match="out_path must end in .csv or .json"):
+    with pytest.raises(ToolError, match="out_path must end in .csv or .json"):
         bloch_trajectory(result["design_json"], offsets, str(tmp_path / "traj.txt"))
-    with pytest.raises(ValueError, match="offsets_hz must be non-empty"):
+    with pytest.raises(ToolError, match="offsets_hz must be non-empty"):
         bloch_trajectory(result["design_json"], [], str(tmp_path / "traj.csv"))
 
 
@@ -410,7 +517,7 @@ def test_rope_pulse_reports_theory_values(tmp_path):
     with open(tmp_path / "rope.csv") as handle:
         header = handle.readline().strip()
     assert header == "time_s,u1,u2,amplitude_hz,phase_rad"
-    with pytest.raises(ValueError, match="J must be positive"):
+    with pytest.raises(ToolError, match="J must be positive"):
         rope_pulse(0.01, 20.0, 0.0, 1e-4, str(tmp_path / "rope.csv"))
 
 
@@ -420,6 +527,14 @@ def test_crop_pulse_reports_theory_values(tmp_path):
     assert summary["amplitude_hz"] == pytest.approx(math.sqrt(30.0**2 - 10.0**2))
     assert summary["irradiation_freq_hz"] == -70.0
     assert summary["n_steps"] == math.ceil(summary["truncation_window_s"] / 1e-4)
-    with pytest.raises(ValueError, match="truncation_window_s is required when kc_hz == ka_hz"):
+    with pytest.raises(ToolError, match="truncation_window_s is required when kc_hz == ka_hz"):
         crop_pulse(30.0, 30.0, 140.0, 1e-4, str(tmp_path / "crop.csv"))
     assert crop_pulse(30.0, 30.0, 140.0, 1e-4, str(tmp_path / "c.csv"), 0.01)["n_steps"] == 100
+
+
+def test_console_script_entry_point_targets_mcp_main() -> None:
+    import importlib.metadata
+
+    scripts = importlib.metadata.entry_points(group="console_scripts")
+    matches = [entry for entry in scripts if entry.name == "optimalcontrol-mcp"]
+    assert [entry.value for entry in matches] == ["optimalcontrol.mcp_server:main"]

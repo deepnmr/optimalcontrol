@@ -282,7 +282,7 @@ def test_fapt_import_parses_frequency_amplitude_phase_time_table(
     assert str(loaded.problem_hash).startswith("fapt:")
 
 
-def test_export_bruker_rejects_more_than_two_channels() -> None:
+def test_export_bruker_rejects_more_than_two_channels(tmp_path: pathlib.Path) -> None:
     # Regression: a 3-channel x/y/z waveform used to export silently, dropping z.
     wfm = Waveform(
         channels=["x", "y", "z"],
@@ -293,7 +293,7 @@ def test_export_bruker_rejects_more_than_two_channels() -> None:
         problem_hash="h",
     )
     with pytest.raises(ValueError, match="1 or 2"):
-        export_bruker(wfm, pathlib.Path("/tmp/oc_reject_3ch.jdx"))
+        export_bruker(wfm, tmp_path / "oc_reject_3ch.jdx")
 
 
 def test_import_jcamp_strips_inline_dollar_comments(tmp_path: pathlib.Path) -> None:
@@ -373,3 +373,30 @@ def test_import_bruker_shape_rejects_wrong_column_count(tmp_path: pathlib.Path) 
     path.write_text("##TITLE= x\n##NPOINTS= 2\n##XYPOINTS= (XY..XY)\n1, 2\n##END=\n")
     with pytest.raises(ValueError, match="NPOINTS=2 does not match 1 parsed rows"):
         import_bruker_shape(path)
+
+
+def test_export_bruker_shape_writes_parsable_jcamp_rows(tmp_path: pathlib.Path) -> None:
+    amplitude = np.array([0.0, 50.0, 100.0, 12.5], dtype=np.float64)
+    phase = np.array([0.0, 90.0, 180.0, 270.25], dtype=np.float64)
+    extra_tags = ["##$OPTIMALCONTROL_TEST= 7", "##$OPTIMALCONTROL_NOTE= <demo>"]
+
+    path = export_bruker_shape(
+        tmp_path / "shape.jcamp",
+        "demo shape",
+        amplitude,
+        phase,
+        extra_tags=extra_tags,
+    )
+
+    lines = path.read_text(encoding="ascii").splitlines()
+    assert "##$SHAPE_MODE= 1" in lines
+    assert f"##NPOINTS= {amplitude.size}" in lines
+    xy_index = lines.index("##XYPOINTS= (XY..XY)")
+    for tag in extra_tags:
+        assert tag in lines[: lines.index(f"##NPOINTS= {amplitude.size}")]
+    assert lines[-1] == "##END="
+    rows = lines[xy_index + 1 : -1]
+    assert len(rows) == amplitude.size
+    parsed = np.array([[float(value) for value in row.split(",")] for row in rows])
+    np.testing.assert_allclose(parsed[:, 0], amplitude, atol=1e-12)
+    np.testing.assert_allclose(parsed[:, 1], phase, atol=1e-12)

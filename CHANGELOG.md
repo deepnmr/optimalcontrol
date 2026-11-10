@@ -23,6 +23,35 @@
   (inverse of `export_bruker_shape`, returning amplitude percent, phase degrees
   and the JCAMP tags).
 - Bump the version to 0.6.0 and the Claude Code plugin pin to `>=0.6.0`.
+- Raise the Python floor to 3.11. Pin `mcp>=2.0,<3` and add lower bounds for
+  NumPy and SciPy.
+- MCP tools now surface failures as `ToolError`, validate `n_seeds`, and publish a
+  typed band schema.
+- Validate Seedless kernel inputs (Bloch finiteness, waveform shape) before
+  dispatch, so Rust and NumPy raise identical messages.
+- Validate `basis` against `dense`, `liouville` and `hilbert`.
+- `ControlProblem.freeze` now defaults to `None`.
+- Split large modules into `_problem`, `_propagation`, `_hessian`, `_checkpoint`,
+  `_line_search`, `_lbfgs`, `_newton` and `_io_common` / `_io_bruker` /
+  `_io_jcamp`. Public import paths are unchanged and frozen by
+  `tests/test_public_surface.py`.
+- Checkpoints: unsigned checkpoints that carry history are refused, and
+  `save_checkpoint(..., cp=)` binds a checkpoint to its problem.
+- `dir_diff_expm` validates `dt > 0`. Invalid `pwr_levels` now give one unified
+  message.
+- Make the coherence gate waveform-aware on both backends; dissipation is never
+  dropped.
+- Native kernels use scale-safe field norms and eigenphases, and check that
+  arrays are C-contiguous.
+- Validate Seedless B1 weights, B1 scales and rotation angles; `normalise_hs` is
+  scale-safe.
+- Example PNGs are written without the Matplotlib version string, so output is
+  deterministic. Examples share helper modules instead of duplicated code, and
+  orphan PNGs are removed.
+- Ship `LICENSE` and `py.typed`; trim the sdist.
+- CI: Python 3.11/3.12 matrix, formatting gates, a full-suite NumPy fallback job
+  and a packaging job. Adopt `ruff format` plus the B/UP/NPY rule sets, `cargo
+  fmt`, and zero Clippy allows.
 - Report exhausted GRAPE line searches as `line_search_failed`, without marking
   the unchanged waveform as converged.
 - Verify MCP pulse designs across every configured B1 scale when reporting and
@@ -50,9 +79,30 @@
   (+ deriv) and `distortion_single_pole` are unchanged.
 - Internal cleanup with no behaviour change: shared scalar validation through
   `_validation`, one anti-Hermitian check shared by `grape` and `_accelerator`,
-  one adjoint step in `_seedless_kernel`, the Bloch fallback uses
-  `scipy.spatial.transform.Rotation`, and `ocseed.Band.state_pairs` derives from
-  `bloch_pairs`.
+  one adjoint step in `_seedless_kernel`, and `ocseed.Band.state_pairs` derives
+  from `bloch_pairs`.
+- Vectorise the NumPy Bloch fallback using the Rust kernel's Rodrigues formula.
+  A 512x801 ensemble drops from 3.0 s to 20 ms (more than 50x faster) and agrees
+  with Rust to ~1e-13.
+- Example figures quantise Bloch-derived curves to 12 decimals at the plot call,
+  so both backends write byte-identical PNGs. Committed figures were regenerated
+  with matplotlib 3.11.2 and Agg.
+- Add `benchmarks/bench_bloch.py`.
+- Add `tests/test_bloch_fallback_shape.py` and `tests/test_figures.py`, plus five
+  parity and edge-case tests in `tests/test_bloch.py`.
+- Add a batched closed-form spin-1/2 ensemble kernel to the NumPy fallback. GRAPE
+  ensembles built from single-spin Liouville commutators are evaluated for all members
+  in one pass, so an 81-offset methyl gradient drops from 58 ms to 13 ms (about 5x)
+  and the methyl/water refine objective from 177 ms to 37 ms. Results agree with the
+  per-member path to 1e-13 and with Rust to 1e-12; the native path is unchanged.
+- The methyl hub example propagates its time evolution incrementally, giving
+  identical trajectories and PNGs.
+- Add the `methyl_ensemble_*` rows to `benchmarks/bench_grape_hotpath.py`, plus
+  `tests/test_ensemble_kernel.py`, `tests/test_ensemble_dispatch.py` and
+  `tests/test_methyl_time_evolution.py`.
+- A waveform that is not two-dimensional now raises the same "waveform must be
+  two-dimensional" `ValueError` on the native ensemble gradient path as everywhere
+  else, instead of a `TypeError` or an unrelated `zip()` error.
 
 ## v0.5.0 - 2026-08-15
 

@@ -31,6 +31,17 @@ def test_rust_accelerator_is_built() -> None:
     assert RUST_ACCELERATOR_AVAILABLE
 
 
+def test_rust_bloch_rejects_fortran_waveform() -> None:
+    from optimalcontrol import _rust
+
+    waveform = np.asfortranarray([[1.0, 0.0], [1.0, 0.0]])
+
+    with pytest.raises(ValueError, match="waveform_xy must be a C-contiguous array"):
+        _rust.bloch_ensemble(
+            np.array([0.0, 0.0, 1.0]), waveform, np.array([0.0]), np.array([1.0]), 1.0, 0.25
+        )
+
+
 def test_rust_vector_fidelity_matches_python_propagation(monkeypatch) -> None:
     from optimalcontrol.grape import _grape_xy_core
 

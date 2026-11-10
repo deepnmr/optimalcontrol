@@ -3,7 +3,6 @@
 import math
 
 import numpy as np
-from scipy.spatial.transform import Rotation
 
 from optimalcontrol._accelerator import _enabled, _rust
 from optimalcontrol._types import RealArray
@@ -11,8 +10,22 @@ from optimalcontrol._types import RealArray
 
 def _rotate(state: RealArray, field: RealArray, dt: float) -> RealArray:
     """Apply one Rodrigues rotation in the NumPy fallback path."""
-    rotated = Rotation.from_rotvec(2.0 * math.pi * dt * field).apply(state)
-    return np.asarray(rotated, dtype=np.float64)
+    m = np.max(np.abs(field), axis=-1, keepdims=True)
+    safe_m = np.where(m == 0.0, 1.0, m)
+    q = field / safe_m
+    q0, q1, q2 = q[..., 0], q[..., 1], q[..., 2]
+    norm = m * np.sqrt((q0 * q0 + q1 * q1) + q2 * q2)[..., None]
+    safe_norm = np.where(norm == 0.0, 1.0, norm)
+    axis = field / safe_norm
+    angle = ((2.0 * math.pi) * norm) * dt
+    sn = np.sin(angle)
+    cs = np.cos(angle)
+    a0, a1, a2 = axis[..., 0], axis[..., 1], axis[..., 2]
+    s0, s1, s2 = state[..., 0], state[..., 1], state[..., 2]
+    dot = ((a0 * s0 + a1 * s1) + a2 * s2)[..., None]
+    cross = np.stack((a1 * s2 - a2 * s1, a2 * s0 - a0 * s2, a0 * s1 - a1 * s0), axis=-1)
+    rotated = (cs * state + sn * cross) + (((1.0 - cs) * axis) * dot)
+    return np.where(norm == 0.0, state, rotated)
 
 
 def propagate_bloch_ensemble(
@@ -55,12 +68,12 @@ def propagate_bloch_ensemble(
             dtype=np.float64,
         )
 
-    result = np.empty((scales.size, offsets.size, 3), dtype=np.float64)
-    for row, scale in enumerate(scales):
-        for col, offset in enumerate(offsets):
-            state = initial_array.copy()
-            for ux, uy in waveform:
-                field = np.array([scale * rf_hz * ux, scale * rf_hz * uy, offset], dtype=np.float64)
-                state = _rotate(state, field, dt)
-            result[row, col] = state
-    return result
+    state = np.broadcast_to(initial_array, (scales.size, offsets.size, 3))
+    field = np.empty_like(state)
+    field[..., 2] = offsets
+    amp = scales[:, None] * rf_hz
+    for ux, uy in waveform:
+        field[..., 0] = amp * ux
+        field[..., 1] = amp * uy
+        state = _rotate(state, field, dt)
+    return np.ascontiguousarray(state)

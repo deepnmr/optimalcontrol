@@ -18,7 +18,7 @@ package.
 | `offset_op` | `offset_operators: list[ndarray] \| None` | Operator multiplied by each offset value |
 | `offsets` | `offsets: list[float] \| None` | Offset frequencies in Hz |
 | `phase_cycle` | `phase_cycle: ndarray \| None` | Phase rotation matrix per cycle step |
-| `basis` | `basis: str` | `'dense'` or `'sparse'` |
+| `basis` | `basis: str` | `'dense'` \| `'liouville'` \| `'hilbert'` |
 | `penalties` | `penalties: list \| None` | Active penalty function descriptors |
 | `checkpoint` | `checkpoint_path: str \| None` | Path for save/resume |
 

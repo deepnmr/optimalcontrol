@@ -64,9 +64,5 @@ def distortion_single_pole(wfm: RealArray, alpha: float) -> RealArray:
     one_minus_pole = 1.0 - pole
     distorted[0, :] = one_minus_pole * waveform[0, :]
     for step in range(1, waveform.shape[0]):
-        distorted[step, :] = (
-            one_minus_pole * waveform[step, :] + pole * distorted[step - 1, :]
-        )
+        distorted[step, :] = one_minus_pole * waveform[step, :] + pole * distorted[step - 1, :]
     return distorted
-
-

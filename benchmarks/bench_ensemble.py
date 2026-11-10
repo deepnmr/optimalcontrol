@@ -22,9 +22,7 @@ RealArray = npt.NDArray[np.float64]
 def _control_problem(member_count: int) -> ControlProblem:
     """Return a one-spin control problem with an RF-power ensemble axis."""
     rho_init = np.array([1.0, 0.0], dtype=np.complex128)
-    rho_targ = normalise_2norm(
-        np.array([0.35 + 0.15j, 0.88 - 0.28j], dtype=np.complex128)
-    )
+    rho_targ = normalise_2norm(np.array([0.35 + 0.15j, 0.88 - 0.28j], dtype=np.complex128))
     if member_count == 1:
         power_levels = [1.0]
     else:

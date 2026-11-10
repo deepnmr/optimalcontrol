@@ -44,6 +44,20 @@ def _check_finite(
         raise ValueError("dt must be finite and positive")
 
 
+def _check_waveform_shape(waveform: RealArray) -> None:
+    """Reject waveforms that are not ``(n_steps, 2)`` with at least one step."""
+    if waveform.ndim != 2 or waveform.shape[1] != 2 or waveform.shape[0] == 0:
+        raise ValueError(f"waveform_xy must have shape (n_steps, 2), got {waveform.shape}")
+
+
+def _check_bloch(name: str, vector: RealArray) -> None:
+    """Reject Bloch vectors that are not finite ``(3,)`` arrays."""
+    if vector.shape != (3,):
+        raise ValueError(f"{name} must have shape (3,), got {vector.shape}")
+    if not np.all(np.isfinite(vector)):
+        raise ValueError(f"{name} entries must be finite")
+
+
 def bloch_operator(vector: RealArray) -> Array:
     """Return the 2x2 deviation density ``a*Ix + b*Iy + c*Iz`` for Bloch ``[a,b,c]``."""
     a, b, c = (float(x) for x in vector)
@@ -68,6 +82,9 @@ def s2s_value_grad(
     scales = np.ascontiguousarray(b1_scales, dtype=np.float64)
     init = np.ascontiguousarray(init_bloch, dtype=np.float64)
     targ = np.ascontiguousarray(targ_bloch, dtype=np.float64)
+    _check_waveform_shape(waveform)
+    _check_bloch("init_bloch", init)
+    _check_bloch("targ_bloch", targ)
     n_steps = waveform.shape[0]
     _check_finite(waveform, offsets, scales, rf_hz, dt)
 
@@ -99,6 +116,7 @@ def suppress_perstep_value_grad(
     waveform = np.ascontiguousarray(wfm_xy, dtype=np.float64)
     offsets = np.ascontiguousarray(offsets_hz, dtype=np.float64)
     scales = np.ascontiguousarray(b1_scales, dtype=np.float64)
+    _check_waveform_shape(waveform)
     n_steps = waveform.shape[0]
     _check_finite(waveform, offsets, scales, rf_hz, dt)
 
@@ -137,7 +155,9 @@ def _np_propagators(
     fx = scale_flat[:, None] * rf_hz * ux[None, :]
     fy = scale_flat[:, None] * rf_hz * uy[None, :]
     fz = off_flat[:, None] * np.ones(n)[None, :]
-    fnorm = np.sqrt(fx * fx + fy * fy + fz * fz)
+    m = np.maximum(np.maximum(np.abs(fx), np.abs(fy)), np.abs(fz))
+    safe_m = np.where(m == 0.0, 1.0, m)
+    fnorm = m * np.sqrt((fx / safe_m) ** 2 + (fy / safe_m) ** 2 + (fz / safe_m) ** 2)
     inv = np.where(fnorm > 0.0, 1.0 / np.where(fnorm > 0.0, fnorm, 1.0), 0.0)
     half = math.pi * fnorm * dt
     cos_h = np.cos(half)

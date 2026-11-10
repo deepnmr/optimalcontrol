@@ -10,6 +10,10 @@ dimensionless ratios, and waveform samplers return physical times in seconds.
 for the relative relaxation rate `n = kI / J`. `inept_max_efficiency()` gives the
 best matching INEPT value for comparison.
 
+`rope_u_ratio(r1, r2, n)` returns the optimal control ratio `u2/u1 = g r1 / r2`,
+and `rope_trajectory_invariant(expect_2IySz, expect_Ix, n)` returns `<2IySz>/<Ix>`
+for comparison with `g(n)`.
+
 ```python
 import numpy as np
 
@@ -116,6 +120,10 @@ print(f"Iz -> Sz limit = {two_step:.3f}")
 
 The limiting cases are useful sanity checks: `kc = 0` reduces to the ROPE
 formula, and `kc -> ka` approaches lossless transfer.
+
+`crop_limit_single_transition(eta, eta_prime)` returns the single-transition limit
+`sqrt(eta^2 + eta_prime^2)`, and `single_transition_decomposition(sys)` labels the
+slow (`ka - kc`) and fast (`ka + kc`) I-spin single-transition components.
 
 ## CROP Waveforms
 

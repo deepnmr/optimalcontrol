@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 
+from examples._figures import save_figure
 from optimalcontrol.grape import ControlProblem, grape_xy
 from optimalcontrol.io import export_bruker_shape as write_bruker_shape
 from optimalcontrol.operators import Ix, Iy, Iz, place_operator
@@ -83,12 +84,12 @@ def _full_waveform() -> npt.NDArray[np.float64]:
     i180_start, final90_start, n_total = _sequence_layout()
     waveform = np.zeros((n_total, 4), dtype=np.float64)
     waveform[0:I90_STEPS, 0] = 1.0
-    waveform[i180_start:i180_start + I180_STEPS, 0] = -1.0
-    waveform[final90_start:final90_start + I90_STEPS, 1] = 1.0
+    waveform[i180_start : i180_start + I180_STEPS, 0] = -1.0
+    waveform[final90_start : final90_start + I90_STEPS, 1] = 1.0
 
     s_center = i180_start + I180_STEPS / 2.0
     s_start = int(round(s_center - S_PULSE_XY.shape[0] / 2.0))
-    waveform[s_start:s_start + S_PULSE_XY.shape[0], 2:4] = S_PULSE_XY
+    waveform[s_start : s_start + S_PULSE_XY.shape[0], 2:4] = S_PULSE_XY
     return waveform
 
 
@@ -209,8 +210,7 @@ def run() -> npt.NDArray[np.float64]:
     )
 
     fig_path = output_dir / f"{PULSE_NAME}_band_profile.png"
-    fig.savefig(fig_path, dpi=160, bbox_inches="tight")
-    plt.close(fig)
+    save_figure(fig, fig_path, dpi=160, bbox_inches="tight")
 
     print(f"Saved Bruker shape {shape_path}")
     print(f"Saved figure {fig_path}")

@@ -40,9 +40,7 @@ def test_cached_pulse_enforces_hardware_constraints() -> None:
 
 
 def test_cached_pulse_passes_dense_limits_at_the_reduced_power() -> None:
-    metrics, _ = evaluate_pulse(
-        signed_amplitude(), duration_s=DURATION_S, rf_max_hz=RF_MAX_HZ
-    )
+    metrics, _ = evaluate_pulse(signed_amplitude(), duration_s=DURATION_S, rf_max_hz=RF_MAX_HZ)
 
     assert metrics.methyl_x_min >= MIN_METHYL_FIDELITY
     assert metrics.methyl_y_min >= MIN_METHYL_FIDELITY

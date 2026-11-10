@@ -53,13 +53,13 @@ Resonance* 172 (2005) 296–305.
   slice gradients for coherence-transfer and propagator-synthesis objectives.
 - **Fig. 5 reproduction target:** `Iz -> 2IzSz` in a two-spin heteronuclear
   system, spin-diffusion-limit dipole-dipole relaxation, `J = 194 Hz`,
-  `k/J = 1`, `T = 2.11 ms = 0.408/J`, and `N = 75` pulse slices.
+  `k/J = 1`, `T = 0.408/J = 2.103 ms`, and `N = 75` pulse slices.
 - **Implementation note:** The paper's pulse in Fig. 5 is one numerical GRAPE
   optimum and depends on the random initial sequence. The example
   `examples/jmr2005_fig5_rope.py` uses the deterministic finite-time ROPE
   waveform plus sampled boundary pulses, then propagates the same Liouville
   model to plot the non-vanishing density-operator terms. Use
-  `python examples/jmr2005_fig5_rope.py --optimize` to rerun GRAPE from this
+  `python -m examples.jmr2005_fig5_rope --optimize` to rerun GRAPE from this
   deterministic initial guess.
 
 ---

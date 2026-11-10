@@ -40,6 +40,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 
+from examples._figures import quantise, save_figure
 from optimalcontrol.bloch import propagate_bloch_ensemble
 
 RealArray = npt.NDArray[np.float64]
@@ -50,11 +51,7 @@ PPM_LO = -6.0
 PPM_HI = 14.0
 PROFILE_POINTS = 2001
 
-SHAPE_PATH = (
-    Path(__file__).resolve().parent
-    / "output"
-    / "methyl_water_reburp_minlength_180.shape"
-)
+SHAPE_PATH = Path(__file__).resolve().parent / "output" / "methyl_water_reburp_minlength_180.shape"
 
 # 3-9-19 WATERGATE hard-pulse parameters.
 W3919_RF_HZ = 36000.0  # 36 kHz hard pulse
@@ -109,7 +106,7 @@ def watergate_3919_waveform() -> RealArray:
     tips = np.array([3.0, 9.0, 19.0, 19.0, 9.0, 3.0]) * W3919_UNIT_DEG
     signs = [1.0, 1.0, 1.0, -1.0, -1.0, -1.0]
     segments: list[RealArray] = []
-    for index, (tip, sign) in enumerate(zip(tips, signs)):
+    for index, (tip, sign) in enumerate(zip(tips, signs, strict=True)):
         segments.append(_pulse_block(tip, sign))
         if index != len(tips) - 1:
             segments.append(_delay_block())
@@ -133,7 +130,7 @@ IZ = np.array([0.0, 0.0, 1.0], dtype=np.float64)
 
 
 def _draw_panel(
-    axis: "plt.Axes",
+    axis: plt.Axes,
     ppm: RealArray,
     reburp: RealArray,
     w3919: RealArray,
@@ -148,8 +145,16 @@ def _draw_panel(
         WATER_PPM, color="tab:gray", linestyle="--", linewidth=0.9, label="water (4.7 ppm)"
     )
     axis.axvline(-4.0, color="tab:gray", linestyle=":", linewidth=0.9, label="3-9-19 null (-4 ppm)")
-    axis.plot(ppm, reburp, color="tab:blue", linewidth=1.8, label="min-length REBURP (10 kHz OC)")
-    axis.plot(ppm, w3919, color="tab:red", linewidth=1.4, label="3-9-19 WATERGATE (36 kHz hard)")
+    axis.plot(
+        ppm,
+        quantise(reburp),
+        color="tab:blue",
+        linewidth=1.8,
+        label="min-length REBURP (10 kHz OC)",
+    )
+    axis.plot(
+        ppm, quantise(w3919), color="tab:red", linewidth=1.4, label="3-9-19 WATERGATE (36 kHz hard)"
+    )
     axis.set_xlim(PPM_HI, PPM_LO)  # NMR convention: high ppm on the left
     axis.set_ylim(-1.15, 1.15)
     axis.set_xlabel("1H shift (ppm)")
@@ -172,17 +177,26 @@ def plot_comparison(output_dir: Path) -> Path:
 
     figure, axes = plt.subplots(1, 3, figsize=(21.0, 5.0), constrained_layout=True)
     _draw_panel(
-        axes[0], ppm, reburp_mx, w3919_mx,
+        axes[0],
+        ppm,
+        reburp_mx,
+        w3919_mx,
         "final Mx  (from Ix;  +1 = refocus)",
         "Mx (Ix -> Ix) vs offset",
     )
     _draw_panel(
-        axes[1], ppm, reburp_my, w3919_my,
+        axes[1],
+        ppm,
+        reburp_my,
+        w3919_my,
         "final My  (from -Iy;  +1 = refocus)",
         "My (-Iy -> Iy) vs offset",
     )
     _draw_panel(
-        axes[2], ppm, reburp_mz, w3919_mz,
+        axes[2],
+        ppm,
+        reburp_mz,
+        w3919_mz,
         "final Mz  (from Iz;  -1 = full inversion)",
         "Mz (Iz -> -Iz) vs offset",
     )
@@ -190,8 +204,7 @@ def plot_comparison(output_dir: Path) -> Path:
     figure.suptitle("3-9-19 WATERGATE vs OC reburp min-length 180 (1.2 GHz)")
 
     figure_path = output_dir / "compare_3919_reburp_myprofile.png"
-    figure.savefig(figure_path, dpi=160)
-    plt.close(figure)
+    save_figure(figure, figure_path, dpi=160)
     return figure_path
 
 
